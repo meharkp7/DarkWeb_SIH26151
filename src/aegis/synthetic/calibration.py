@@ -78,6 +78,9 @@ class ConfidenceCalibrator:
         if not contributions:
             return 0.0
 
+        if candidate_score <= 0.0:
+            return 0.0
+
         independent_scores = [contribution.effective_score for contribution in contributions]
 
         evidence_support = sum(independent_scores) / len(independent_scores)
