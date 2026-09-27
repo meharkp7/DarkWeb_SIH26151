@@ -79,10 +79,7 @@ class ScenarioBuilder:
         source_id: str,
         target_id: str,
     ) -> ScenarioResult:
-        """
-        Inject one matching indicator while retaining conflicting
-        contextual evidence.
-        """
+        """Inject a matching wallet plus conflicting timezone observations."""
         relevant = self._pair_evidence(evidence, source_id, target_id)
 
         source_wallet = next(
@@ -90,6 +87,14 @@ class ScenarioBuilder:
             for item in relevant
             if item.actor_id == source_id and item.evidence_type == "wallet"
         )
+
+        target_timezone = next(
+            item
+            for item in relevant
+            if item.actor_id == target_id and item.evidence_type == "timezone"
+        )
+
+        conflicting_timezone = "UTC-05:00" if target_timezone.value != "UTC-05:00" else "UTC+05:30"
 
         mutated = [
             replace(
@@ -100,6 +105,14 @@ class ScenarioBuilder:
             else item
             for item in relevant
         ]
+
+        mutated.append(
+            replace(
+                target_timezone,
+                evidence_id=f"{target_timezone.evidence_id}:conflict",
+                value=conflicting_timezone,
+            )
+        )
 
         return ScenarioResult(
             name="contradictory",

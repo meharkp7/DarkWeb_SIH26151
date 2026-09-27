@@ -20,7 +20,7 @@ class ContradictionAnalysis:
 
 
 class ContradictionDetector:
-    """Detect evidence that conflicts with a candidate actor linkage."""
+    """Detect internally conflicting observations for candidate actors."""
 
     def analyze(
         self,
@@ -32,63 +32,40 @@ class ContradictionDetector:
 
         contradictions: list[Contradiction] = []
 
-        self._check_timezone(source, target, contradictions)
-        self._check_language(source, target, contradictions)
+        self._check_internal_conflicts(source, contradictions)
+        self._check_internal_conflicts(target, contradictions)
 
         total = sum(item.severity for item in contradictions)
 
         return ContradictionAnalysis(
             link_id=candidate.link_id,
             contradictions=tuple(contradictions),
-            contradiction_score=round(
-                min(total, 1.0),
-                3,
-            ),
+            contradiction_score=round(min(total, 1.0), 3),
         )
 
     @staticmethod
-    def _check_timezone(
-        source: list[SyntheticEvidence],
-        target: list[SyntheticEvidence],
+    def _check_internal_conflicts(
+        items: list[SyntheticEvidence],
         contradictions: list[Contradiction],
     ) -> None:
-        source_values = {item.value for item in source if item.evidence_type == "timezone"}
-        target_values = {item.value for item in target if item.evidence_type == "timezone"}
+        for evidence_type in ("timezone", "writing_style", "wallet"):
+            typed_items = [item for item in items if item.evidence_type == evidence_type]
 
-        if source_values and target_values and source_values.isdisjoint(target_values):
-            item = next(item for item in target if item.evidence_type == "timezone")
+            values = {item.value for item in typed_items}
+
+            if len(values) <= 1:
+                continue
+
+            item = typed_items[-1]
 
             contradictions.append(
                 Contradiction(
                     evidence_id=item.evidence_id,
-                    contradiction_type="timezone_conflict",
-                    severity=0.35,
+                    contradiction_type=f"{evidence_type}_internal_conflict",
+                    severity=0.45,
                     explanation=(
-                        "Observed timezone evidence is inconsistent between the candidate actors."
-                    ),
-                )
-            )
-
-    @staticmethod
-    def _check_language(
-        source: list[SyntheticEvidence],
-        target: list[SyntheticEvidence],
-        contradictions: list[Contradiction],
-    ) -> None:
-        source_languages = {item.value for item in source if item.evidence_type == "writing_style"}
-        target_languages = {item.value for item in target if item.evidence_type == "writing_style"}
-
-        if source_languages and target_languages and source_languages.isdisjoint(target_languages):
-            item = next(item for item in target if item.evidence_type == "writing_style")
-
-            contradictions.append(
-                Contradiction(
-                    evidence_id=item.evidence_id,
-                    contradiction_type="writing_style_conflict",
-                    severity=0.25,
-                    explanation=(
-                        "Observed writing-style indicators are "
-                        "inconsistent between the candidate actors."
+                        f"Multiple conflicting {evidence_type} observations "
+                        "were recorded for the same actor."
                     ),
                 )
             )

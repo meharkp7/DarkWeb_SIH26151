@@ -101,7 +101,6 @@ class CandidateLinkEngine:
         weighted_matches = 0.0
         total_weight = 0.0
         matches = 0
-
         for evidence_type in comparable_types:
             weight = indicator_weights.get(evidence_type, 0.0)
             if weight <= 0.0:

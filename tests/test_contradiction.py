@@ -67,3 +67,32 @@ def test_contradiction_analysis_preserves_link_id() -> None:
     )
 
     assert result.link_id == candidate.link_id
+
+
+def test_internal_conflict_is_detected() -> None:
+    from aegis.evaluation.scenarios import ScenarioBuilder
+
+    actors = SyntheticActorGenerator(seed=26151).generate(4)
+    evidence, _ = SyntheticEvidenceGenerator(seed=26151).generate(actors)
+
+    scenario = next(
+        item for item in ScenarioBuilder().build(evidence) if item.name == "contradictory"
+    )
+
+    candidate = CandidateLink(
+        link_id="internal-conflict-test",
+        source_actor_id=scenario.source_actor_id,
+        target_actor_id=scenario.target_actor_id,
+        score=0.75,
+        features=(),
+    )
+
+    result = ContradictionDetector().analyze(
+        candidate,
+        list(scenario.evidence),
+    )
+
+    assert result.contradiction_score == 0.45
+    assert any(
+        item.contradiction_type == "timezone_internal_conflict" for item in result.contradictions
+    )

@@ -69,9 +69,13 @@ def test_scenarios_through_attribution_pipeline():
         results["contradictory"].contradiction_score > results["clean_strong"].contradiction_score
     )
 
+    assert results["contradictory"].final_score < results["clean_strong"].final_score
+
     assert results["noisy_match"].support_score < results["clean_strong"].support_score
 
-    assert results["no_match"].final_score <= results["clean_strong"].final_score
+    assert results["noisy_match"].final_score < results["clean_strong"].final_score
+
+    assert results["no_match"].final_score == 0.0
 
 
 def test_zero_candidate_score_cannot_create_calibrated_support():
