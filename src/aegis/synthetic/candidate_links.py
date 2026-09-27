@@ -111,10 +111,14 @@ class CandidateLinkEngine:
         if not features:
             return 0.0
 
-        return round(
-            sum(feature.score for feature in features) / len(features),
-            3,
-        )
+        weights = {
+            "handle_overlap": 0.15,
+            "indicator_similarity": 0.85,
+        }
+
+        weighted_score = sum(feature.score * weights.get(feature.name, 0.0) for feature in features)
+
+        return round(weighted_score, 3)
 
     @staticmethod
     def _link_id(source_id: str, target_id: str) -> str:

@@ -1,4 +1,4 @@
-from aegis.synthetic.candidate_links import CandidateLinkEngine
+from aegis.synthetic.candidate_links import CandidateLinkEngine, LinkFeature
 from aegis.synthetic.evidence_generator import SyntheticEvidenceGenerator
 from aegis.synthetic.generator import SyntheticActorGenerator
 
@@ -49,3 +49,41 @@ def test_candidate_link_ids_are_stable() -> None:
     candidates = CandidateLinkEngine().generate(evidence)
 
     assert len({candidate.link_id for candidate in candidates}) == len(candidates)
+
+
+def test_indicator_similarity_has_higher_weight_than_handle_overlap():
+    engine = CandidateLinkEngine()
+
+    features = [
+        LinkFeature(
+            name="handle_overlap",
+            score=1.0,
+            explanation="shared handle",
+        ),
+        LinkFeature(
+            name="indicator_similarity",
+            score=0.0,
+            explanation="no shared indicators",
+        ),
+    ]
+
+    assert engine._aggregate(features) == 0.15
+
+
+def test_indicator_similarity_dominates_candidate_score():
+    engine = CandidateLinkEngine()
+
+    features = [
+        LinkFeature(
+            name="handle_overlap",
+            score=0.0,
+            explanation="no shared handle",
+        ),
+        LinkFeature(
+            name="indicator_similarity",
+            score=1.0,
+            explanation="all indicators match",
+        ),
+    ]
+
+    assert engine._aggregate(features) == 0.85
