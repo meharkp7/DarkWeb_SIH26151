@@ -72,3 +72,38 @@ def test_scenarios_through_attribution_pipeline():
     assert results["noisy_match"].support_score < results["clean_strong"].support_score
 
     assert results["no_match"].final_score <= results["clean_strong"].final_score
+
+
+def test_zero_candidate_score_cannot_create_calibrated_support():
+    actors = SyntheticActorGenerator(seed=26151).generate(4)
+    evidence, _ = SyntheticEvidenceGenerator(seed=26151).generate(actors)
+
+    scenarios = ScenarioBuilder().build(evidence)
+    scenario = next(item for item in scenarios if item.name == "no_match")
+
+    candidates = CandidateLinkEngine().generate(
+        list(scenario.evidence),
+        min_score=0.0,
+    )
+
+    candidate = next(
+        item
+        for item in candidates
+        if {
+            item.source_actor_id,
+            item.target_actor_id,
+        }
+        == {
+            scenario.source_actor_id,
+            scenario.target_actor_id,
+        }
+    )
+
+    assert candidate.score == 0.0
+
+    calibrated = ConfidenceCalibrator().calibrate(
+        candidate,
+        list(scenario.evidence),
+    )
+
+    assert calibrated.calibrated_score == 0.0
