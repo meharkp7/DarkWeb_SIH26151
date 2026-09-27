@@ -83,18 +83,45 @@ class CandidateLinkEngine:
             )
         )
 
-        source_indicators = {
-            item.evidence_type: item.value for item in source if item.evidence_type != "handle"
+        source_by_type = {
+            item.evidence_type: item for item in source if item.evidence_type != "handle"
         }
-        target_indicators = {
-            item.evidence_type: item.value for item in target if item.evidence_type != "handle"
+        target_by_type = {
+            item.evidence_type: item for item in target if item.evidence_type != "handle"
         }
 
-        matches = sum(
-            source_indicators.get(key) == value for key, value in target_indicators.items()
-        )
-        comparable = len(set(source_indicators) & set(target_indicators))
-        indicator_score = matches / comparable if comparable else 0.0
+        comparable_types = sorted(set(source_by_type) & set(target_by_type))
+
+        indicator_weights = {
+            "writing_style": 0.20,
+            "timezone": 0.20,
+            "wallet": 0.60,
+        }
+
+        weighted_matches = 0.0
+        total_weight = 0.0
+        matches = 0
+
+        for evidence_type in comparable_types:
+            weight = indicator_weights.get(evidence_type, 0.0)
+            if weight <= 0.0:
+                continue
+
+            source_item = source_by_type[evidence_type]
+            target_item = target_by_type[evidence_type]
+
+            total_weight += weight
+
+            if source_item.value == target_item.value:
+                matches += 1
+                confidence_quality = min(
+                    source_item.confidence,
+                    target_item.confidence,
+                )
+                weighted_matches += weight * confidence_quality
+
+        indicator_score = weighted_matches / total_weight if total_weight else 0.0
+        comparable = len(comparable_types)
 
         features.append(
             LinkFeature(

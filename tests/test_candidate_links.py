@@ -87,3 +87,43 @@ def test_indicator_similarity_dominates_candidate_score():
     ]
 
     assert engine._aggregate(features) == 0.85
+
+
+def test_low_confidence_indicator_match_is_weaker() -> None:
+    engine = CandidateLinkEngine()
+
+    high_confidence = [
+        LinkFeature(
+            name="indicator_similarity",
+            score=0.90,
+            explanation="high-confidence indicator match",
+        )
+    ]
+    low_confidence = [
+        LinkFeature(
+            name="indicator_similarity",
+            score=0.30,
+            explanation="low-confidence indicator match",
+        )
+    ]
+
+    assert engine._aggregate(high_confidence) > engine._aggregate(low_confidence)
+
+
+def test_evidence_type_weights_are_explicit() -> None:
+    engine = CandidateLinkEngine()
+
+    features = [
+        LinkFeature(
+            name="handle_overlap",
+            score=0.0,
+            explanation="no shared handle",
+        ),
+        LinkFeature(
+            name="indicator_similarity",
+            score=1.0,
+            explanation="all indicators match",
+        ),
+    ]
+
+    assert engine._aggregate(features) == 0.85
