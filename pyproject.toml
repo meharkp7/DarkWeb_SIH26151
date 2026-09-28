@@ -24,6 +24,15 @@ dev = [
   "ruff>=0.12,<1",
   "mypy>=1.17,<2",
 ]
+# Optional adapters, imported lazily by the code that needs them:
+#   search -> aegis.search.opensearch.OpenSearchAdapter (opensearch-py)
+#   s3     -> aegis.storage.s3.S3ObjectStore (boto3)
+search = [
+  "opensearch-py>=2,<3",
+]
+s3 = [
+  "boto3>=1.34,<2",
+]
 
 [build-system]
 requires = ["hatchling"]

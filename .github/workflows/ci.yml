@@ -21,7 +21,7 @@ jobs:
       - name: Ruff
         run: uv run ruff check --output-format=github .
       - name: Ruff format check
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests scripts
 
   typecheck:
     name: Typecheck
@@ -35,16 +35,34 @@ jobs:
       - run: uv run mypy src
 
   test:
-    name: Unit tests
+    name: Unit + integration tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: aegis
+          POSTGRES_PASSWORD: aegis
+          POSTGRES_DB: aegis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aegis -d aegis"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       - run: uv sync --extra dev
-      - name: Pytest (integration tests auto-skip without Postgres)
+      - name: Alembic migrations (schema comes only from alembic)
+        run: uv run alembic upgrade head
+      - name: "Pytest (Postgres service up: integration tests run, never skip)"
         run: PYTHONPATH=src uv run pytest -q --junitxml=reports/pytest.xml
+        env:
+          AEGIS_REQUIRE_DB: "1"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -98,6 +116,10 @@ jobs:
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest
+    # Guard: the frontend is landing separately; skip (never fail) until
+    # apps/frontend/package.json exists. The job stays in the workflow so
+    # it runs the moment the package lands.
+    if: ${{ hashFiles('apps/frontend/package.json') != '' }}
     defaults:
       run:
         working-directory: apps/frontend
