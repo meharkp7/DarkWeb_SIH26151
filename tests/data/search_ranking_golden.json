@@ -1,0 +1,665 @@
+{
+ "{\"entity_ids\": [\"ent-2\", \"ent-4\"], \"limit\": 6, \"match_mode\": \"terms\", \"retrieval_mode\": \"lexical\", \"since\": \"2026-03-02T00:00:00+00:00\", \"sources\": [\"src-1\", \"src-3\"], \"text\": \"wallet\", \"until\": \"2026-08-29T00:00:00+00:00\"}": {
+  "hits": [
+   {
+    "doc_id": "doc-0100",
+    "lexical": 1.419872281138822,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "wallet"
+    ],
+    "score": 1.419872281138822,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0111",
+    "lexical": 1.1583306687627009,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "wallet"
+    ],
+    "score": 1.1583306687627009,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0046",
+    "lexical": 1.036920825395772,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "wallet"
+    ],
+    "score": 1.036920825395772,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0015",
+    "lexical": 0.9342224447797481,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "wallet"
+    ],
+    "score": 0.9342224447797481,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0031",
+    "lexical": 0.8901418715628261,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "wallet"
+    ],
+    "score": 0.8901418715628261,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0008",
+    "lexical": 0.8500336809295977,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "wallet"
+    ],
+    "score": 0.8500336809295977,
+    "semantic": 0.0
+   }
+  ],
+  "total": 9
+ },
+ "{\"entity_ids\": [], \"limit\": 1, \"match_mode\": \"terms\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [], \"text\": \"asap update\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0077",
+    "lexical": 2.687421836575492,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "asap",
+     "update"
+    ],
+    "score": 2.687421836575492,
+    "semantic": 0.0
+   }
+  ],
+  "total": 76
+ },
+ "{\"entity_ids\": [], \"limit\": 3, \"match_mode\": \"terms\", \"retrieval_mode\": \"hybrid\", \"since\": null, \"sources\": [], \"text\": \"fees rotation\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0103",
+    "lexical": 2.413895574137726,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "fees",
+     "rotation"
+    ],
+    "score": 0.8749999999999999,
+    "semantic": 0.5833333333333333
+   },
+   {
+    "doc_id": "doc-0019",
+    "lexical": 2.3043286449569207,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "fees",
+     "rotation"
+    ],
+    "score": 0.8432269393720725,
+    "semantic": 0.5833333333333333
+   },
+   {
+    "doc_id": "doc-0030",
+    "lexical": 2.3508358789959027,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "fees",
+     "rotation"
+    ],
+    "score": 0.8130693969148679,
+    "semantic": 0.4378531073446328
+   }
+  ],
+  "total": 114
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"exact\", \"retrieval_mode\": \"hybrid\", \"since\": null, \"sources\": [], \"text\": \"vendor rotation\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0032",
+    "lexical": 1.853701143762573,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "vendor",
+     "rotation"
+    ],
+    "score": 0.9054205968299972,
+    "semantic": 0.7723577235772358
+   },
+   {
+    "doc_id": "doc-0106",
+    "lexical": 1.9260282372675808,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "vendor",
+     "rotation"
+    ],
+    "score": 0.86,
+    "semantic": 0.5333333333333333
+   },
+   {
+    "doc_id": "doc-0116",
+    "lexical": 1.8451753978601606,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "vendor",
+     "rotation"
+    ],
+    "score": 0.8163289493572823,
+    "semantic": 0.4857142857142857
+   },
+   {
+    "doc_id": "doc-0115",
+    "lexical": 1.819916742128951,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "vendor",
+     "rotation"
+    ],
+    "score": 0.8085313756392584,
+    "semantic": 0.4903225806451613
+   },
+   {
+    "doc_id": "doc-0049",
+    "lexical": 1.702894733751394,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "vendor",
+     "rotation"
+    ],
+    "score": 0.7337610044729417,
+    "semantic": 0.38285714285714284
+   },
+   {
+    "doc_id": "doc-0072",
+    "lexical": 1.736488888468552,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "vendor",
+     "rotation"
+    ],
+    "score": 0.7217875534664784,
+    "semantic": 0.302247191011236
+   }
+  ],
+  "total": 27
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"exact\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [], \"text\": \"ghostbroker wallet fees\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0076",
+    "lexical": 3.0880631429355807,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 3.0880631429355807,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0094",
+    "lexical": 3.0880631429355807,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 3.0880631429355807,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0001",
+    "lexical": 2.7966473367080975,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 2.7966473367080975,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0096",
+    "lexical": 2.5554896758318355,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 2.5554896758318355,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0048",
+    "lexical": 2.3526208566985796,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 2.3526208566985796,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0118",
+    "lexical": 2.3526208566985796,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 2.3526208566985796,
+    "semantic": 0.0
+   }
+  ],
+  "total": 6
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"phrase\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [], \"text\": \"ghostbroker wallet\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0100",
+    "lexical": 5.5421064218528215,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet"
+    ],
+    "score": 5.5421064218528215,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0001",
+    "lexical": 4.800568965752973,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet"
+    ],
+    "score": 4.800568965752973,
+    "semantic": 0.0
+   }
+  ],
+  "total": 2
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"terms\", \"retrieval_mode\": \"hybrid\", \"since\": null, \"sources\": [], \"text\": \"ghostbroker escrow\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0051",
+    "lexical": 2.3130602321645632,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "escrow"
+    ],
+    "score": 0.8237260156874416,
+    "semantic": 0.49479166666666663
+   },
+   {
+    "doc_id": "doc-0097",
+    "lexical": 2.397704277359008,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "escrow"
+    ],
+    "score": 0.8152777777777778,
+    "semantic": 0.38425925925925924
+   },
+   {
+    "doc_id": "doc-0024",
+    "lexical": 2.1474318322128556,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "escrow"
+    ],
+    "score": 0.812460294572181,
+    "semantic": 0.618421052631579
+   },
+   {
+    "doc_id": "doc-0116",
+    "lexical": 2.2390939033421513,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "escrow"
+    ],
+    "score": 0.8091488926431436,
+    "semantic": 0.5181818181818182
+   },
+   {
+    "doc_id": "doc-0081",
+    "lexical": 2.1474318322128556,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "escrow"
+    ],
+    "score": 0.7853714787827074,
+    "semantic": 0.528125
+   },
+   {
+    "doc_id": "doc-0119",
+    "lexical": 2.063514464094883,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "escrow"
+    ],
+    "score": 0.7411670392496952,
+    "semantic": 0.4624413145539906
+   }
+  ],
+  "total": 111
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"terms\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [\"src-2\"], \"text\": \"\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0001",
+    "lexical": 0.0,
+    "matched_fields": [],
+    "matched_terms": [],
+    "score": 0.0,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0002",
+    "lexical": 0.0,
+    "matched_fields": [],
+    "matched_terms": [],
+    "score": 0.0,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0003",
+    "lexical": 0.0,
+    "matched_fields": [],
+    "matched_terms": [],
+    "score": 0.0,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0005",
+    "lexical": 0.0,
+    "matched_fields": [],
+    "matched_terms": [],
+    "score": 0.0,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0010",
+    "lexical": 0.0,
+    "matched_fields": [],
+    "matched_terms": [],
+    "score": 0.0,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0016",
+    "lexical": 0.0,
+    "matched_fields": [],
+    "matched_terms": [],
+    "score": 0.0,
+    "semantic": 0.0
+   }
+  ],
+  "total": 46
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"terms\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [], \"text\": \"ghostbroker wallet fees\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0076",
+    "lexical": 3.0880631429355807,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 3.0880631429355807,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0094",
+    "lexical": 3.0880631429355807,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 3.0880631429355807,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0001",
+    "lexical": 2.7966473367080975,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 2.7966473367080975,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0103",
+    "lexical": 2.651580905424454,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "wallet",
+     "fees"
+    ],
+    "score": 2.651580905424454,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0097",
+    "lexical": 2.6052302377743315,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "fees"
+    ],
+    "score": 2.6052302377743315,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0096",
+    "lexical": 2.5554896758318355,
+    "matched_fields": [
+     "body",
+     "title"
+    ],
+    "matched_terms": [
+     "ghostbroker",
+     "wallet",
+     "fees"
+    ],
+    "score": 2.5554896758318355,
+    "semantic": 0.0
+   }
+  ],
+  "total": 93
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"terms\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [], \"text\": \"ghostbroker\", \"until\": null}": {
+  "hits": [
+   {
+    "doc_id": "doc-0025",
+    "lexical": 1.5664711537937503,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker"
+    ],
+    "score": 1.5664711537937503,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0064",
+    "lexical": 1.5090166739504156,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker"
+    ],
+    "score": 1.5090166739504156,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0086",
+    "lexical": 1.3505794587587585,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker"
+    ],
+    "score": 1.3505794587587585,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0063",
+    "lexical": 1.3476534798498518,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker"
+    ],
+    "score": 1.3476534798498518,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0097",
+    "lexical": 1.3476534798498518,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker"
+    ],
+    "score": 1.3476534798498518,
+    "semantic": 0.0
+   },
+   {
+    "doc_id": "doc-0017",
+    "lexical": 1.3049103452780777,
+    "matched_fields": [
+     "body"
+    ],
+    "matched_terms": [
+     "ghostbroker"
+    ],
+    "score": 1.3049103452780777,
+    "semantic": 0.0
+   }
+  ],
+  "total": 47
+ },
+ "{\"entity_ids\": [], \"limit\": 6, \"match_mode\": \"terms\", \"retrieval_mode\": \"lexical\", \"since\": null, \"sources\": [], \"text\": \"nonexistenttoken\", \"until\": null}": {
+  "hits": [],
+  "total": 0
+ }
+}
