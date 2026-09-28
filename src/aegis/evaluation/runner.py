@@ -1,3 +1,5 @@
+"""Reproducible benchmark runner: one deterministic run per seed."""
+
 from dataclasses import dataclass
 
 from aegis.evaluation.benchmark import SyntheticBenchmark

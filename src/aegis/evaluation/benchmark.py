@@ -1,3 +1,5 @@
+"""Explicit ground truth for the controlled synthetic benchmark."""
+
 from aegis.synthetic.actor import SyntheticActor
 
 

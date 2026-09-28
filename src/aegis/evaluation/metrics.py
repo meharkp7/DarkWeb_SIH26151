@@ -1,3 +1,5 @@
+"""Candidate-link evaluation metrics against synthetic ground truth."""
+
 from dataclasses import dataclass
 
 

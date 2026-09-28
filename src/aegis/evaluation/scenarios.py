@@ -1,3 +1,6 @@
+"""The five frozen evaluation scenarios (clean, weak, contradictory,
+noisy, no-match) built deterministically from synthetic evidence."""
+
 from dataclasses import dataclass, replace
 
 from aegis.synthetic.evidence import SyntheticEvidence
