@@ -50,3 +50,14 @@ def test_indexer_indexes_evidence_document() -> None:
     assert document.index is IndexName.EVIDENCE
     assert document.doc_id == str(record.evidence_id)
     assert document.payload is not None
+
+
+def test_indexer_indexes_many_records() -> None:
+    search = Mock()
+    records = [_record(), _record()]
+    records[1].evidence_id = "33333333-3333-4333-8333-333333333333"
+
+    count = EvidenceSearchIndexer(search).index_many(records)
+
+    assert count == 2
+    assert search.index.call_count == 2

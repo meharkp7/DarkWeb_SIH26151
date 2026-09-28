@@ -1,12 +1,15 @@
 """OpenSearch indexing for persisted evidence."""
 
+from __future__ import annotations
+
+from collections.abc import Iterable
+
 from aegis.db.models import EvidenceRecord
 from aegis.schemas.evidence import Evidence, SourceType
 from aegis.search import IndexedDocument, SearchEngine
 
 
 def evidence_from_record(record: EvidenceRecord) -> Evidence:
-    """Convert a persisted evidence row to its canonical search payload."""
     return Evidence(
         case_id=record.case_id,
         source_id=record.source_id,
@@ -32,11 +35,16 @@ def evidence_from_record(record: EvidenceRecord) -> Evidence:
 
 
 class EvidenceSearchIndexer:
-    """Index committed evidence without coupling it to DB transactions."""
-
     def __init__(self, search: SearchEngine) -> None:
         self.search = search
 
     def index(self, record: EvidenceRecord) -> None:
         evidence = evidence_from_record(record)
         self.search.index(IndexedDocument.from_evidence(evidence))
+
+    def index_many(self, records: Iterable[EvidenceRecord]) -> int:
+        count = 0
+        for record in records:
+            self.index(record)
+            count += 1
+        return count

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -5,12 +6,15 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from aegis.api.deps import get_db
+from aegis.db.models import EvidenceRecord
 from aegis.evidence.artifacts import ArtifactStore
+from aegis.evidence.search_index import EvidenceSearchIndexer
 from aegis.evidence.service import EvidenceService
 from aegis.schemas.analysis import (
     SyntheticAnalysisRequest,
     SyntheticAnalysisResponse,
 )
+from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
 from aegis.synthetic.calibration import ConfidenceCalibrator
 from aegis.synthetic.candidate_links import CandidateLinkEngine
@@ -21,6 +25,8 @@ from aegis.synthetic.graph import EvidenceGraphBuilder
 from aegis.synthetic.hypothesis import AttributionHypothesisBuilder
 from aegis.synthetic.hypothesis_persistence import HypothesisPersistenceService
 from aegis.synthetic.persistence import SyntheticPersistenceService
+
+logger = logging.getLogger(__name__)
 
 
 def run_synthetic_analysis(
@@ -51,6 +57,7 @@ def run_synthetic_analysis(
             hypotheses=outcome.hypotheses,
         )
         db.commit()  # one commit for every flushed hypothesis (audit rows included)
+        _index_committed_evidence(outcome.evidence_records)
     except Exception:
         db.rollback()
         raise
@@ -62,10 +69,37 @@ class _AnalysisOutcome:
     """Summary counts plus the hypothesis rows built by :func:`_analyze`."""
 
     hypotheses: list[dict[str, object]]
+    evidence_records: list[EvidenceRecord]
     actor_count: int
     evidence_count: int
     relationship_count: int
     candidate_count: int
+
+
+def _index_committed_evidence(records: list[EvidenceRecord]) -> None:
+    """Synchronize committed PostgreSQL evidence into OpenSearch."""
+    if not records:
+        return
+
+    username = settings.opensearch_username
+    password = settings.opensearch_password
+    auth = (username, password) if username is not None and password is not None else None
+
+    try:
+        search = OpenSearchAdapter(
+            settings.opensearch_url,
+            index_prefix=settings.opensearch_index_prefix,
+            http_auth=auth,
+        )
+        indexed = EvidenceSearchIndexer(search).index_many(records)
+        logger.info("Indexed %d committed evidence records", indexed)
+    except Exception:
+        # PostgreSQL is the source of truth. Search synchronization is
+        # separately observable and must never undo a successful commit.
+        logger.exception(
+            "OpenSearch synchronization failed for %d committed evidence records",
+            len(records),
+        )
 
 
 def _analyze(payload: SyntheticAnalysisRequest, db: Session) -> _AnalysisOutcome:
@@ -90,7 +124,7 @@ def _analyze(payload: SyntheticAnalysisRequest, db: Session) -> _AnalysisOutcome
 
     persistence = SyntheticPersistenceService(evidence_service)
     source_id = persistence.create_source()
-    persistence.persist_evidence(source_id, actors, evidence)
+    evidence_records = persistence.persist_evidence(source_id, actors, evidence)
 
     candidate_engine = CandidateLinkEngine()
     candidates = candidate_engine.generate(
@@ -140,6 +174,7 @@ def _analyze(payload: SyntheticAnalysisRequest, db: Session) -> _AnalysisOutcome
 
     return _AnalysisOutcome(
         hypotheses=hypotheses,
+        evidence_records=evidence_records,
         actor_count=len(actors),
         evidence_count=len(evidence),
         relationship_count=len(relationships),

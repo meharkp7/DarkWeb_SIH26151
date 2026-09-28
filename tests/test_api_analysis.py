@@ -55,6 +55,7 @@ def _outcome() -> _AnalysisOutcome:
                 "explanations": ["shared wallet"],
             }
         ],
+        evidence_records=[],
         actor_count=4,
         evidence_count=12,
         relationship_count=6,
