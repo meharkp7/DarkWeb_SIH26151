@@ -3,6 +3,7 @@ authorization, object-name injection."""
 
 from __future__ import annotations
 
+import hashlib
 import io
 import uuid
 from datetime import UTC, datetime
@@ -230,7 +231,9 @@ class FakeS3Client:
         del ContentType
         self.calls.append(f"put:{Bucket}/{Key}")
         self.objects[(Bucket, Key)] = (bytes(Body), dict(Metadata))
-        return {"ETag": Metadata["sha256"]}
+        # Real S3 returns the MD5 of the body as the ETag for single-part
+        # uploads — never the SHA-256 we store in metadata.
+        return {"ETag": hashlib.md5(Body, usedforsecurity=False).hexdigest()}
 
     def get_object(self, *, Bucket: str, Key: str, **_: object) -> dict[str, object]:
         self.calls.append(f"get:{Bucket}/{Key}")
@@ -288,3 +291,48 @@ def test_s3_store_missing_key_behaviour() -> None:
     assert store.exists("evidence/2026/09/ab/cd/raw") is False
     with pytest.raises(S3StoreError):
         store.get("evidence/2026/09/ab/cd/raw")
+
+
+def test_s3_etag_mismatch_is_detected_for_single_part_uploads() -> None:
+    """A server returning an ETag that is neither the body's MD5 nor a
+    multipart ETag must fail the upload (regression: the check used to
+    compare the MD5 ETag against the SHA-256 digest, so every real S3 or
+    MinIO upload was rejected)."""
+    client = FakeS3Client()
+
+    class WrongEtagClient(FakeS3Client):
+        def put_object(self, **kwargs: object) -> dict[str, str]:
+            super().put_object(**kwargs)
+            return {"ETag": "0" * 32}
+
+    store = S3ObjectStore(WrongEtagClient(), "aegis-evidence")
+    with pytest.raises(S3StoreError, match="etag mismatch"):
+        store.put("evidence/2026/09/x/y/raw", b"bytes")
+    del client
+
+
+def test_s3_multipart_etag_is_not_treated_as_checksum() -> None:
+    """Multipart ETags ('<md5>-<parts>') are not body checksums and must
+    not trigger the single-part verification."""
+
+    class MultipartClient(FakeS3Client):
+        def put_object(self, **kwargs: object) -> dict[str, str]:
+            super().put_object(**kwargs)
+            return {"ETag": "abc123-4"}
+
+    store = S3ObjectStore(MultipartClient(), "aegis-evidence")
+    result = store.put("evidence/2026/09/x/y/raw", b"bytes")
+    assert result.etag == "abc123-4"
+
+
+def test_s3_exists_propagates_non_not_found_errors() -> None:
+    """Credential/transport failures must not masquerade as absence
+    (regression: exists() swallowed every exception and returned False)."""
+
+    class BrokenHeadClient(FakeS3Client):
+        def head_object(self, **kwargs: object) -> dict[str, object]:
+            raise ConnectionError("credential failure")
+
+    store = S3ObjectStore(BrokenHeadClient(), "aegis-evidence")
+    with pytest.raises(S3StoreError, match="exists failed"):
+        store.exists("evidence/2026/09/x/y/raw")

@@ -451,6 +451,19 @@ def test_cypher_builder_input_validation() -> None:
         CypherBuilder.time_filtered_neighborhood("n", since=DEC, until=JAN)
 
 
+def test_two_hop_binds_center_and_caps_results() -> None:
+    """Regression: the two-hop query must bind ``$node_id`` on the centre
+    node — an unbound centre matches every node in the graph. The result
+    set is also capped so depth-bounded traversals cannot fan out without
+    limit through hub nodes."""
+    for direction in ("out", "in", "both"):
+        query = CypherBuilder.two_hop_neighborhood("n1", direction=direction)
+        assert "center {id: $node_id}" in query.text, direction
+        assert "LIMIT $result_limit" in query.text
+        assert query.parameters["node_id"] == "n1"
+        assert query.parameters["result_limit"] == 1000
+
+
 def test_adapter_runs_with_injected_driver_and_merges_parameters() -> None:
     captured: dict[str, object] = {}
 
@@ -485,6 +498,7 @@ def test_adapter_runs_with_injected_driver_and_merges_parameters() -> None:
         "node_id": "n1",
         "since_bound": _MIN_TIME_SENTINEL,
         "until_bound": _MAX_TIME_SENTINEL,
+        "result_limit": 1000,
         "extra_param": 1,
     }
     adapter.close()

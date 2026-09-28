@@ -18,8 +18,19 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".mypy_cache",
-             ".ruff_cache", ".pytest_cache", "artifacts", "reports"}
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "node_modules",
+    "__pycache__",
+    "dist",
+    "build",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "artifacts",
+    "reports",
+}
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".zip", ".gz", ".whl", ".lock"}
 
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -27,9 +38,12 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
-    ("generic-secret-assignment", re.compile(
-        r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*[\"']?[^\s\"']{12,}"
-    )),
+    (
+        "generic-secret-assignment",
+        re.compile(
+            r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*[\"']?[^\s\"']{12,}"
+        ),
+    ),
 )
 
 ALLOWLIST_MARKERS = ("example", "placeholder", "changeme", "your-", "xxx", "dummy")

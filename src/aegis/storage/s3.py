@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from hashlib import sha256
+from hashlib import md5, sha256
 from typing import Any
 
 from aegis.storage.base import PutResult
@@ -18,6 +18,18 @@ from aegis.storage.keys import validate_key
 
 class S3StoreError(RuntimeError):
     """Raised for S3 adapter failures (missing keys, HTTP errors)."""
+
+
+def _is_not_found(exc: Exception) -> bool:
+    """True only for genuine absence: ``FileNotFoundError`` (fakes/local)
+    or a botocore ``ClientError`` whose code is 404/NoSuchKey/NotFound."""
+    if isinstance(exc, FileNotFoundError):
+        return True
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = str((response.get("Error") or {}).get("Code", ""))
+        return code in {"404", "NoSuchKey", "NotFound"}
+    return False
 
 
 class S3ObjectStore:
@@ -48,7 +60,11 @@ class S3ObjectStore:
         except Exception as exc:  # noqa: BLE001 - adapter boundary
             raise S3StoreError(f"put failed for {key!r}: {exc}") from exc
         etag = str(response.get("ETag", "")).strip('"') or None
-        if etag is not None and etag != digest and "-" not in etag:
+        # S3 ETags are MD5 for single-part uploads and "<md5>-<parts>" for
+        # multipart uploads — never the SHA-256 digest. Verify the single-
+        # part case against MD5; multipart ETags are not verifiable here
+        # (checksum-on-read covers integrity either way).
+        if etag is not None and "-" not in etag and etag != md5(data).hexdigest():
             raise S3StoreError(f"server etag mismatch for {key!r}")
         return PutResult(key=key, sha256=digest, size_bytes=len(data), etag=etag)
 
@@ -71,8 +87,11 @@ class S3ObjectStore:
         full = self._full_key(key)
         try:
             self.client.head_object(Bucket=self.bucket, Key=full)
-        except Exception:  # noqa: BLE001 - HEAD 404 and transport errors alike
-            return False
+        except Exception as exc:  # noqa: BLE001 - adapter boundary
+            if _is_not_found(exc):
+                return False
+            # Credential/transport failures must not masquerade as absence.
+            raise S3StoreError(f"exists failed for {key!r}: {exc}") from exc
         return True
 
     def list_keys(self, prefix: str) -> list[str]:

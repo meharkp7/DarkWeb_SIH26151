@@ -66,12 +66,14 @@ class CypherBuilder:
         hops = int(max_hops)
         if not 1 <= hops <= 10:
             raise GraphValidationError("max_hops must be within 1..10")
+        # The centre must bind $node_id: an unbound centre pattern matches
+        # every node in the graph and traverses from all of them.
         if direction == "out":
-            pattern = f"(center)-[*1..{hops}]->(other)"
+            pattern = f"(center {{id: $node_id}})-[*1..{hops}]->(other)"
         elif direction == "in":
-            pattern = f"(center)<-[*1..{hops}]-(other)"
+            pattern = f"(center {{id: $node_id}})<-[*1..{hops}]-(other)"
         else:
-            pattern = f"(center)-[*1..{hops}]-(other)"
+            pattern = f"(center {{id: $node_id}})-[*1..{hops}]-(other)"
 
         lower, upper = _bounds(at_time, None, None)
         query = f"""
@@ -82,6 +84,7 @@ class CypherBuilder:
         WITH other, min(length(p)) AS hops
         RETURN other.id AS node_id, hops
         ORDER BY hops, node_id
+        LIMIT $result_limit
         """
         return CypherQuery(
             query=query,
@@ -89,6 +92,9 @@ class CypherBuilder:
                 "node_id": node_id,
                 "since_bound": lower,
                 "until_bound": upper,
+                # Result cap: depth-bounded traversals can still fan out
+                # unboundedly through hub nodes.
+                "result_limit": 1000,
             },
         )
 

@@ -92,7 +92,10 @@ class _SyntheticCollector(Collector):
             candidate=candidate,
             body=body,
             media_type="application/json",
-            collected_at=datetime.now(UTC),
+            # Deterministic replay: derive collection time from the fixture
+            # post rather than wall-clock, so repeated collection runs are
+            # byte-identical (no clock-skew in dedup or time-travel tests).
+            collected_at=post.posted_at,
             collector_name=self.name,
             collector_version=self.version,
             source_url=f"synthetic://{post.platform}/{post.post_id}",

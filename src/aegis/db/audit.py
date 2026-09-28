@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from aegis.db.models import AuditLogRecord
@@ -51,10 +51,26 @@ def compute_entry_hash(
 
 
 class AuditService:
-    """Append audit entries and verify chain integrity."""
+    """Append audit entries and verify chain integrity.
+
+    Concurrent appenders serialize on a transaction-scoped Postgres
+    advisory lock before reading the chain tail, so two writers can
+    never fork the chain off the same ``prev_hash``.
+    """
+
+    #: Advisory-lock key for the audit chain tail (arbitrary but stable).
+    _CHAIN_LOCK_KEY = 0x4145_4749_53
 
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    def _lock_chain(self) -> None:
+        bind = self.db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            self.db.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"),
+                {"key": self._CHAIN_LOCK_KEY},
+            )
 
     def last_hash(self) -> str | None:
         return self.db.scalar(
@@ -71,15 +87,16 @@ class AuditService:
         case_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
         occurred_at: datetime | None = None,
-        flush: bool = False,
     ) -> AuditLogRecord:
-        """Append one audit entry (commit deferred to the caller's transaction).
+        """Append one audit entry inside the caller's transaction.
 
-        ``flush=False`` keeps the entry in the current transaction so a
-        subsequent rollback discards both the mutation and its audit record —
-        preserving the invariant "no mutation without audit, no audit without
-        mutation".
+        The entry is flushed but never committed here: the caller's
+        ``commit()`` persists mutation and audit together, so a rollback
+        discards both — preserving the invariant "no mutation without
+        audit, no audit without mutation". Never call ``commit()`` here;
+        doing so would break the surrounding transaction's atomicity.
         """
+        self._lock_chain()
         body = payload or {}
         timestamp = occurred_at or datetime.now(UTC)
         prev_hash = self.last_hash()
@@ -97,10 +114,7 @@ class AuditService:
             entry_hash=entry_hash,
         )
         self.db.add(record)
-        if flush:
-            self.db.flush()
-        else:
-            self.db.commit()
+        self.db.flush()
         return record
 
     def verify_chain(self) -> bool:
