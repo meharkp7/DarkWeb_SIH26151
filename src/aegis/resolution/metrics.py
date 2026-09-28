@@ -16,6 +16,7 @@ than raising, matching :class:`aegis.evaluation.metrics.SyntheticEvaluator`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -60,6 +61,32 @@ def _divide(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def _validate_scored_inputs(scores: Sequence[float], labels: Sequence[int]) -> None:
+    """Shared input guards for the scored binary metrics.
+
+    The domain and range checks double as an argument-order trap: a
+    caller that swaps ``(scores, labels)`` passes float scores as
+    labels (values outside ``{0, 1}``) or raw 0/1 labels as scores, so
+    the swap raises a clear ``ValueError`` instead of silently
+    producing wrong numbers.
+
+    Raises:
+        ValueError: On misaligned lengths, labels outside ``{0, 1}``,
+            or scores that are non-finite or outside ``[0.0, 1.0]``.
+    """
+    if len(scores) != len(labels):
+        raise ValueError("scores and labels must align")
+    for label in labels:
+        if label not in (0, 1):
+            raise ValueError(
+                f"labels must be 0 or 1, got {label!r} — "
+                "the signature is (scores, labels); swapped arguments fail here"
+            )
+    for score in scores:
+        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ValueError(f"scores must be finite and within [0.0, 1.0], got {score!r}")
+
+
 def precision_recall_f1(
     predicted: Iterable[bool], actual: Iterable[bool]
 ) -> tuple[float, float, float]:
@@ -81,11 +108,21 @@ def precision_recall_f1(
 def average_precision(scores: Sequence[float], labels: Sequence[int]) -> float:
     """PR-AUC as average precision over scores ranked best-first.
 
+    This is the single canonical implementation of the metric in the
+    codebase; :func:`aegis.stylometry.evaluation.average_precision`
+    delegates here, so both public entry points accept the canonical
+    ``(scores, labels)`` argument order and return identical values.
+
     Ties are broken by input order so the value is reproducible for a
     fixed candidate enumeration.  A pair set without positives yields 0.0.
+
+    Raises:
+        ValueError: On misaligned inputs, labels outside ``{0, 1}``, or
+            non-finite/out-of-range scores (see
+            :func:`_validate_scored_inputs` — the guards also catch a
+            swapped ``(scores, labels)`` call).
     """
-    if len(scores) != len(labels):
-        raise ValueError("scores and labels must align")
+    _validate_scored_inputs(scores, labels)
     positives = sum(labels)
     if positives == 0:
         return 0.0
@@ -113,16 +150,53 @@ def precision_recall_f1_at_threshold(
 
 
 def best_f1_threshold(scores: Sequence[float], labels: Sequence[int]) -> float:
-    """Threshold on ``scores`` maximizing F1 (ties -> highest threshold)."""
+    """Threshold on ``scores`` maximizing F1 (ties -> highest threshold).
+
+    The single canonical implementation: :func:`aegis.stylometry.evaluation.best_f1_threshold`
+    delegates here, so both public entry points accept the canonical
+    ``(scores, labels)`` argument order and return the identical cutoff.
+
+    Complexity is **O(N log N)** by construction — one sort of the
+    indices by score (descending) followed by a single pass that
+    accumulates TP/FP as the effective threshold drops.  F1 is evaluated
+    exactly once per *distinct* score: equal scores are consumed as one
+    group because the prediction rule is ``score >= threshold``, so a
+    group must be fully included before its cutoff is scored.  Because
+    the sweep visits thresholds highest-first and only replaces the
+    incumbent on a strict improvement, ties keep the first (highest)
+    threshold seen — matching the historical
+    ``precision_recall_f1_at_threshold``-per-candidate behaviour
+    float-for-float, since F1 is computed from TP/FP/FN with the same
+    arithmetic as :func:`precision_recall_f1`.  With no positives every
+    candidate scores 0.0 F1, so the first (highest) score wins.
+
+    Raises:
+        ValueError: On empty input, misaligned inputs, labels outside
+            ``{0, 1}``, or non-finite/out-of-range scores.
+    """
     if not scores:
         raise ValueError("cannot choose a threshold without scores")
-    candidates = sorted({*scores})
-    best_threshold = candidates[-1]
+    _validate_scored_inputs(scores, labels)
+    order = sorted(range(len(scores)), key=lambda index: (-scores[index], index))
+    total_positives = sum(labels)
+    true_positives = 0
+    false_positives = 0
+    best_threshold = scores[order[0]]
     best_f1 = -1.0
-    for threshold in candidates:
-        _, _, f1 = precision_recall_f1_at_threshold(scores, labels, threshold)
-        # >= best: later (higher) thresholds win ties, keeping predictions strict
-        if f1 >= best_f1:
+    position = 0
+    while position < len(order):
+        threshold = scores[order[position]]
+        while position < len(order) and scores[order[position]] == threshold:
+            if labels[order[position]]:
+                true_positives += 1
+            else:
+                false_positives += 1
+            position += 1
+        false_negatives = total_positives - true_positives
+        precision = _divide(true_positives, true_positives + false_positives)
+        recall = _divide(true_positives, true_positives + false_negatives)
+        f1 = _divide(2.0 * precision * recall, precision + recall)
+        if f1 > best_f1:  # strict: the first (highest) threshold wins ties
             best_f1 = f1
             best_threshold = threshold
     return best_threshold
