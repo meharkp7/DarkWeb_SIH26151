@@ -96,8 +96,7 @@ def _require_normalized(weights: dict[str, float]) -> None:
     total = sum(weights.values())
     if abs(total - 1.0) > WEIGHT_SUM_TOLERANCE:
         raise ValueError(
-            f"channel weights must be normalized to sum to 1.0, got {total!r} "
-            f"(weights={weights!r})"
+            f"channel weights must be normalized to sum to 1.0, got {total!r} (weights={weights!r})"
         )
 
 
@@ -216,5 +215,6 @@ DEFAULT_CHANNEL_WEIGHTS = ChannelWeights(
 def weighted_logit(signals: ChannelSignals, weights: ChannelWeights) -> float:
     """The plan's linear term ``w_h S_h + ... + w_i S_i`` before the sigmoid."""
     return sum(
-        weight * signal for weight, signal in zip(weights.as_vector(), signals.as_vector(), strict=True)
+        weight * signal
+        for weight, signal in zip(weights.as_vector(), signals.as_vector(), strict=True)
     )
