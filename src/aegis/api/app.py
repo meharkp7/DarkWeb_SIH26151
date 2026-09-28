@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
 from aegis.api.analysis import run_synthetic_analysis
+from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
 from aegis.db.audit import AuditService
@@ -215,3 +216,6 @@ def synthetic_analysis(
     _: Annotated[None, Depends(_guard)],
 ) -> SyntheticAnalysisResponse:
     return run_synthetic_analysis(payload, db)
+
+
+app.include_router(copilot_router)

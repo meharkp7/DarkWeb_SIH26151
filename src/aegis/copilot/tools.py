@@ -18,9 +18,9 @@ from aegis.graph.store import InMemoryGraphStore
 from aegis.schemas.hypothesis import Hypothesis
 from aegis.search import (
     IndexName,
-    InProcessSearchEngine,
     MatchMode,
     RetrievalMode,
+    SearchEngine,
     SearchQuery,
 )
 from aegis.timeline.types import TimelineEvent
@@ -30,7 +30,7 @@ from aegis.timeline.types import TimelineEvent
 class CopilotToolContext:
     """Dependencies supplied by the application boundary."""
 
-    search: InProcessSearchEngine | None = None
+    search: SearchEngine | None = None
     graph: InMemoryGraphStore | None = None
     assessments: AttributionAssessmentPersistenceService | None = None
     timeline: Sequence[TimelineEvent] = ()
