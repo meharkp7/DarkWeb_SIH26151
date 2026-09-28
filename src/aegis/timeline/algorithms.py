@@ -4,7 +4,9 @@ Plan: *"Start with CUSUM, distribution distance, ruptures/change-point
 algorithms."*  All three families are implemented here in pure,
 dependency-free Python — the project takes no new runtime
 dependencies, so ``ruptures``-style recursive binary segmentation is
-reimplemented (mean-shift cost) rather than imported.
+reimplemented (mean-shift cost) rather than imported.  The
+segmentation walk runs on an explicit work stack instead of Python
+recursion, so arbitrarily long series cannot exhaust the call stack.
 
 Every function is deterministic and pure: same input, same output,
 on any machine.  All raise ``ValueError`` on invalid parameters or
@@ -31,11 +33,19 @@ def cusum(
     *,
     drift: float,
     threshold: float,
+    reference: float | None = None,
 ) -> tuple[tuple[int, float], ...]:
-    """Two-sided CUSUM alarms over ``values`` (reference = series mean).
+    """Two-sided CUSUM alarms over ``values``.
+
+    ``reference`` is the baseline level the accumulators measure
+    against.  ``None`` (the default) uses the series mean — the classic
+    mean-referenced CUSUM, byte-identical to previous behaviour.  Pass
+    an explicit finite level when the analyst knows the baseline a
+    priori (e.g. a documented normal cadence): alarms then reflect
+    deviation from that known level rather than from the sample mean.
 
     Returns ``(index, signed_score)`` tuples: positive scores mean an
-    upward shift (cumulative excess above ``mean + drift`` crossed
+    upward shift (cumulative excess above ``reference + drift`` crossed
     ``threshold``), negative scores a downward shift.  Both accumulators
     reset after each alarm so one long regime shift yields one alarm.
     Indices are the alarm points — the shift itself happened somewhere
@@ -46,14 +56,16 @@ def cusum(
         raise ValueError("drift must be finite and > 0")
     if not math.isfinite(threshold) or threshold <= 0.0:
         raise ValueError("threshold must be finite and > 0")
+    if reference is not None and not math.isfinite(reference):
+        raise ValueError("reference must be finite")
 
-    reference = sum(values) / len(values)
+    baseline = sum(values) / len(values) if reference is None else reference
     above = 0.0
     below = 0.0
     alarms: list[tuple[int, float]] = []
     for index, value in enumerate(values):
-        above = max(0.0, above + (value - reference - drift))
-        below = max(0.0, below + (reference - value - drift))
+        above = max(0.0, above + (value - baseline - drift))
+        below = max(0.0, below + (baseline - value - drift))
         if above > threshold:
             alarms.append((index, above))
             above = 0.0
@@ -119,15 +131,20 @@ def segment(
     min_size: int,
     min_gain: float,
 ) -> tuple[tuple[int, float], ...]:
-    """Recursive binary segmentation (``ruptures``-style) by gain.
+    """Binary segmentation (``ruptures``-style) by gain, iteratively.
 
-    Greedy two-pass recursion: the best split of a segment is the cut
-    maximizing ``gain`` (subject to ``min_size`` on both sides); the
-    segment is split there whenever the gain exceeds ``min_gain``, then
-    each half is considered recursively.  Returns ``(index, gain)``
+    Greedy two-pass: the best split of a segment is the cut maximizing
+    ``gain`` (subject to ``min_size`` on both sides); the segment is
+    split there whenever the gain exceeds ``min_gain``, then each half
+    is considered in turn.  The recursion is expressed as an explicit
+    stack of index-ranges so long series cannot hit Python's recursion
+    depth limit (each work item is one segment ``(start, stop)`` range
+    pushed and popped, never a call frame).  Returns ``(index, gain)``
     with ``index`` = first position of the right segment, sorted by
     index.  Deterministic: strict improvement required, first cut wins
-    ties.
+    ties — and byte-identical to the earlier recursive form, since the
+    splits found depend only on the segments themselves and the result
+    is sorted.
     """
     _validate_values(values, name="segment values", minimum=2)
     if min_size < 1:
@@ -136,10 +153,11 @@ def segment(
         raise ValueError("min_gain must be finite and >= 0")
 
     splits: list[tuple[int, float]] = []
-
-    def recurse(indices: list[int]) -> None:
+    stack: list[list[int]] = [list(range(len(values)))]
+    while stack:
+        indices = stack.pop()
         if len(indices) < 2 * min_size:
-            return
+            continue
         best_cut: int | None = None
         best_gain = min_gain
         for cut in range(min_size, len(indices) - min_size + 1):
@@ -150,10 +168,8 @@ def segment(
                 best_gain = candidate_gain
                 best_cut = cut
         if best_cut is None:
-            return
+            continue
         splits.append((indices[best_cut], best_gain))
-        recurse(indices[:best_cut])
-        recurse(indices[best_cut:])
-
-    recurse(list(range(len(values))))
+        stack.append(indices[:best_cut])
+        stack.append(indices[best_cut:])
     return tuple(sorted(splits))
