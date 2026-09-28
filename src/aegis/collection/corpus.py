@@ -187,6 +187,7 @@ class SyntheticCorpusBuilder:
                 )
 
         alias_by_id = {alias.alias_id: alias for alias in aliases}
+        actor_by_id = {actor.actor_id: actor for actor in actors}
         aliases_by_platform: dict[str, list[CorpusAlias]] = {}
         for alias in aliases:
             aliases_by_platform.setdefault(alias.platform, []).append(alias)
@@ -195,11 +196,13 @@ class SyntheticCorpusBuilder:
         posts: list[CorpusPost] = []
         thread_ids = [f"thread-{n:04d}" for n in range(max(10, self.post_count // 10))]
         posts_by_platform: dict[str, list[CorpusPost]] = {name: [] for name in PLATFORMS}
+        post_by_id: dict[str, CorpusPost] = {}
 
         for index in range(self.post_count):
             platform = rng.choice(platform_names)
             alias = rng.choice(aliases_by_platform[platform])
-            actor = next(a for a in actors if a.actor_id == alias.actor_id)
+            # dict index, not a linear scan over actors (O(posts) -> O(1))
+            actor = actor_by_id[alias.actor_id]
             style = _STYLE_MARKERS[actor.style_marker]
             terms = rng.sample(_TOPIC_TERMS, k=3)
             parent: CorpusPost | None = None
@@ -227,6 +230,7 @@ class SyntheticCorpusBuilder:
             )
             posts.append(post)
             posts_by_platform[platform].append(post)
+            post_by_id[post.post_id] = post
 
         # ----------------------------------------------------- relationships
         relationships: list[CorpusRelationship] = []
@@ -251,7 +255,8 @@ class SyntheticCorpusBuilder:
         # (2) reply links (cross-alias interaction)
         for post in posts:
             if post.parent_post_id:
-                parent = next(p for p in posts if p.post_id == post.parent_post_id)
+                # dict index, not a linear scan over every post (O(posts^2) -> O(posts))
+                parent = post_by_id[post.parent_post_id]
                 if parent.alias_id != post.alias_id:
                     relationships.append(
                         CorpusRelationship(
