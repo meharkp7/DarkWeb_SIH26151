@@ -3,7 +3,8 @@
 	evaluate benchmark report security-scan schema-check precommit frontend-install \
 	frontend-dev frontend-build clean
 
-PY ?= uv run
+UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
+PY ?= UV_CACHE_DIR=$(UV_CACHE_DIR) uv run
 PYTEST = PYTHONPATH=src $(PY) pytest
 SRC = src tests scripts
 
@@ -28,15 +29,15 @@ test-integration:
 	AEGIS_REQUIRE_DB=1 $(PYTEST) -q -m integration
 
 lint:
-	uv run ruff check $(SRC)
-	uv run ruff format --check $(SRC)
+	$(PY) ruff check $(SRC)
+	$(PY) ruff format --check $(SRC)
 
 format:
-	uv run ruff format $(SRC)
-	uv run ruff check --fix $(SRC)
+	$(PY) ruff format $(SRC)
+	$(PY) ruff check --fix $(SRC)
 
 typecheck:
-	uv run mypy src
+	$(PY) mypy src
 
 schema-check:
 	PYTHONPATH=src $(PY) scripts/validate_schemas.py
@@ -47,16 +48,16 @@ security-scan:
 
 build:
 	@test -f apps/frontend/package.json || (echo "apps/frontend missing — run 'make frontend-install'"; exit 1)
-	uv build
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv build
 	cd apps/frontend && npm run build
 
 precommit:
-	uv run pre-commit run --all-files
+	$(PY) pre-commit run --all-files
 
 ## ---------------------------------------------------------------- runtime
 
 run:
-	PYTHONPATH=src uv run uvicorn aegis.api.app:app --reload --host 127.0.0.1 --port 8000
+	PYTHONPATH=src $(PY) uvicorn aegis.api.app:app --reload --host 127.0.0.1 --port 8000
 
 worker:
 	@PYTHONPATH=src $(PY) python -c "import aegis.worker.app" 2>/dev/null || (echo "aegis.worker not implemented yet (planned Phase 26 worker runtime)"; exit 1)
@@ -79,10 +80,10 @@ up: infra-up
 down: infra-down
 
 migrate:
-	uv run alembic upgrade head
+	$(PY) alembic upgrade head
 
 revision:
-	uv run alembic revision --autogenerate -m "update schema"
+	$(PY) alembic revision --autogenerate -m "update schema"
 
 ## ---------------------------------------------------------------- data & ML
 

@@ -32,6 +32,12 @@ from enum import StrEnum
 from aegis.search.types import MatchMode
 
 
+def _require_str_tuple(values: tuple[str, ...], field_name: str) -> None:
+    """Reject malformed query selectors at the trust boundary."""
+    if any(not isinstance(value, str) or not value.strip() for value in values):
+        raise ValueError(f"{field_name} must contain only non-empty strings")
+
+
 class IntentKind(StrEnum):
     """Analyst intents the copilot routes (plan Phase 22)."""
 
