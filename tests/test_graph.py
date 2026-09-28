@@ -6,11 +6,15 @@ generation for the Neo4j adapter.
 
 from __future__ import annotations
 
+import inspect
+import re
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
+from aegis.collection.corpus import SyntheticCorpusBuilder
+from aegis.extraction import extractors, ner
 from aegis.graph import (
     CypherBuilder,
     CypherQuery,
@@ -24,8 +28,12 @@ from aegis.graph import (
     label_for_entity_type,
     overlaps,
 )
-from aegis.ontology import EntityType, RelationshipType
+from aegis.ontology import ENTITY_CATEGORIES, EntityCategory, EntityType, RelationshipType
+from aegis.resolution.evaluate import build_interaction_graph
 from aegis.schemas.entity import Entity, Relationship
+from aegis.synthetic.evidence_generator import SyntheticEvidenceGenerator
+from aegis.synthetic.generator import SyntheticActorGenerator
+from aegis.synthetic.graph import EvidenceGraphBuilder
 
 JAN = datetime(2026, 1, 1, tzinfo=UTC)
 MAR = datetime(2026, 3, 1, tzinfo=UTC)
@@ -84,6 +92,129 @@ def test_label_mapping_and_analytical_exclusion() -> None:
     # analytical objects are not graph nodes
     assert label_for_entity_type(EntityType.HYPOTHESIS) is None
     assert label_for_entity_type(EntityType.STYLOMETRIC_PROFILE) is None
+
+
+# ------------------------------------------------- node-label coverage
+#
+# The enum must cover every node the codebase actually emits. These are
+# contract tests: a builder emitting a label (or entity type) the enum
+# lacks would either fail type checks silently at runtime or be dropped
+# by ``from_entities`` — both are regressions this section forbids.
+
+#: The plan's Phase 08 node vocabulary — every member must exist.
+PLAN_NODE_VOCABULARY = frozenset(
+    {
+        "Actor",
+        "Handle",
+        "PGP",
+        "Wallet",
+        "Marketplace",
+        "Forum",
+        "Infrastructure",
+        "Post",
+        "Evidence",
+    }
+)
+
+#: Entity types documented as non-graph (analysis store / bookkeeping):
+#: analytical objects live outside the graph by design, and source /
+#: collection-job rows are ledger plumbing, not entities.
+DOCUMENTED_NON_GRAPH_TYPES = frozenset(
+    {
+        EntityType.SOURCE,
+        EntityType.COLLECTION_JOB,
+        EntityType.BEHAVIORAL_PROFILE,
+        EntityType.STYLOMETRIC_PROFILE,
+        EntityType.HYPOTHESIS,
+        EntityType.ATTRIBUTION_ASSESSMENT,
+        EntityType.TIMELINE_EVENT,
+        EntityType.CHANGE_POINT,
+        EntityType.MIGRATION_ASSESSMENT,
+    }
+)
+
+
+def _extracted_entity_types() -> frozenset[EntityType]:
+    """Every ``EntityType`` the extraction pipeline can put on an ``Entity``."""
+    found: set[EntityType] = set()
+    for module in (extractors, ner):
+        for candidate in vars(module).values():
+            entity_types = getattr(candidate, "entity_types", None)
+            if inspect.isclass(candidate) and isinstance(entity_types, frozenset):
+                found |= set(entity_types)
+    return frozenset(found)
+
+
+def test_node_label_covers_the_plan_node_vocabulary() -> None:
+    assert PLAN_NODE_VOCABULARY <= {label.value for label in NodeLabel}
+    # StrEnum aliases would silently collapse distinct labels
+    assert len(set(NodeLabel)) == len(list(NodeLabel))
+
+
+def test_every_extracted_entity_type_has_a_node_label() -> None:
+    """An extracted type missing from the enum would be silently skipped
+    by ``from_entities`` — extracted entities must always become nodes."""
+    extracted = _extracted_entity_types()
+    assert extracted, "expected the extraction registry to expose entity types"
+    assert {t.value for t in extracted if label_for_entity_type(t) is None} == set()
+
+    # Phase 13 infrastructure extraction may emit any infrastructure type.
+    infrastructure = {
+        entity_type
+        for entity_type, category in ENTITY_CATEGORIES.items()
+        if category is EntityCategory.INFRASTRUCTURE
+    }
+    assert {t.value for t in infrastructure if label_for_entity_type(t) is None} == set()
+
+
+def test_from_entities_skips_exactly_the_documented_non_graph_types() -> None:
+    entities = [
+        Entity(
+            entity_id=uuid4(),
+            entity_type=entity_type,
+            surface_form="x",
+            normalized_form="x",
+            confidence=0.5,
+            evidence_id=uuid4(),
+        )
+        for entity_type in EntityType
+    ]
+
+    store = InMemoryGraphStore.from_entities(entities, [])
+
+    unmapped = {
+        entity_type for entity_type in EntityType if label_for_entity_type(entity_type) is None
+    }
+    assert unmapped == set(DOCUMENTED_NON_GRAPH_TYPES)
+    assert store.skipped_entities == len(DOCUMENTED_NON_GRAPH_TYPES)
+    # everything that became a node carries a real enum label (not a raw string)
+    assert all(isinstance(node.label, NodeLabel) for node in store.nodes.values())
+
+
+def test_builders_emit_only_labels_covered_by_the_enum() -> None:
+    # synthetic evidence graph (untyped string node types by design)
+    actors = SyntheticActorGenerator(seed=26151).generate(2)
+    evidence, relationships = SyntheticEvidenceGenerator(seed=26151).generate(actors)
+    graph = EvidenceGraphBuilder().build(evidence, relationships)
+    label_vocabulary = {label.value.casefold() for label in NodeLabel}
+    assert {node.node_type.casefold() for node in graph.nodes} <= label_vocabulary
+
+    # resolution's alias interaction graph (typed NodeLabel nodes)
+    corpus = SyntheticCorpusBuilder(seed=26151, actor_count=4, post_count=40).build()
+    interaction = build_interaction_graph(corpus)
+    assert interaction.nodes
+    assert all(isinstance(node.label, NodeLabel) for node in interaction.nodes.values())
+
+
+def test_common_identifiers_cypher_labels_stay_in_sync_with_the_enum() -> None:
+    """The Neo4j adapter hard-codes ``shared:Handle OR shared:PGP OR
+    shared:Wallet``; drift from :class:`NodeLabel` would silently return
+    nothing for a renamed label."""
+    query = CypherBuilder.common_identifiers("l", "r").text
+    cypher_labels = set(re.findall(r"shared:(\w+)", query))
+    assert cypher_labels == {"Handle", "PGP", "Wallet"}
+    for value in cypher_labels:
+        assert NodeLabel(value) is not None  # unknown label raises ValueError
 
 
 def test_temporal_helpers() -> None:

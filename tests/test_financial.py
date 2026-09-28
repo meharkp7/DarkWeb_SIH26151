@@ -287,6 +287,102 @@ def test_summary_is_deterministic() -> None:
     assert _flow_fixture().summary() == _flow_fixture().summary()
 
 
+# ------------------------------------------- adjacency index & amount split
+
+
+def test_multi_edge_transaction_splits_amount_across_emitted_edges() -> None:
+    """A 2x2 transaction emits four flow edges and contributes its amount once.
+
+    The old aggregation added the full ``transaction.amount`` to every
+    input x output edge (four times the flow for a 2x2 transaction); the
+    amount is now split evenly across the emitted edges so the pair
+    aggregates conserve the transaction's value.
+    """
+    graph = build_graph(
+        wallets=[_wallet(f"w{i}") for i in range(1, 5)],
+        transactions=[_tx("tx_split", ("w1", "w2"), ("w3", "w4"), amount=100.0)],
+    )
+
+    flows = graph.counterparty_pairs()
+    assert [(f.wallet_id, f.counterparty_id) for f in flows] == [
+        ("w1", "w3"),
+        ("w1", "w4"),
+        ("w2", "w3"),
+        ("w2", "w4"),
+    ]
+    assert all(f.total_amount == pytest.approx(25.0) for f in flows)
+    assert all(f.transaction_count == 1 for f in flows)
+    # conservation: the emitted edges sum to the transaction amount
+    assert sum(f.total_amount for f in flows) == pytest.approx(100.0)
+
+
+def test_single_flow_transaction_keeps_the_full_amount() -> None:
+    """A 1x1 transaction emits exactly one edge, which carries everything."""
+    graph = build_graph(
+        wallets=[_wallet("w1"), _wallet("w2")],
+        transactions=[_tx("tx_1x1", ("w1",), ("w2",), amount=1.5)],
+    )
+    flows = graph.counterparty_pairs()
+    assert len(flows) == 1
+    assert flows[0].total_amount == pytest.approx(1.5)
+
+
+def test_skipped_self_pair_leaves_the_amount_on_the_real_edge() -> None:
+    """Change-output transactions skip the source == target pair: the one
+    emitted edge (w2 -> w1) keeps the transaction's full amount."""
+    graph = build_graph(
+        wallets=[_wallet("w1"), _wallet("w2")],
+        transactions=[_tx("tx_change", ("w1", "w2"), ("w1",), amount=7.0)],
+    )
+    flows = graph.counterparty_pairs()
+    assert [(f.wallet_id, f.counterparty_id) for f in flows] == [("w1", "w2")]
+    assert flows[0].total_amount == pytest.approx(7.0)
+
+
+def test_amount_is_conserved_over_a_mixed_batch() -> None:
+    """Whatever the input/output shapes, summed pair amounts == summed tx amounts."""
+    graph = build_graph(
+        wallets=[_wallet(f"w{i}") for i in range(1, 6)],
+        transactions=[
+            _tx("tx_a", ("w1",), ("w2",), amount=1.0),
+            _tx("tx_b", ("w1", "w2"), ("w3", "w4"), amount=8.0),
+            _tx("tx_c", ("w3",), ("w3",)),  # self-payment: emits nothing
+            _tx("tx_d", ("w4", "w5"), ("w5",), amount=4.0),
+        ],
+    )
+    total_emitted = sum(flow.total_amount for flow in graph.counterparty_pairs())
+    total_transacted = 1.0 + 8.0 + 4.0
+    assert total_emitted == pytest.approx(total_transacted)
+
+
+def test_adjacency_index_matches_a_reference_scan() -> None:
+    """``degree``/``counterparties_of`` are index-backed but must agree,
+    value *and* order, with a scan over the aggregated pairs."""
+    graph = _flow_fixture()
+    reference = graph.counterparty_pairs()
+
+    for wallet_id in [f"w{i}" for i in range(1, 6)]:
+        expected_flows = tuple(
+            flow for flow in reference if wallet_id in (flow.wallet_id, flow.counterparty_id)
+        )
+        assert graph.degree(wallet_id) == len(expected_flows)
+        assert graph.counterparties_of(wallet_id) == expected_flows
+
+    # the maintained index itself: only this wallet's canonical pair keys
+    assert graph._wallet_pairs["w1"] == {("w1", "w2"), ("w1", "w3")}
+    assert graph._wallet_pairs["w3"] == {("w1", "w3")}
+    assert graph._wallet_pairs["w4"] == {("w4", "w5")}
+
+
+def test_adjacency_index_is_empty_for_wallets_without_flows() -> None:
+    graph = build_graph(
+        wallets=[_wallet("w1"), _wallet("w2"), _wallet("w3")],
+        transactions=[_tx("tx", ("w1",), ("w2",))],
+    )
+    assert graph.degree("w3") == 0
+    assert graph.counterparties_of("w3") == ()
+
+
 # ---------------------------------------------------------- burstiness
 
 
