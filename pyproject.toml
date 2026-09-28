@@ -32,6 +32,9 @@ packages = ["src/aegis"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "integration: requires a running PostgreSQL (AEGIS_REQUIRE_DB=1 to fail instead of skip)",
+]
 
 [tool.ruff]
 line-length = 100

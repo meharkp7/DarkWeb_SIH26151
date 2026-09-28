@@ -1,3 +1,5 @@
+import pytest
+
 from aegis.db.session import SessionLocal
 from aegis.synthetic.calibration import ConfidenceCalibrator
 from aegis.synthetic.candidate_links import CandidateLink
@@ -6,6 +8,8 @@ from aegis.synthetic.evidence_generator import SyntheticEvidenceGenerator
 from aegis.synthetic.generator import SyntheticActorGenerator
 from aegis.synthetic.hypothesis import AttributionHypothesisBuilder
 from aegis.synthetic.hypothesis_persistence import HypothesisPersistenceService
+
+pytestmark = pytest.mark.integration
 
 
 def test_hypothesis_persists_to_postgres() -> None:
