@@ -21,6 +21,11 @@ Metric computation mirrors ``aegis.evaluation.metrics.SyntheticEvaluator``
 (confusion counts -> precision/recall/F1) but extends it with PR-AUC
 and accuracy over *scored* pairs; that module is frozen for this phase,
 so the minimal logic lives here instead of being edited there.
+Average precision and best-F1 threshold selection are *not* duplicated
+here — they delegate to the canonical implementations in
+:mod:`aegis.resolution.metrics`, which use the canonical
+``(scores, labels)`` argument order and break threshold ties towards
+the highest cutoff.
 
 Ground truth (``same_actor_pairs``, actor style classes) is used only
 for labelling and scoring — never as a model input.
@@ -34,6 +39,12 @@ from dataclasses import dataclass
 from functools import cached_property
 
 from aegis.collection.corpus import SyntheticCorpus
+from aegis.resolution.metrics import (
+    average_precision as _canonical_average_precision,
+)
+from aegis.resolution.metrics import (
+    best_f1_threshold as _canonical_best_f1_threshold,
+)
 from aegis.stylometry.embeddings import EmbeddingProvider
 from aegis.stylometry.ngrams import NGramConfig
 from aegis.stylometry.transforms import TRANSFORM_NAMES, TransformName, apply_transform
@@ -48,56 +59,61 @@ DEFAULT_NEGATIVES_PER_POSITIVE = 3
 DEFAULT_TEST_RATIO = 0.3
 DEFAULT_SEVERITIES: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
 
+#: Cap on the per-evaluator transform memo (``StylometryEvaluator._transform_cache``).
+#: That plain dict grows on every transformed scoring pass; past this many distinct
+#: ``(alias, transform, severity, text)`` keys the oldest-inserted entry is evicted.
+MAX_TRANSFORM_CACHE_ENTRIES = 1024
+
+
+def _store_transform(
+    cache: dict[tuple[str, str, float, str], str],
+    key: tuple[str, str, float, str],
+    value: str,
+) -> None:
+    """Insert a transformed text, evicting the oldest entry at the cap.
+
+    Deterministic FIFO eviction (dicts preserve insertion order).
+    Eviction only costs a recompute: the cached value is a pure
+    function of the key, so results never depend on what is resident.
+    """
+    if len(cache) >= MAX_TRANSFORM_CACHE_ENTRIES:
+        cache.pop(next(iter(cache)))
+    cache[key] = value
+
 
 def _safe_divide(numerator: float, denominator: float) -> float:
     return 0.0 if denominator == 0 else numerator / denominator
 
 
-def best_f1_threshold(labels: Sequence[int], scores: Sequence[float]) -> float:
-    """Operating point maximising F1 on *labels*/*scores*.
+def best_f1_threshold(scores: Sequence[float], labels: Sequence[int]) -> float:
+    """Operating point maximising F1 on *scores*/*labels*.
+
+    Delegates to the canonical
+    :func:`aegis.resolution.metrics.best_f1_threshold` — the single
+    implementation shared with entity resolution — so the argument
+    order is ``(scores, labels)`` and ties resolve to the *highest*
+    threshold (not the cutoff closest to 0.5).
 
     The logistic model is trained on a 1:N candidate set, so its raw
     probabilities are calibrated to that prior and a fixed 0.5 cutoff
-    would trade away recall. This picks the cutoff by a deterministic
-    sweep over the observed scores; ties resolve towards the cutoff
-    closest to 0.5. Callers must pass *training* scores — tuning on the
-    held-out split would leak.
+    would trade away recall.  Callers must pass *training* scores —
+    tuning on the held-out split would leak.
     """
-    if len(labels) != len(scores) or not labels:
-        raise ValueError("labels and scores must be non-empty and equal length")
-    best_threshold = 0.5
-    best_f1 = -1.0
-    for candidate in sorted(set(scores)):
-        metrics = ClassificationMetrics.from_scores(labels, scores, threshold=candidate)
-        if metrics.f1 > best_f1 + 1e-12 or (
-            abs(metrics.f1 - best_f1) <= 1e-12 and abs(candidate - 0.5) < abs(best_threshold - 0.5)
-        ):
-            best_f1 = metrics.f1
-            best_threshold = candidate
-    return best_threshold
+    return _canonical_best_f1_threshold(scores, labels)
 
 
-def average_precision(labels: Sequence[int], scores: Sequence[float]) -> float:
+def average_precision(scores: Sequence[float], labels: Sequence[int]) -> float:
     """Area under the precision-recall curve (average precision).
 
-    Scores are ranked high-to-low with a stable index tie-break; at
-    every positive label the current precision is accumulated and
-    divided by the number of positives. Returns 0.0 when there are no
-    positives.
+    Delegates to the canonical
+    :func:`aegis.resolution.metrics.average_precision` — the single
+    implementation shared with entity resolution — so the argument
+    order is ``(scores, labels)``.  Scores are ranked high-to-low with
+    a stable index tie-break; at every positive label the current
+    precision is accumulated and divided by the number of positives.
+    Returns 0.0 when there are no positives.
     """
-    if len(labels) != len(scores):
-        raise ValueError("labels and scores must have equal length")
-    positives = sum(labels)
-    if positives == 0 or not labels:
-        return 0.0
-    order = sorted(range(len(labels)), key=lambda index: (-scores[index], index))
-    hits = 0
-    total = 0.0
-    for rank, index in enumerate(order, start=1):
-        if labels[index] == 1:
-            hits += 1
-            total += hits / rank
-    return total / positives
+    return _canonical_average_precision(scores, labels)
 
 
 @dataclass(frozen=True)
@@ -123,7 +139,13 @@ class ClassificationMetrics:
         *,
         threshold: float = 0.5,
     ) -> ClassificationMetrics:
-        """Threshold *scores* at *threshold* and score against *labels*."""
+        """Threshold *scores* at *threshold* and score against *labels*.
+
+        All reported fields are rounded to 3 decimals: rounding here is
+        a *presentation* concern.  Threshold *selection* does not use
+        these rounded values — it runs the canonical unrounded sweep in
+        :func:`best_f1_threshold`.
+        """
         if len(labels) != len(scores) or not labels:
             raise ValueError("labels and scores must be non-empty and equal length")
         predictions = [1 if score >= threshold else 0 for score in scores]
@@ -143,7 +165,7 @@ class ClassificationMetrics:
             precision=round(precision, 3),
             recall=round(recall, 3),
             f1=round(_safe_divide(2 * precision * recall, precision + recall), 3),
-            pr_auc=round(average_precision(labels, scores), 3),
+            pr_auc=round(average_precision(scores, labels), 3),
             accuracy=round(_safe_divide(tp + tn, len(labels)), 3),
             false_positive_rate=round(_safe_divide(fp, fp + tn), 3),
         )
@@ -445,7 +467,7 @@ class StylometryEvaluator:
                         right_text, transform, severity=severity, seed=seed
                     )
                     if transform_cache is not None:
-                        transform_cache[cache_key] = right_text
+                        _store_transform(transform_cache, cache_key, right_text)
             features = extractor.features(documents[pair.left_alias], right_text)
             labels.append(pair.label)
             scores.append(model.predict_proba(features.values))
@@ -464,7 +486,7 @@ class StylometryEvaluator:
             extractor, model, self.train_pairs, self.documents
         )
         test_labels, test_scores = self._scores(extractor, model, self.test_pairs, self.documents)
-        threshold = best_f1_threshold(train_labels, train_scores)
+        threshold = best_f1_threshold(train_scores, train_labels)
         return BaselineResult(
             train_metrics=ClassificationMetrics.from_scores(
                 train_labels, train_scores, threshold=threshold
@@ -520,7 +542,7 @@ class StylometryEvaluator:
         )
         train_labels, train_scores = self._scores(extractor, model, train_pairs, self.documents)
         test_labels, test_scores = self._scores(extractor, model, test_pairs, self.documents)
-        threshold = best_f1_threshold(train_labels, train_scores)
+        threshold = best_f1_threshold(train_scores, train_labels)
         return CrossDomainResult(
             train_platform=self.train_platform,
             test_platform=self.test_platform,

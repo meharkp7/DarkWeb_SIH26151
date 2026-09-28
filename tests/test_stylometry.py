@@ -371,18 +371,24 @@ def test_stratified_split_properties_and_determinism() -> None:
 
 
 def test_average_precision_values() -> None:
-    assert average_precision([1, 1, 0, 0], [0.9, 0.8, 0.7, 0.6]) == pytest.approx(1.0)
-    assert average_precision([1, 1, 0, 0], [0.1, 0.2, 0.9, 0.8]) == pytest.approx(0.417, abs=1e-3)
-    assert average_precision([0, 0], [0.5, 0.5]) == 0.0
-    with pytest.raises(ValueError):
-        average_precision([1], [0.5, 0.5])
+    # canonical argument order is (scores, labels) — shared with aegis.resolution
+    assert average_precision([0.9, 0.8, 0.7, 0.6], [1, 1, 0, 0]) == pytest.approx(1.0)
+    assert average_precision([0.1, 0.2, 0.9, 0.8], [1, 1, 0, 0]) == pytest.approx(0.417, abs=1e-3)
+    assert average_precision([0.5, 0.5], [0, 0]) == 0.0
+    with pytest.raises(ValueError, match="align"):
+        average_precision([0.5, 0.5], [1])
+    # swapped (labels, scores) arguments are caught by the label-domain guard
+    with pytest.raises(ValueError, match="labels must be 0 or 1"):
+        average_precision([1, 1, 0, 0], [0.9, 0.8, 0.7, 0.6])
 
 
 def test_best_f1_threshold_picks_separating_cutoff() -> None:
     labels = [1, 1, 0, 0]
     scores = [0.9, 0.6, 0.55, 0.1]
-    assert best_f1_threshold(labels, scores) == pytest.approx(0.6)
-    with pytest.raises(ValueError):
+    # expectation unchanged by the tie-break unification: F1 = 1.0 at 0.6 is a
+    # unique maximum, so "highest threshold" and "closest to 0.5" agree here
+    assert best_f1_threshold(scores, labels) == pytest.approx(0.6)
+    with pytest.raises(ValueError, match="threshold"):
         best_f1_threshold([], [])
 
 
