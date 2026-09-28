@@ -1,7 +1,34 @@
+"""Explainable candidate-link generation between synthetic actors.
+
+The engine groups evidence by actor once, builds one index per actor,
+and then compares index *pairs* — so every per-actor structure (handles,
+type -> evidence map) is computed ``O(actors)`` times instead of being
+rebuilt inside the ``O(actors^2)`` comparison loop.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from itertools import combinations
 
 from aegis.synthetic.evidence import SyntheticEvidence
+
+#: Feature weights of the final score (kept frozen here so every call
+#: site — including tests — reads one constant instead of rebuilding it).
+FEATURE_WEIGHTS: dict[str, float] = {
+    "handle_overlap": 0.15,
+    "indicator_similarity": 0.85,
+}
+
+#: Relative weight of each comparable indicator type inside the
+#: ``indicator_similarity`` feature.
+INDICATOR_WEIGHTS: dict[str, float] = {
+    "writing_style": 0.20,
+    "timezone": 0.20,
+    "wallet": 0.60,
+}
 
 
 @dataclass(frozen=True)
@@ -20,6 +47,20 @@ class CandidateLink:
     features: tuple[LinkFeature, ...]
 
 
+@dataclass(frozen=True)
+class ActorIndex:
+    """Per-actor lookup structures built once and reused for every pair.
+
+    Rebuilding these inside the comparison loop made ``generate()`` do
+    ``O(pairs x evidence)`` work; they only depend on the actor's own
+    evidence, so they are computed once per actor (``O(actors)``).
+    """
+
+    handles: frozenset[str]
+    #: evidence type -> its (last-seen) item, excluding ``handle`` entries
+    by_type: Mapping[str, SyntheticEvidence]
+
+
 class CandidateLinkEngine:
     """Generate explainable candidate links between synthetic actors."""
 
@@ -33,13 +74,15 @@ class CandidateLinkEngine:
         for item in evidence:
             by_actor.setdefault(item.actor_id, []).append(item)
 
+        # one index per actor, hoisted OUT of the pair loop below
+        indexes = {actor_id: self.index(items) for actor_id, items in by_actor.items()}
         actor_ids = sorted(by_actor)
         candidates: list[CandidateLink] = []
 
         for source_id, target_id in combinations(actor_ids, 2):
             features = self._compare(
-                by_actor[source_id],
-                by_actor[target_id],
+                indexes[source_id],
+                indexes[target_id],
             )
 
             score = self._aggregate(features)
@@ -60,16 +103,23 @@ class CandidateLinkEngine:
         return candidates
 
     @staticmethod
+    def index(items: list[SyntheticEvidence]) -> ActorIndex:
+        """Build one actor's comparison index (handles + type -> evidence)."""
+        return ActorIndex(
+            handles=frozenset(
+                item.value.lower() for item in items if item.evidence_type == "handle"
+            ),
+            by_type={item.evidence_type: item for item in items if item.evidence_type != "handle"},
+        )
+
+    @staticmethod
     def _compare(
-        source: list[SyntheticEvidence],
-        target: list[SyntheticEvidence],
+        source: ActorIndex,
+        target: ActorIndex,
     ) -> list[LinkFeature]:
         features: list[LinkFeature] = []
 
-        source_handles = {item.value.lower() for item in source if item.evidence_type == "handle"}
-        target_handles = {item.value.lower() for item in target if item.evidence_type == "handle"}
-
-        handle_overlap = bool(source_handles & target_handles)
+        handle_overlap = bool(source.handles & target.handles)
 
         features.append(
             LinkFeature(
@@ -83,31 +133,18 @@ class CandidateLinkEngine:
             )
         )
 
-        source_by_type = {
-            item.evidence_type: item for item in source if item.evidence_type != "handle"
-        }
-        target_by_type = {
-            item.evidence_type: item for item in target if item.evidence_type != "handle"
-        }
-
-        comparable_types = sorted(set(source_by_type) & set(target_by_type))
-
-        indicator_weights = {
-            "writing_style": 0.20,
-            "timezone": 0.20,
-            "wallet": 0.60,
-        }
+        comparable_types = sorted(set(source.by_type) & set(target.by_type))
 
         weighted_matches = 0.0
         total_weight = 0.0
         matches = 0
         for evidence_type in comparable_types:
-            weight = indicator_weights.get(evidence_type, 0.0)
+            weight = INDICATOR_WEIGHTS.get(evidence_type, 0.0)
             if weight <= 0.0:
                 continue
 
-            source_item = source_by_type[evidence_type]
-            target_item = target_by_type[evidence_type]
+            source_item = source.by_type[evidence_type]
+            target_item = target.by_type[evidence_type]
 
             total_weight += weight
 
@@ -137,18 +174,13 @@ class CandidateLinkEngine:
         if not features:
             return 0.0
 
-        weights = {
-            "handle_overlap": 0.15,
-            "indicator_similarity": 0.85,
-        }
-
-        weighted_score = sum(feature.score * weights.get(feature.name, 0.0) for feature in features)
+        weighted_score = sum(
+            feature.score * FEATURE_WEIGHTS.get(feature.name, 0.0) for feature in features
+        )
 
         return round(weighted_score, 3)
 
     @staticmethod
     def _link_id(source_id: str, target_id: str) -> str:
-        import hashlib
-
         value = f"{source_id}:{target_id}"
         return hashlib.sha256(value.encode()).hexdigest()[:24]

@@ -1,3 +1,20 @@
+"""Persist synthetic actors and evidence through the AEGIS evidence layer.
+
+Two batching decisions live here (review findings):
+
+* **One digest prefetch** — every item's content digest is collected
+  first and resolved with a single ``sha256 IN (...)`` query
+  (:meth:`EvidenceService.get_by_sha256_batch`) instead of one
+  ``get_by_sha256`` SELECT per row. Rows created later in the same call
+  are folded back into the lookup map, so a digest that repeats inside
+  one batch still reuses the first record exactly as a per-row lookup
+  would have.
+* **One commit at the end** — inserts go through
+  ``create_evidence(..., commit=False)`` (flush only), and the whole
+  batch commits once here, so N rows cost one commit round-trip while
+  each row's audit entry is still written inside that same transaction.
+"""
+
 from datetime import UTC, datetime
 from hashlib import sha256
 from uuid import UUID
@@ -35,15 +52,29 @@ class SyntheticPersistenceService:
         actors: list[SyntheticActor],
         evidence: list[SyntheticEvidence],
     ) -> list[EvidenceRecord]:
+        """Insert (or content-reuse) every item, committing once at the end.
+
+        Reuse is content-level: an item whose digest already exists in the
+        ledger resolves to the earliest existing observation instead of a
+        new row. On any failure the caller owns rollback (the analysis
+        route rolls the session back).
+        """
         actor_map = {actor.actor_id: actor for actor in actors}
-        records: list[EvidenceRecord] = []
 
+        # Serialize once, up front: the digests drive the single prefetch.
+        prepared: list[tuple[SyntheticEvidence, bytes, str]] = []
         for item in evidence:
-            actor = actor_map[item.actor_id]
-            content = self._serialize_evidence(actor, item)
-            digest = sha256(content).hexdigest()
+            content = self._serialize_evidence(actor_map[item.actor_id], item)
+            prepared.append((item, content, sha256(content).hexdigest()))
 
-            existing = self.evidence_service.get_by_sha256(digest)
+        reused_by_digest: dict[str, EvidenceRecord] = self.evidence_service.get_by_sha256_batch(
+            [digest for _, _, digest in prepared]
+        )
+
+        records: list[EvidenceRecord] = []
+        for item, content, digest in prepared:
+            actor = actor_map[item.actor_id]
+            existing = reused_by_digest.get(digest)
 
             if existing is not None:
                 records.append(existing)
@@ -74,13 +105,20 @@ class SyntheticPersistenceService:
                 },
             )
 
-            records.append(
-                self.evidence_service.create_evidence(
-                    payload,
-                    content,
-                )
+            record = self.evidence_service.create_evidence(
+                payload,
+                content,
+                commit=False,
             )
+            records.append(record)
+            # Fold the row just flushed back into the map so a digest that
+            # repeats later in this batch reuses it (get_by_sha256 would
+            # have seen the committed row).
+            reused_by_digest[digest] = record
 
+        # Single commit for the whole batch: every row and its audit entry
+        # land in one transaction (see module docstring).
+        self.evidence_service.db.commit()
         return records
 
     @staticmethod
