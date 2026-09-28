@@ -1,5 +1,6 @@
 """Analyst Copilot package."""
 
+from aegis.copilot.service import run_copilot
 from aegis.copilot.tools import (
     CopilotToolContext,
     compare_hypotheses,
@@ -19,5 +20,6 @@ __all__ = (
     "get_assessment",
     "get_timeline",
     "query_graph",
+    "run_copilot",
     "search_evidence",
 )
