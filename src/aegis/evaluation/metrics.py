@@ -14,6 +14,11 @@ class EvaluationMetrics:
     f1: float
     false_positive_rate: float
 
+    @property
+    def false_association_rate(self) -> float:
+        """Phase 20 terminology for false positive rate."""
+        return self.false_positive_rate
+
 
 class SyntheticEvaluator:
     """Evaluate candidate-link predictions against synthetic ground truth."""
