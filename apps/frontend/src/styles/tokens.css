@@ -1,0 +1,59 @@
+/* AEGIS design tokens — dark investigation-tool theme. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #0a0d13;
+  --bg-elev: #10141c;
+  --bg-panel: #141924;
+  --bg-inset: #0d1119;
+  --bg-hover: #1a2130;
+  --bg-header: linear-gradient(180deg, #121722 0%, #0f131b 100%);
+
+  /* Lines */
+  --border: #212938;
+  --border-strong: #2c3648;
+
+  /* Text */
+  --text: #e2e8f4;
+  --text-dim: #9aa5ba;
+  --text-faint: #6d7891;
+
+  /* Accents */
+  --accent: #4cc2ff;
+  --accent-soft: rgba(76, 194, 255, 0.12);
+  --accent-line: rgba(76, 194, 255, 0.32);
+  --accent-contrast: #051724;
+  --violet: #8b7bff;
+
+  /* Status */
+  --ok: #35d67f;
+  --ok-soft: rgba(53, 214, 127, 0.12);
+  --warn: #ffb02e;
+  --warn-soft: rgba(255, 176, 46, 0.12);
+  --danger: #ff5f6d;
+  --danger-soft: rgba(255, 95, 109, 0.12);
+  --info: var(--accent);
+
+  /* Type */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12.5px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 22px;
+
+  /* Shape */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.35);
+
+  /* Layout */
+  --nav-w: 236px;
+  --header-h: 56px;
+  --content-max: 1440px;
+}
