@@ -20,7 +20,10 @@ Profiles are built from :class:`PostingEvent` records (a small,
 dependency-free adapter over collected posts) and are immutable and
 deterministic. Comparison happens in :mod:`aegis.behavior.similarity`
 via statistical distances — sequence models are explicitly deferred
-(see that module's docstring for the roadmap note).
+(see that module's docstring for the roadmap note). The topic
+vocabulary scanned per build is bounded by
+:data:`~aegis.behavior.profile.MAX_TOPIC_VOCABULARY_SIZE` so profile
+construction stays linear in events, never in vocabulary size.
 """
 
 from __future__ import annotations
@@ -49,6 +52,18 @@ DEFAULT_TOPIC_VOCABULARY: tuple[str, ...] = (
     "vendor",
     "wallet",
 )
+
+#: Hard cap on the topic vocabulary a single profile build will scan
+#: (review finding: an unbounded vocabulary made profiling
+#: ``O(events x vocab)`` and let the topic distribution grow without
+#: bound, which in turn made aligning two profiles' topic labels more
+#: expensive). The caller's first ``MAX_TOPIC_VOCABULARY_SIZE`` terms are
+#: kept, in caller order, so the choice is deterministic; terms beyond
+#: the cap are ignored and fall through to ``"general"``, bounding
+#: topic-label cardinality at ``MAX_TOPIC_VOCABULARY_SIZE + 1``. The
+#: default vocabulary (14 terms) is far below the cap, so existing
+#: profiles are unaffected.
+MAX_TOPIC_VOCABULARY_SIZE: int = 32
 
 #: Inter-arrival gap bins in seconds: <5m, <30m, <2h, <6h, <24h, <3d, <7d, >=7d.
 INTER_ARRIVAL_BIN_EDGES: tuple[float, ...] = (
@@ -119,18 +134,29 @@ def _std(values: Sequence[float]) -> float:
     return math.sqrt(sum((value - average) ** 2 for value in values) / len(values))
 
 
+def _lowered_terms(vocabulary: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    """``(term, lowered term)`` pairs, lowered once per profile build."""
+    return tuple((term, term.lower()) for term in vocabulary)
+
+
+def _match_topic(lowered_text: str, lowered_terms: Sequence[tuple[str, str]]) -> str:
+    """First vocabulary term present in *lowered_text* (else ``"general"``)."""
+    for term, lowered_term in lowered_terms:
+        if lowered_term in lowered_text:
+            return term
+    return "general"
+
+
 def assign_topic(text: str, vocabulary: Sequence[str]) -> str:
     """First vocabulary term present in *text* (else ``"general"``).
 
     A deterministic keyword scan stands in for a topic model; the
     vocabulary is caller-controlled so the function never depends on
-    any ML component.
+    any ML component. (Profile builds use the capped, pre-lowered path —
+    see :func:`build_behavior_profile` — but this single-call helper
+    stays uncapped so one-off lookups keep working unchanged.)
     """
-    lowered = text.lower()
-    for term in vocabulary:
-        if term.lower() in lowered:
-            return term
-    return "general"
+    return _match_topic(text.lower(), _lowered_terms(vocabulary))
 
 
 def events_from_corpus(
@@ -213,7 +239,13 @@ def build_behavior_profile(
         events: The events authored by the identity being profiled.
             Must be non-empty.
         profile_id: Identifier copied onto the profile.
-        topic_vocabulary: Keywords for :func:`assign_topic`.
+        topic_vocabulary: Keywords for :func:`assign_topic`. **Capped**:
+            only the first :data:`MAX_TOPIC_VOCABULARY_SIZE` terms are
+            scanned (caller order, deterministic), so a huge vocabulary
+            cannot make a build ``O(events x vocab)`` nor push topic-label
+            cardinality past ``MAX_TOPIC_VOCABULARY_SIZE + 1``; terms
+            past the cap fall through to ``"general"``. The vocabulary is
+            also lowered once here, not once per event.
         context_events: Wider event stream (optional) used to count
             *inbound* replies; without it the interaction degree only
             sees outbound counterparties.
@@ -225,6 +257,9 @@ def build_behavior_profile(
         raise ValueError("cannot build a BehaviorProfile from zero events")
     if any(event.posted_at.tzinfo is None for event in events):
         raise ValueError("event timestamps must be timezone-aware")
+
+    vocabulary = tuple(topic_vocabulary[:MAX_TOPIC_VOCABULARY_SIZE])
+    lowered_terms = _lowered_terms(vocabulary)
 
     ordered = sorted(events, key=lambda event: (event.posted_at, event.event_id))
     hours = [0.0] * HOURS_PER_DAY
@@ -238,7 +273,7 @@ def build_behavior_profile(
     for event in ordered:
         hours[event.posted_at.hour] += 1.0
         days[event.posted_at.weekday()] += 1.0
-        topic = assign_topic(event.text, topic_vocabulary)
+        topic = _match_topic(event.text.lower(), lowered_terms)
         topic_counts[topic] = topic_counts.get(topic, 0.0) + 1.0
         platform_counts[event.platform] = platform_counts.get(event.platform, 0.0) + 1.0
         if event.parent_author_id is not None:
