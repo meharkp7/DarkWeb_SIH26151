@@ -5,6 +5,22 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
   overflow: hidden;
+  position: relative;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(255,255,255,0.04), transparent 28%);
+}
+
+.panel:hover {
+  border-color: rgba(94, 208, 255, 0.26);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
 }
 
 .panel__head {
@@ -115,13 +131,17 @@
   cursor: pointer;
   transition:
     background 120ms ease,
-    border-color 120ms ease;
+    border-color 120ms ease,
+    transform 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .btn:hover {
   background: var(--bg-hover);
   border-color: var(--accent-line);
   text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
 }
 
 .btn:disabled {
@@ -138,6 +158,16 @@
 .btn--primary:hover {
   background: #6ccdff;
   border-color: #6ccdff;
+}
+
+.table-link {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.table-link:hover {
+  color: var(--accent);
+  text-decoration: none;
 }
 
 .btn--ghost {

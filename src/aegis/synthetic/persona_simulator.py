@@ -52,7 +52,12 @@ class AdversarialPersonaSimulator:
         changed = ["alias"]
         if level >= MigrationLevel.L2_ALIAS_VOCABULARY:
             # Language is the synthetic corpus' vocabulary/style proxy.
-            migrated = replace(migrated, language=self._LANGUAGE_ROTATION[actor.language])
+            indicators = (*actor.indicators[:2], self._digest(f"{actor.actor_id}:vocabulary"))
+            migrated = replace(
+                migrated,
+                language=self._LANGUAGE_ROTATION[actor.language],
+                indicators=indicators,
+            )
             changed.append("vocabulary")
         if level >= MigrationLevel.L3_ALIAS_VOCABULARY_BEHAVIOR:
             migrated = replace(migrated, timezone=self._TIMEZONE_ROTATION[actor.timezone])
@@ -73,7 +78,7 @@ class AdversarialPersonaSimulator:
                 migrated,
                 indicators=tuple(
                     self._digest(f"{actor.actor_id}:rotated:{indicator}")
-                    for indicator in actor.indicators
+                    for indicator in migrated.indicators
                 ),
             )
             changed.extend(("identifiers", "infrastructure"))

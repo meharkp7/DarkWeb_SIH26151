@@ -1,6 +1,6 @@
 """Reproducible benchmark runner: one deterministic run per seed."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import perf_counter
 
 from aegis.evaluation.benchmark import SyntheticBenchmark
@@ -17,8 +17,11 @@ class BenchmarkResult:
     metrics: EvaluationMetrics
     evidence_count: int = 0
     candidate_count: int = 0
-    generation_ms: float = 0.0
-    candidate_generation_ms: float = 0.0
+    # Wall-clock values are operational observations, not deterministic
+    # benchmark outputs. Keep them out of equality so repeated seeded runs
+    # can be compared reliably while still reporting timings to operators.
+    generation_ms: float = field(default=0.0, compare=False)
+    candidate_generation_ms: float = field(default=0.0, compare=False)
 
 
 class SyntheticBenchmarkRunner:

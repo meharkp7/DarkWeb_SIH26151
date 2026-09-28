@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { api, apiUrl, formatApiError } from '../api/client';
+import type { InvestigationCase } from '../api/types';
 import { Badge } from '../components/Badge';
 import { DataTable } from '../components/DataTable';
 import type { Column } from '../components/DataTable';
-import { EmptyState } from '../components/States';
+import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { Panel } from '../components/Panel';
-import type { CaseCreate } from '../api/types';
+import { formatDate } from '../lib/format';
+import { useApi } from '../hooks/useApi';
 
 interface ScreenLink {
   readonly to: string;
@@ -77,9 +80,9 @@ function linkTone(status: ScreenLink['status']): 'ok' | 'info' | 'warn' {
 /**
  * Screen 1 — case list + "New case" form.
  *
- * `GET /api/v1/cases` and `POST /api/v1/cases` do not exist yet
- * (`src/aegis/api/app.py`), so the table shows an honest empty state and the
- * form prepares (but does not send) its payload.
+ * Durable case registry backed by the API. A case is the analyst's entry
+ * point into all evidence and assessment work; creation immediately opens its
+ * workspace rather than leaving a dead-end form.
  */
 export function CasesPage() {
   const navigate = useNavigate();
@@ -87,11 +90,21 @@ export function CasesPage() {
   const [description, setDescription] = useState('');
   const [openId, setOpenId] = useState('');
   const [submission, setSubmission] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const { data: cases, loading, error, reload } = useApi<InvestigationCase[]>(apiUrl('/v1/cases'));
 
-  const caseColumns: ReadonlyArray<Column<never>> = [
-    { key: 'name', header: 'Name', render: () => null },
-    { key: 'status', header: 'Status', render: () => null },
-    { key: 'created', header: 'Created', render: () => null },
+  const caseColumns: ReadonlyArray<Column<InvestigationCase>> = [
+    {
+      key: 'name',
+      header: 'Investigation',
+      render: (item) => (
+        <Link className="table-link" to={`/cases/${encodeURIComponent(item.case_id)}`}>
+          {item.name}
+        </Link>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (item) => <Badge tone="info">{item.status}</Badge> },
+    { key: 'created', header: 'Created', render: (item) => formatDate(item.created_at) },
   ];
 
   const handleCreate = (event: FormEvent<HTMLFormElement>) => {
@@ -101,13 +114,19 @@ export function CasesPage() {
       setSubmission('A case name is required.');
       return;
     }
-    const payload: CaseCreate = {
+    const payload = {
       name: trimmed,
       description: description.trim() === '' ? null : description.trim(),
     };
-    setSubmission(
-      `POST /api/v1/cases is not implemented yet, so nothing was sent. Payload prepared: ${JSON.stringify(payload)}`,
-    );
+    setCreating(true);
+    setSubmission(null);
+    api.createCase(payload)
+      .then((created) => {
+        reload();
+        navigate(`/cases/${encodeURIComponent(created.case_id)}`);
+      })
+      .catch((reason: unknown) => setSubmission(formatApiError(reason)))
+      .finally(() => setCreating(false));
   };
 
   const handleOpenWorkspace = (event: FormEvent<HTMLFormElement>) => {
@@ -122,27 +141,28 @@ export function CasesPage() {
         <div>
           <h1 className="page-title">Cases</h1>
           <p className="page-sub">
-            Investigation workspaces. Case listing needs <code>GET /api/v1/cases</code>, which the
-            backend does not serve yet — nothing is fabricated here.
+            A durable evidence-first workspace for each authorized investigation.
           </p>
         </div>
       </header>
 
       <div className="grid-2">
-        <Panel title="Case list" description="Name · status · created">
-          <DataTable<never>
+        <Panel title="Active investigations" description="Name · status · created">
+          {loading && <LoadingState label="Loading investigations…" />}
+          {error !== null && <ErrorState message={error} onRetry={reload} />}
+          {!loading && error === null && <DataTable<InvestigationCase>
             columns={caseColumns}
-            rows={[]}
-            rowKey={() => ''}
+            rows={cases ?? []}
+            rowKey={(item) => item.case_id}
             caption="Cases"
             empty={
               <EmptyState
-                title="No cases available"
-                message="The API serves no case-listing endpoint, so this table stays empty instead of showing mock rows."
+                title="No investigations yet"
+                message="Create the first case to establish an auditable investigation workspace."
                 endpoint="GET /api/v1/cases"
               />
             }
-          />
+          />}
           <form className="inline-form" onSubmit={handleOpenWorkspace}>
             <div className="field">
               <label htmlFor="open-case-id">Open a case workspace by ID</label>
@@ -162,7 +182,7 @@ export function CasesPage() {
           </form>
         </Panel>
 
-        <Panel title="New case" description="Prepares the CaseCreate payload for the API.">
+        <Panel title="Open an investigation" description="Creates a durable case and audit event.">
           <form className="form" onSubmit={handleCreate}>
             <div className="field">
               <label htmlFor="case-name">Case name (required)</label>
@@ -190,14 +210,14 @@ export function CasesPage() {
               />
             </div>
             <div className="form-actions">
-              <button type="submit" className="btn btn--primary">
-                Create case
+              <button type="submit" className="btn btn--primary" disabled={creating}>
+                {creating ? 'Creating…' : 'Create case'}
               </button>
-              <span className="hint">Schema: CaseCreate (src/aegis/schemas/evidence.py)</span>
+              <span className="hint">Synthetic and authorized data only.</span>
             </div>
           </form>
           {submission !== null && (
-            <p className="status status--info" role="status">
+            <p className="status status--error" role="alert">
               {submission}
             </p>
           )}

@@ -9,10 +9,9 @@ Two batching decisions live here (review findings):
   are folded back into the lookup map, so a digest that repeats inside
   one batch still reuses the first record exactly as a per-row lookup
   would have.
-* **One commit at the end** — inserts go through
-  ``create_evidence(..., commit=False)`` (flush only), and the whole
-  batch commits once here, so N rows cost one commit round-trip while
-  each row's audit entry is still written inside that same transaction.
+* **No internal commit** — source and evidence inserts are flush-only. The
+  analysis workflow owns the final commit, so a failed hypothesis write cannot
+  leave a partially persisted evidence batch behind.
 """
 
 from datetime import UTC, datetime
@@ -42,7 +41,8 @@ class SyntheticPersistenceService:
                     "generator": "SyntheticActorGenerator",
                     "generator_version": "0.1.0",
                 },
-            )
+            ),
+            commit=False,
         )
         return source.source_id
 
@@ -52,7 +52,7 @@ class SyntheticPersistenceService:
         actors: list[SyntheticActor],
         evidence: list[SyntheticEvidence],
     ) -> list[EvidenceRecord]:
-        """Insert (or content-reuse) every item, committing once at the end.
+        """Insert (or content-reuse) every item without committing.
 
         Reuse is content-level: an item whose digest already exists in the
         ledger resolves to the earliest existing observation instead of a
@@ -116,9 +116,6 @@ class SyntheticPersistenceService:
             # have seen the committed row).
             reused_by_digest[digest] = record
 
-        # Single commit for the whole batch: every row and its audit entry
-        # land in one transaction (see module docstring).
-        self.evidence_service.db.commit()
         return records
 
     @staticmethod

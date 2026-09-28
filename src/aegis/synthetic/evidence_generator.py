@@ -46,15 +46,22 @@ class SyntheticEvidenceGenerator:
                     )
                 )
 
-            for index, evidence_type in enumerate(
-                self._EVIDENCE_TYPES[1:],
-            ):
+            indicator_values = {
+                # The simulator changes the style proxy at L2, timezone at
+                # L3, and the wallet identifier at L5. Keeping this mapping
+                # explicit ensures adversarial evaluation mutates observed
+                # evidence rather than only unused actor-profile fields.
+                "writing_style": actor.indicators[2],
+                "timezone": actor.timezone,
+                "wallet": actor.indicators[1],
+            }
+            for index, evidence_type in enumerate(self._EVIDENCE_TYPES[1:]):
                 evidence.append(
                     SyntheticEvidence(
                         evidence_id=self._id(f"{actor.actor_id}:indicator:{index}"),
                         actor_id=actor.actor_id,
                         evidence_type=evidence_type,
-                        value=actor.indicators[index],
+                        value=indicator_values[evidence_type],
                         confidence=round(rng.uniform(0.55, 0.90), 3),
                         observed_at=base_time + timedelta(days=rng.randint(0, 30)),
                         platform="synthetic",

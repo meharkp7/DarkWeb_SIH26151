@@ -31,7 +31,7 @@ class FakeEvidenceService:
         #: commit kwarg observed on every create_evidence call
         self.commit_flags: list[bool] = []
 
-    def create_source(self, payload):
+    def create_source(self, payload, *, commit=True):
         source = type(
             "Source",
             (),
@@ -156,7 +156,7 @@ def test_persist_evidence_reuses_preexisting_content_digest() -> None:
     assert fake.evidence == [], "preexisting content must be reused, not re-inserted"
 
 
-def test_persist_evidence_flushes_then_commits_exactly_once() -> None:
+def test_persist_evidence_flushes_without_committing() -> None:
     actors = SyntheticActorGenerator(seed=26151).generate(2)
     evidence, _ = SyntheticEvidenceGenerator(seed=26151).generate(actors)
 
@@ -165,7 +165,7 @@ def test_persist_evidence_flushes_then_commits_exactly_once() -> None:
 
     service.persist_evidence(service.create_source(), actors, evidence)
 
-    assert fake.db.commits == 1, "one commit for the whole batch (review finding)"
+    assert fake.db.commits == 0, "the enclosing analysis transaction commits once"
     assert fake.commit_flags, "rows were inserted"
     assert set(fake.commit_flags) == {False}, "inserts must be flush-only (commit=False)"
 
@@ -180,4 +180,4 @@ def test_persist_evidence_with_no_items_still_returns_empty() -> None:
 
     assert records == []
     assert fake.evidence == []
-    assert fake.db.commits == 1
+    assert fake.db.commits == 0

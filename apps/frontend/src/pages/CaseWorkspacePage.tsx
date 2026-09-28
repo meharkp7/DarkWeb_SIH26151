@@ -1,7 +1,11 @@
 import { Link, useParams } from 'react-router-dom';
+import { apiUrl } from '../api/client';
+import type { InvestigationCase } from '../api/types';
 import { Badge } from '../components/Badge';
-import { EmptyState } from '../components/States';
 import { Panel } from '../components/Panel';
+import { ErrorState, LoadingState } from '../components/States';
+import { useApi } from '../hooks/useApi';
+import { formatDateTime } from '../lib/format';
 import { useSession } from '../store/session';
 
 interface WorkspaceTile {
@@ -27,13 +31,16 @@ const TILES: readonly WorkspaceTile[] = [
 /**
  * Screen 2 — case workspace.
  *
- * No case-detail endpoint exists (`GET /api/v1/cases/{id}`), so the overview
- * panels state that plainly and link to the sub-screens, which do have live
- * or session-backed data.
+ * Case metadata is loaded from the durable case registry while sub-screens
+ * progressively surface the evidence and analysis services.
  */
 export function CaseWorkspacePage() {
   const { caseId = 'unknown' } = useParams();
   const { evidence, sources, analysis } = useSession();
+  const caseResource = useApi<InvestigationCase>(
+    caseId === 'unknown' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}`),
+  );
+  const investigation = caseResource.data;
 
   return (
     <div className="stack">
@@ -41,11 +48,10 @@ export function CaseWorkspacePage() {
         <div>
           <p className="page-eyebrow">Case workspace</p>
           <h1 className="page-title">
-            <span className="mono">{caseId}</span>
+            {investigation?.name ?? <span className="mono">{caseId}</span>}
           </h1>
           <p className="page-sub">
-            Case metadata requires <code>GET /api/v1/cases/{'{id}'}</code>, which is not implemented
-            yet. Sub-screens below show real API or session data.
+            Evidence-first analysis workspace with a durable case record and auditable activity.
           </p>
         </div>
         <div className="page-actions">
@@ -56,28 +62,29 @@ export function CaseWorkspacePage() {
       </header>
 
       <div className="grid-2">
-        <Panel title="Overview">
-          <dl className="kv">
-            <dt>Case ID</dt>
-            <dd className="mono">{caseId}</dd>
-            <dt>Name</dt>
-            <dd>
-              <Badge tone="warn">unavailable</Badge>
-            </dd>
-            <dt>Status</dt>
-            <dd>
-              <Badge tone="warn">unavailable</Badge>
-            </dd>
-            <dt>Created</dt>
-            <dd>
-              <Badge tone="warn">unavailable</Badge>
-            </dd>
-          </dl>
-          <EmptyState
-            title="Case record not exposed"
-            message="Neither the case name, status nor timestamps can be read back: the API has no case routes yet. The workspace is addressable by ID so navigation and sub-screens work end to end."
-            endpoint="GET /api/v1/cases/{id}"
-          />
+        <Panel title="Case overview" description="Durable investigation record.">
+          {caseResource.loading && <LoadingState label="Loading case details…" />}
+          {caseResource.error !== null && <ErrorState message={caseResource.error} onRetry={caseResource.reload} />}
+          {investigation !== null && (
+            <dl className="kv">
+              <dt>Case ID</dt>
+              <dd className="mono">{investigation.case_id}</dd>
+              <dt>Name</dt>
+              <dd>{investigation.name}</dd>
+              <dt>Status</dt>
+              <dd>
+                <Badge tone="info">{investigation.status}</Badge>
+              </dd>
+              <dt>Created</dt>
+              <dd>{formatDateTime(investigation.created_at)}</dd>
+              {investigation.description !== null && (
+                <>
+                  <dt>Scope</dt>
+                  <dd>{investigation.description}</dd>
+                </>
+              )}
+            </dl>
+          )}
         </Panel>
 
         <Panel title="Session data" description="Everything loaded or created in this browser session.">

@@ -8,11 +8,11 @@ Evidence-centric foundation for lawful defensive threat-intelligence research, c
 
 ## Status
 
-**Phases 00–15 of the 30-phase implementation plan are complete.** In progress: review
-hardening (CI runs the full suite — including integration tests — against a Postgres 17
-service; Makefile targets fail loudly instead of silently). **Phases 16–29 are upcoming**
-(attribution fusion, GNN ranking, adversarial simulation, benchmark/ablation, reporting,
-UI, production hardening).
+**Phases 00–18 are implemented; phases 19–29 are reference or partial foundations.**
+The current completion matrix, including explicit operational and research gaps, is in
+[`docs/phase-16-onward-status.md`](docs/phase-16-onward-status.md). The investigation UI
+now includes durable case creation and retrieval; its remaining screens progressively use
+the available evidence and analysis APIs.
 
 What exists today:
 

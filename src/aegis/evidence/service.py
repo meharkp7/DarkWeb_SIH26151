@@ -19,7 +19,12 @@ class EvidenceService:
         self.db = db
         self.artifact_store = artifact_store
 
-    def create_source(self, payload: SourceCreate) -> SourceRecord:
+    def create_source(self, payload: SourceCreate, *, commit: bool = True) -> SourceRecord:
+        """Register a source and append its audit event.
+
+        Batch workflows can pass ``commit=False`` to keep their source,
+        evidence, hypotheses, and audit records in one atomic transaction.
+        """
         source = SourceRecord(
             source_id=uuid4(),
             source_type=payload.source_type.value,
@@ -35,8 +40,9 @@ class EvidenceService:
             entity_id=str(source.source_id),
             payload={"name": payload.name, "reliability": payload.reliability},
         )
-        self.db.commit()
-        self.db.refresh(source)
+        if commit:
+            self.db.commit()
+            self.db.refresh(source)
         return source
 
     def create_evidence(

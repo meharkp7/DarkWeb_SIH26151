@@ -1,6 +1,6 @@
 .PHONY: install bootstrap test lint typecheck build run infra-up infra-down up down \
 	migrate revision data-generate data-validate train-baselines train-graph \
-	evaluate benchmark rehearsal report security-scan schema-check precommit frontend-install \
+	evaluate adversarial-evaluate benchmark rehearsal report security-scan schema-check precommit frontend-install \
 	frontend-dev frontend-build clean
 
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
@@ -100,7 +100,10 @@ train-graph:
 	PYTHONPATH=src $(PY) scripts/train_graph_models.py
 
 evaluate:
-	PYTHONPATH=src $(PY) scripts/evaluate.py
+	PYTHONPATH=src $(PY) scripts/evaluate_scenarios.py
+
+adversarial-evaluate:
+	PYTHONPATH=src $(PY) scripts/run_adversarial_evaluation.py
 
 benchmark:
 	PYTHONPATH=src $(PY) scripts/run_benchmark.py

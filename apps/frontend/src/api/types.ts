@@ -37,6 +37,17 @@ export interface HealthResponse {
   readonly service: string;
 }
 
+/** Durable investigation workspace (`Case` backend schema). */
+export interface InvestigationCase {
+  case_id: UUID;
+  name: string;
+  description: string | null;
+  status: 'open' | 'active' | 'on_hold' | 'closed' | 'archived';
+  tags: string[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 /** Payload for `POST /api/v1/sources` (`SourceCreate`). */
 export interface SourceCreate {
   source_type: SourceType;

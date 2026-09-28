@@ -1,10 +1,12 @@
 import { parseSyntheticAnalysisResponse } from './parse';
 import type {
   CreatedSource,
+  CaseCreate,
   Evidence,
   EvidenceCreate,
   EvidenceProvenance,
   HealthResponse,
+  InvestigationCase,
   SourceCreate,
   SyntheticAnalysisRequest,
   SyntheticAnalysisResponse,
@@ -131,6 +133,15 @@ export const api = {
 
   databaseHealth: (signal?: AbortSignal): Promise<HealthResponse> =>
     getJson<HealthResponse>(healthUrl('/db'), signal),
+
+  listCases: (signal?: AbortSignal): Promise<InvestigationCase[]> =>
+    getJson<InvestigationCase[]>(apiUrl('/v1/cases'), signal),
+
+  getCase: (id: string, signal?: AbortSignal): Promise<InvestigationCase> =>
+    getJson<InvestigationCase>(apiUrl(`/v1/cases/${encodeURIComponent(id)}`), signal),
+
+  createCase: (payload: CaseCreate): Promise<InvestigationCase> =>
+    postJson<InvestigationCase>(apiUrl('/v1/cases'), payload),
 
   createSource: (payload: SourceCreate): Promise<CreatedSource> =>
     postJson<CreatedSource>(apiUrl('/v1/sources'), payload),
