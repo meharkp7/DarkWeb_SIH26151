@@ -11,7 +11,16 @@ from aegis.synthetic.hypothesis import AttributionHypothesis
 
 
 class HypothesisPersistenceService:
-    """Persist attribution hypotheses and contradiction evidence."""
+    """Persist attribution hypotheses and contradiction evidence.
+
+    ``persist()`` is **flush-only**: it emits the INSERTs (so constraint
+    violations and idempotency surface immediately) but never commits,
+    letting the caller wrap N hypotheses in a single commit round-trip —
+    see ``aegis.api.analysis.run_synthetic_analysis``, which commits once
+    at the end and rolls back on failure. The returned hypothesis id is
+    assigned client-side, so it is identical whether or not the row has
+    been committed yet.
+    """
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -58,8 +67,11 @@ class HypothesisPersistenceService:
                 )
             )
 
-        self.db.commit()
-        self.db.refresh(record)
+        # Flush, never commit: the caller owns the transaction. No refresh
+        # either — every column read downstream is set client-side above
+        # (created_at is server-defaulted and materializes on the caller's
+        # commit when the row expires).
+        self.db.flush()
 
         return record.hypothesis_id
 

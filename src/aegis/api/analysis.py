@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends
@@ -26,6 +27,53 @@ def run_synthetic_analysis(
     payload: SyntheticAnalysisRequest,
     db: Session,
 ) -> SyntheticAnalysisResponse:
+    """Generate a synthetic case, analyze it, and persist the results.
+
+    Transaction shape (review finding): evidence rows are committed in
+    one batch by
+    :meth:`~aegis.synthetic.persistence.SyntheticPersistenceService.persist_evidence`,
+    while hypotheses are only flushed per candidate by
+    :meth:`~aegis.synthetic.hypothesis_persistence.HypothesisPersistenceService.persist`.
+    This function therefore commits **once** at the end — a single
+    round-trip for every hypothesis row (and its audit entry) — and rolls
+    the session back before re-raising if anything fails, so no
+    half-written batch survives.
+    """
+    try:
+        outcome = _analyze(payload, db)
+        response = SyntheticAnalysisResponse(
+            seed=payload.seed,
+            actor_count=outcome.actor_count,
+            evidence_count=outcome.evidence_count,
+            relationship_count=outcome.relationship_count,
+            candidate_count=outcome.candidate_count,
+            persisted_hypothesis_count=len(outcome.hypotheses),
+            hypotheses=outcome.hypotheses,
+        )
+        db.commit()  # one commit for every flushed hypothesis (audit rows included)
+    except Exception:
+        db.rollback()
+        raise
+    return response
+
+
+@dataclass(frozen=True)
+class _AnalysisOutcome:
+    """Summary counts plus the hypothesis rows built by :func:`_analyze`."""
+
+    hypotheses: list[dict[str, object]]
+    actor_count: int
+    evidence_count: int
+    relationship_count: int
+    candidate_count: int
+
+
+def _analyze(payload: SyntheticAnalysisRequest, db: Session) -> _AnalysisOutcome:
+    """Run the pipeline up to (but excluding) the final commit.
+
+    Every database write here is flushed, never committed — the caller
+    (``run_synthetic_analysis``) owns the single commit/rollback.
+    """
     evidence_service = EvidenceService(
         db,
         ArtifactStore(settings.evidence_storage_path),
@@ -90,14 +138,12 @@ def run_synthetic_analysis(
             }
         )
 
-    return SyntheticAnalysisResponse(
-        seed=payload.seed,
+    return _AnalysisOutcome(
+        hypotheses=hypotheses,
         actor_count=len(actors),
         evidence_count=len(evidence),
         relationship_count=len(relationships),
         candidate_count=len(candidates),
-        persisted_hypothesis_count=len(hypotheses),
-        hypotheses=hypotheses,
     )
 
 
