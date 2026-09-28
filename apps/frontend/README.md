@@ -48,8 +48,8 @@ All calls correspond to routes that exist in `src/aegis/api/app.py` — nothing 
 
 | # | Route              | Screen                | Data |
 | - | ------------------ | --------------------- | ---- |
-| 1 | `/`                | Case list + new case  | Honest empty state (`GET/POST /api/v1/cases` not implemented) |
-| 2 | `/cases/:id`       | Case workspace        | Session counters + sub-screen links (no case endpoint yet) |
+| 1 | `/`                | Case list + new case  | Live durable case API |
+| 2 | `/cases/:id`       | Case workspace        | Live case metadata + durable workspace counts |
 | 3 | `/evidence`        | Evidence explorer     | **Live** — fetch by ID, ingest, provenance drawer |
 | 4 | `/actors/:id`      | Actor profile (13 sections) | Planned-endpoint states + live session scores/explanations |
 | 5 | `/timeline`        | Timeline              | Derived from session evidence (no timeline endpoint yet) |
@@ -57,7 +57,7 @@ All calls correspond to routes that exist in `src/aegis/api/app.py` — nothing 
 | 7 | `/attribution`     | Attribution assessment| **Live scores** from a session run; assessment fields marked unavailable |
 | 8 | `/hypotheses`      | Hypothesis comparison | **Live** — runs `POST /api/v1/analysis/synthetic` |
 | 9 | `/sources`         | Source reliability    | **Live** registration; table is session-scoped (no list endpoint) |
-| 10| `/reports`         | Report builder        | Client-side draft + documents planned `POST /api/v1/reports/export` |
+| 10| `/reports`         | Report builder        | Client-side preview + live case-scoped JSON/CSV/STIX/PDF export |
 
 Screens never invent data: where an endpoint is missing, the panel states the gap and the
 planned route.

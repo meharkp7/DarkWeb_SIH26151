@@ -1,6 +1,6 @@
 import { Link, useParams } from 'react-router-dom';
 import { apiUrl } from '../api/client';
-import type { InvestigationCase } from '../api/types';
+import type { CaseWorkspace, InvestigationCase } from '../api/types';
 import { Badge } from '../components/Badge';
 import { Panel } from '../components/Panel';
 import { ErrorState, LoadingState } from '../components/States';
@@ -37,6 +37,9 @@ const TILES: readonly WorkspaceTile[] = [
 export function CaseWorkspacePage() {
   const { caseId = 'unknown' } = useParams();
   const { evidence, sources, analysis } = useSession();
+  const workspace = useApi<CaseWorkspace>(
+    caseId === 'unknown' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/workspace`),
+  );
   const caseResource = useApi<InvestigationCase>(
     caseId === 'unknown' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}`),
   );
@@ -90,7 +93,7 @@ export function CaseWorkspacePage() {
         <Panel title="Session data" description="Everything loaded or created in this browser session.">
           <dl className="kv">
             <dt>Evidence records</dt>
-            <dd>{evidence.length}</dd>
+            <dd>{workspace.data?.counts.evidence ?? evidence.length}</dd>
             <dt>Sources registered</dt>
             <dd>{sources.length}</dd>
             <dt>Analysis runs</dt>
@@ -98,9 +101,7 @@ export function CaseWorkspacePage() {
             <dt>Hypotheses returned</dt>
             <dd>{analysis === null ? 0 : analysis.hypotheses.length}</dd>
           </dl>
-          <p className="hint">
-            Session state resets on reload — the backend exposes no list endpoints to re-read it.
-          </p>
+          <p className="hint">Durable workspace counts are loaded from the case API; session data remains available for interactive runs.</p>
         </Panel>
       </div>
 

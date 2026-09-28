@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     opensearch_index_prefix: str = "aegis"
     opensearch_username: str | None = None
     opensearch_password: str | None = None
+    api_key: str | None = None
+    enable_api_key_auth: bool = False
 
     model_config = SettingsConfigDict(env_prefix="AEGIS_", env_file=".env", extra="ignore")
 

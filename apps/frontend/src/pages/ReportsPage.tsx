@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Badge } from '../components/Badge';
 import { EmptyState } from '../components/States';
 import { Panel } from '../components/Panel';
 import { useSession } from '../store/session';
+import { api } from '../api/client';
 
 interface ReportSection {
   readonly key: string;
@@ -33,13 +34,12 @@ function initialState(): SectionState {
 /**
  * Screen 10 — report builder.
  *
- * Builds a client-side markdown draft from real session data and documents
- * the backend endpoint that will perform server-side export. No reporting
- * route exists in `src/aegis/api/app.py`, so the export action is an honest
- * stub — it never claims a download happened.
+ * Builds a client-side preview from session data and delegates final exports
+ * to the case-scoped backend report API.
  */
 export function ReportsPage() {
   const { evidence, sources, analysis } = useSession();
+  const { caseId } = useParams();
   const [selected, setSelected] = useState<SectionState>(initialState);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -116,10 +116,12 @@ export function ReportsPage() {
   };
 
   const handleExport = () => {
-    setStatus(
-      'Server export is not implemented. Planned endpoint: POST /api/v1/reports/export ' +
-        '({ case_id, sections, format }) — no reporting route exists in src/aegis/api/app.py yet.',
-    );
+    if (!caseId) {
+      setStatus('Open a case workspace before exporting a server-backed report.');
+      return;
+    }
+    window.open(api.reportExportUrl(caseId, 'pdf'), '_blank', 'noopener,noreferrer');
+    setStatus('PDF report opened from the case-scoped report API.');
   };
 
   return (
@@ -128,8 +130,7 @@ export function ReportsPage() {
         <div>
           <h1 className="page-title">Report builder</h1>
           <p className="page-sub">
-            Choose sections, preview the draft (built from real session data), then export once the
-            reporting endpoint ships.
+            Choose sections, preview the draft, then export a provenance-preserving case report.
           </p>
         </div>
         <div className="page-actions">
@@ -167,20 +168,18 @@ export function ReportsPage() {
           </p>
         </Panel>
 
-        <Panel title="Export" description="Server-side rendering is a Phase 24 concern.">
+        <Panel title="Export" description="Server-side report exports preserve case and evidence provenance.">
           <dl className="kv">
-            <dt>Planned endpoint</dt>
-            <dd className="mono mono--break">POST /api/v1/reports/export</dd>
-            <dt>Planned payload</dt>
-            <dd className="mono">
-              {'{ case_id, sections[], format: "md" | "pdf" | "json" }'}
-            </dd>
+            <dt>Endpoint</dt>
+            <dd className="mono mono--break">GET /api/v1/cases/:case_id/reports/export</dd>
+            <dt>Formats</dt>
+            <dd className="mono">json · csv · stix · pdf</dd>
             <dt>Current status</dt>
             <dd>
-              <Badge tone="warn">not implemented</Badge>
+              <Badge tone="ok">server export live</Badge>
             </dd>
             <dt>Schema</dt>
-            <dd className="hint">no Report schema in src/aegis/schemas/ yet</dd>
+            <dd className="hint">JSON, CSV, STIX 2.1 and PDF are available per case.</dd>
           </dl>
           <div className="form-actions">
             <button type="button" className="btn btn--primary" onClick={handleExport}>

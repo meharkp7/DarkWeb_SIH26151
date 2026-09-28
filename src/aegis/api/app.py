@@ -12,7 +12,9 @@ from starlette.middleware.base import RequestResponseEndpoint
 from aegis.api.analysis import run_synthetic_analysis
 from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
+from aegis.api.reports import router as reports_router
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
+from aegis.api.workspace import router as workspace_router
 from aegis.db.audit import AuditService
 from aegis.db.models import CaseRecord
 from aegis.db.session import engine
@@ -53,6 +55,21 @@ if _cors_origins:
 
 
 @app.middleware("http")
+async def api_key_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    """Optional deployment-level API-key gate. Disabled by default for local development."""
+    if settings.enable_api_key_auth and request.url.path not in {
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+    }:
+        supplied = request.headers.get("X-AEGIS-API-Key")
+        if not settings.api_key or supplied != settings.api_key:
+            return Response(status_code=401, content="authentication required")
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
     started = perf_counter()
     response = await call_next(request)
@@ -72,7 +89,13 @@ def health() -> dict[str, str]:
 def metrics() -> dict[str, object]:
     """Operational snapshot; deploy behind operator authentication in production."""
     snapshot = _metrics.snapshot()
-    return {"counters": snapshot.counters, "latencies_ms": snapshot.latencies_ms}
+    return {
+        "counters": snapshot.counters,
+        "latencies_ms": snapshot.latencies_ms,
+        "histograms_ms": snapshot.histograms_ms,
+        "gauges": snapshot.gauges,
+        "ml": snapshot.ml,
+    }
 
 
 @app.get("/health/db")
@@ -162,8 +185,7 @@ def create_evidence(
         index_prefix=settings.opensearch_index_prefix,
         http_auth=(
             (settings.opensearch_username, settings.opensearch_password)
-            if settings.opensearch_username is not None
-            and settings.opensearch_password is not None
+            if settings.opensearch_username is not None and settings.opensearch_password is not None
             else None
         ),
     )
@@ -233,3 +255,5 @@ def synthetic_analysis(
 
 
 app.include_router(copilot_router)
+app.include_router(reports_router)
+app.include_router(workspace_router)

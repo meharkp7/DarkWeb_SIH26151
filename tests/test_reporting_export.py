@@ -25,3 +25,9 @@ def test_exports_preserve_provenance_and_citations() -> None:
     bundle = export_stix_bundle(_report(), _provenance())
     assert bundle["type"] == "bundle"
     assert bundle["objects"][0]["external_references"][0]["external_id"] == "e1"
+
+
+def test_stix_is_deterministic_per_section_id() -> None:
+    first = export_stix_bundle(_report(), _provenance())
+    second = export_stix_bundle(_report(), _provenance())
+    assert first["objects"][0]["id"] == second["objects"][0]["id"]

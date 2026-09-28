@@ -8,7 +8,7 @@ Evidence-centric foundation for lawful defensive threat-intelligence research, c
 
 ## Status
 
-**Phases 00–18 are implemented; phases 19–29 are reference or partial foundations.**
+**Phases 00–29 are implemented as a synthetic-first, analyst-reviewable reference stack; deployment-specific credentials, distributed infrastructure and authorized data integrations remain environment work.**
 The current completion matrix, including explicit operational and research gaps, is in
 [`docs/phase-16-onward-status.md`](docs/phase-16-onward-status.md). The investigation UI
 now includes durable case creation and retrieval; its remaining screens progressively use
@@ -44,7 +44,7 @@ analysts make findings. Details: `docs/architecture.md` and the ADRs in `docs/ad
 ```bash
 cp .env.example .env
 uv sync --extra dev
-make infra-up        # docker compose: Postgres 17 only
+make infra-up        # docker compose: Postgres 17 + OpenSearch 2.19.1
 make migrate         # alembic upgrade head
 uv run uvicorn aegis.api.app:app --reload --host 127.0.0.1 --port 8000
 ```

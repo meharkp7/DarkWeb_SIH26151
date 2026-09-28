@@ -2,6 +2,7 @@ import { parseSyntheticAnalysisResponse } from './parse';
 import type {
   CreatedSource,
   CaseCreate,
+  CaseWorkspace,
   Evidence,
   EvidenceCreate,
   EvidenceProvenance,
@@ -139,6 +140,15 @@ export const api = {
 
   getCase: (id: string, signal?: AbortSignal): Promise<InvestigationCase> =>
     getJson<InvestigationCase>(apiUrl(`/v1/cases/${encodeURIComponent(id)}`), signal),
+
+  getWorkspace: (id: string, signal?: AbortSignal): Promise<CaseWorkspace> =>
+    getJson<CaseWorkspace>(apiUrl(`/v1/cases/${encodeURIComponent(id)}/workspace`), signal),
+
+  getCaseEvidence: (id: string, signal?: AbortSignal): Promise<Record<string, unknown>[]> =>
+    getJson<Record<string, unknown>[]>(apiUrl(`/v1/cases/${encodeURIComponent(id)}/evidence`), signal),
+
+  reportExportUrl: (id: string, format: "json" | "csv" | "stix" | "pdf"): string =>
+    apiUrl(`/v1/cases/${encodeURIComponent(id)}/reports/export?format=${format}`),
 
   createCase: (payload: CaseCreate): Promise<InvestigationCase> =>
     postJson<InvestigationCase>(apiUrl('/v1/cases'), payload),

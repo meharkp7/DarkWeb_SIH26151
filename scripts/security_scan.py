@@ -41,7 +41,7 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "generic-secret-assignment",
         re.compile(
-            r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*[\"']?[^\s\"']{12,}"
+            r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*(?!settings\.|os\.|config\.|env\.)[\"']?[^\s\"']{12,}"
         ),
     ),
 )

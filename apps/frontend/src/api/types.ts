@@ -150,3 +150,12 @@ export interface SyntheticAnalysisResponse {
   persisted_hypothesis_count: number;
   hypotheses: SyntheticHypothesis[];
 }
+
+export interface CaseWorkspace {
+  case: InvestigationCase;
+  counts: Record<string, number>;
+  evidence: Array<Record<string, unknown>>;
+  entities: Array<Record<string, unknown>>;
+  relationships: Array<Record<string, unknown>>;
+  assessments: Array<Record<string, unknown>>;
+}
