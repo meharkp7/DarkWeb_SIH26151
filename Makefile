@@ -5,7 +5,7 @@
 
 PY ?= uv run
 PYTEST = PYTHONPATH=src $(PY) pytest
-SRC = src tests scripts benchmarks
+SRC = src tests scripts
 
 ## ---------------------------------------------------------------- bootstrap
 
@@ -46,6 +46,7 @@ security-scan:
 	PYTHONPATH=src $(PY) pytest -q -k "security or injection or traversal"
 
 build:
+	@test -f apps/frontend/package.json || (echo "apps/frontend missing — run 'make frontend-install'"; exit 1)
 	uv build
 	cd apps/frontend && npm run build
 
@@ -58,9 +59,11 @@ run:
 	PYTHONPATH=src uv run uvicorn aegis.api.app:app --reload --host 127.0.0.1 --port 8000
 
 worker:
+	@PYTHONPATH=src $(PY) python -c "import aegis.worker.app" 2>/dev/null || (echo "aegis.worker not implemented yet (planned Phase 26 worker runtime)"; exit 1)
 	PYTHONPATH=src $(PY) -m aegis.worker.app
 
 scheduler:
+	@PYTHONPATH=src $(PY) python -c "import aegis.scheduler.app" 2>/dev/null || (echo "aegis.scheduler not implemented yet (planned scheduler runtime)"; exit 1)
 	PYTHONPATH=src $(PY) -m aegis.scheduler.app
 
 infra-up:
