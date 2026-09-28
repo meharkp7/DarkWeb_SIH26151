@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -39,8 +40,39 @@ class EvidenceService:
         return source
 
     def create_evidence(
-        self, payload: EvidenceCreate, artifact_bytes: bytes | None = None
+        self,
+        payload: EvidenceCreate,
+        artifact_bytes: bytes | None = None,
+        *,
+        commit: bool = True,
     ) -> EvidenceRecord:
+        """Create one evidence observation.
+
+        Args:
+            payload: The observation to ledger.
+            artifact_bytes: Optional raw bytes; written through the
+                artifact store and verified against ``payload.sha256``.
+            commit: ``True`` (default, every existing caller) commits the
+                transaction here. ``False`` flushes only, so a batch
+                caller can insert N rows and commit once at the end
+                (see :meth:`aegis.synthetic.persistence.
+                SyntheticPersistenceService.persist_evidence`); in that
+                mode the caller owns commit/rollback, and server
+                populated columns such as ``created_at`` stay unrefreshed
+                until the commit expires the row.
+
+        Raises:
+            ValueError: On a duplicate observation, or when the database
+                rejects the insert (``IntegrityError`` from *either*
+                ``flush()`` or ``commit()`` is translated to the same
+                conflict message the API maps to HTTP 409).
+
+        .. note::
+           On an ``IntegrityError`` the session is rolled back in both
+           modes: Postgres aborts the whole transaction on a constraint
+           violation, so a batch caller's earlier flushes are lost with
+           it — the exception message tells the caller the batch failed.
+        """
         if self.db.get(SourceRecord, payload.source_id) is None:
             raise ValueError(f"Unknown source_id: {payload.source_id}")
 
@@ -60,27 +92,6 @@ class EvidenceService:
         if duplicate is not None:
             raise ValueError(f"Evidence already observed for this source at this time: {digest}")
 
-        artifact_id = None
-        raw_uri = payload.raw_artifact_uri
-        if artifact_bytes is not None:
-            # Server-side verification: put_bytes recomputes the digest of
-            # the actual bytes and raises on mismatch with payload.sha256.
-            uri, computed = self.artifact_store.put_bytes(artifact_bytes, digest)
-            raw_uri = uri
-            artifact = self.db.scalar(
-                select(ArtifactRecord).where(ArtifactRecord.sha256 == computed)
-            )
-            if artifact is None:
-                artifact = ArtifactRecord(
-                    artifact_id=uuid4(),
-                    sha256=computed,
-                    storage_uri=uri,
-                    size_bytes=len(artifact_bytes),
-                )
-                self.db.add(artifact)
-                self.db.flush()
-            artifact_id = artifact.artifact_id
-
         record = EvidenceRecord(
             evidence_id=uuid4(),
             case_id=payload.case_id,
@@ -91,8 +102,8 @@ class EvidenceService:
             entity_type=payload.entity_type,
             entity_value_hash=payload.entity_value_hash,
             context_hash=payload.context_hash,
-            raw_artifact_uri=raw_uri,
-            artifact_id=artifact_id,
+            raw_artifact_uri=payload.raw_artifact_uri,
+            artifact_id=None,
             sha256=payload.sha256.lower(),
             collector_name=payload.collector_name,
             collector_version=payload.collector_version,
@@ -102,30 +113,63 @@ class EvidenceService:
             independence_group=payload.independence_group,
             metadata_json=payload.metadata,
         )
-        self.db.add(record)
-        self.db.flush()
-        AuditService(self.db).record(
-            "evidence.created",
-            case_id=payload.case_id,
-            entity_type="evidence",
-            entity_id=str(record.evidence_id),
-            payload={
-                "sha256": digest,
-                "source_id": str(payload.source_id),
-                "collector_name": payload.collector_name,
-            },
-        )
+
         try:
-            self.db.commit()
+            # Artifact write + evidence insert + audit append all happen in
+            # the caller's transaction: AuditService.record() must run (and
+            # flush) BEFORE any commit so mutation and audit commit together.
+            if artifact_bytes is not None:
+                # Server-side verification: put_bytes recomputes the digest of
+                # the actual bytes and raises on mismatch with payload.sha256.
+                uri, computed = self.artifact_store.put_bytes(artifact_bytes, digest)
+                record.raw_artifact_uri = uri
+                artifact = self.db.scalar(
+                    select(ArtifactRecord).where(ArtifactRecord.sha256 == computed)
+                )
+                if artifact is None:
+                    artifact = ArtifactRecord(
+                        artifact_id=uuid4(),
+                        sha256=computed,
+                        storage_uri=uri,
+                        size_bytes=len(artifact_bytes),
+                    )
+                    self.db.add(artifact)
+                    self.db.flush()
+                record.artifact_id = artifact.artifact_id
+
+            self.db.add(record)
+            self.db.flush()
+            AuditService(self.db).record(
+                "evidence.created",
+                case_id=payload.case_id,
+                entity_type="evidence",
+                entity_id=str(record.evidence_id),
+                payload={
+                    "sha256": digest,
+                    "source_id": str(payload.source_id),
+                    "collector_name": payload.collector_name,
+                },
+            )
         except IntegrityError as exc:
             # Lost the race against a concurrent identical observation:
             # uq_evidence_observation (the DB-side check the review asked
-            # for) rejects it atomically; roll back and report as a conflict.
+            # for) rejects it atomically. The violation surfaces at flush
+            # time (the INSERT is emitted there) or, in deferred-commit
+            # mode, at the caller's commit — both paths translate here.
             self.db.rollback()
             raise ValueError(
                 f"Evidence already observed for this source at this time: {digest}"
             ) from exc
-        self.db.refresh(record)
+
+        if commit:
+            try:
+                self.db.commit()
+            except IntegrityError as exc:
+                self.db.rollback()
+                raise ValueError(
+                    f"Evidence already observed for this source at this time: {digest}"
+                ) from exc
+            self.db.refresh(record)
         return record
 
     def get(self, evidence_id: UUID) -> EvidenceRecord | None:
@@ -157,6 +201,63 @@ class EvidenceService:
             )
             .limit(1)
         )
+
+    def get_observations_batch(
+        self, sha256s: Sequence[str], source_id: UUID
+    ) -> dict[tuple[str, datetime | None], EvidenceRecord]:
+        """Prefetch observations of *sha256s* from one source in ONE query.
+
+        Batched counterpart of :meth:`get_observation` for callers that
+        would otherwise run one idempotency SELECT per row: collect all
+        digests first, call this once, then match in memory against the
+        returned ``(sha256, observed_at)`` lookup map — exactly the
+        observation identity ``get_observation`` checks. An empty digest
+        list issues no query at all.
+
+        Returns:
+            ``(sha256, observed_at)`` -> matching record; digests without
+            an observation are simply absent from the map.
+        """
+        digests = list(dict.fromkeys(sha256s))  # dedupe, keep caller order (deterministic)
+        if not digests:
+            return {}
+        rows = self.db.scalars(
+            select(EvidenceRecord).where(
+                EvidenceRecord.sha256.in_(digests),
+                EvidenceRecord.source_id == source_id,
+            )
+        ).all()
+        # uq_evidence_observation guarantees one row per key, so first-wins
+        # matches get_observation's .limit(1) lookup.
+        found: dict[tuple[str, datetime | None], EvidenceRecord] = {}
+        for row in rows:
+            found.setdefault((row.sha256, row.observed_at), row)
+        return found
+
+    def get_by_sha256_batch(self, sha256s: Sequence[str]) -> dict[str, EvidenceRecord]:
+        """Prefetch the earliest observation of each digest in ONE query.
+
+        Batched counterpart of :meth:`get_by_sha256` (content-level
+        reuse): rows come back ordered by ``(sha256, created_at)`` so the
+        first row seen for a digest is its earliest observation — the same
+        record the single-digest lookup returns. An empty digest list
+        issues no query at all.
+
+        Returns:
+            ``sha256`` -> earliest record; unknown digests are absent.
+        """
+        digests = list(dict.fromkeys(sha256s))  # dedupe, keep caller order (deterministic)
+        if not digests:
+            return {}
+        rows = self.db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.sha256.in_(digests))
+            .order_by(EvidenceRecord.sha256.asc(), EvidenceRecord.created_at.asc())
+        ).all()
+        found: dict[str, EvidenceRecord] = {}
+        for row in rows:
+            found.setdefault(row.sha256, row)  # first row per digest = earliest (see above)
+        return found
 
     def provenance(self, evidence_id: UUID) -> EvidenceProvenance:
         evidence = self.db.get(EvidenceRecord, evidence_id)
