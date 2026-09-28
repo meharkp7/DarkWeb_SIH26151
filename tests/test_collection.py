@@ -5,14 +5,21 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 import pytest
 
 from aegis.collection import (
     Candidate,
+    CollectionIngestor,
     CollectionScope,
     CollectorOrchestrator,
     CollectorRejected,
+    IngestionResult,
     JobType,
     NormalizedArtifact,
     SyntheticChannelCollector,
@@ -229,3 +236,129 @@ def test_source_to_collector_to_evidence_without_db() -> None:
         assert observation.independence_group
         assert observation.observed_at is not None
         assert observation.platform
+
+
+# ------------------------------------------------------------------ ingest
+
+_INGEST_SOURCE = UUID("00000000-0000-0000-0000-0000000000f1")
+_OTHER_SOURCE = UUID("00000000-0000-0000-0000-0000000000f2")
+_INGEST_AT = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+
+
+def _observation(digest: str, observed_at: datetime) -> NormalizedArtifact:
+    """One synthetic observation carrying a chosen content digest."""
+    raw = RawArtifact(
+        candidate=Candidate(
+            candidate_id=f"c-{digest[:8]}",
+            source_ref="ref",
+            platform="forum_alpha",
+        ),
+        body=b"raw body",
+        media_type="text/plain",
+        collected_at=_INGEST_AT,
+        collector_name="ingest-test",
+        collector_version="0.0.1",
+        source_url="https://example.invalid/post",
+        sha256=digest,
+    )
+    return NormalizedArtifact(
+        raw=raw,
+        text="hello world",
+        normalized_text="hello world",
+        observed_at=observed_at,
+        author_hint="alice",
+        platform="forum_alpha",
+        independence_group="forum:1",
+    )
+
+
+class _SpyEvidenceService:
+    """EvidenceService double recording the batched idempotency prefetch."""
+
+    def __init__(self, existing: Sequence[object] = ()) -> None:
+        #: pre-existing observation rows (need .sha256/.observed_at/.source_id)
+        self.existing: list[object] = list(existing)
+        #: one entry per get_observations_batch call: (digests, source_id)
+        self.batch_calls: list[tuple[tuple[str, ...], UUID]] = []
+        self.created: list[object] = []
+
+    def get_observations_batch(self, sha256s, source_id):
+        self.batch_calls.append((tuple(sha256s), source_id))
+        wanted = set(sha256s)
+        return {
+            (row.sha256, row.observed_at): row
+            for row in self.existing
+            if row.sha256 in wanted and row.source_id == source_id
+        }
+
+    def create_evidence(self, payload, artifact_bytes=None, *, commit=True):
+        self.created.append(payload)
+        return SimpleNamespace(
+            evidence_id=uuid4(),
+            sha256=payload.sha256,
+            observed_at=payload.observed_at,
+            source_id=payload.source_id,
+        )
+
+
+def test_ingest_prefetches_observation_identities_in_one_query() -> None:
+    """The idempotency check must be ONE batched prefetch, not one SELECT per row."""
+    observations = [
+        _observation(sha256(f"body-{index}".encode()).hexdigest(), _INGEST_AT) for index in range(5)
+    ]
+
+    fake = _SpyEvidenceService()
+    result = CollectionIngestor(fake).ingest(observations, source_id=_INGEST_SOURCE)
+
+    assert len(fake.batch_calls) == 1, "one prefetch for the whole batch"
+    digests, source_id = fake.batch_calls[0]
+    assert set(digests) == {obs.raw.sha256 for obs in observations}
+    assert source_id == _INGEST_SOURCE, "prefetch is scoped to the ingest source"
+    assert result.created == 5
+    assert result.skipped_duplicates == 0
+    assert len(result.evidence_ids) == 5
+
+
+def test_ingest_skips_only_exact_observation_identity() -> None:
+    """(digest, source, observed_at) is the identity: another source or a
+    later scan with the same bytes is a new observation, not a duplicate."""
+    digest = sha256(b"same bytes").hexdigest()
+    prior = SimpleNamespace(sha256=digest, observed_at=_INGEST_AT, source_id=_INGEST_SOURCE)
+    from_other_source = SimpleNamespace(
+        sha256=digest, observed_at=_INGEST_AT, source_id=_OTHER_SOURCE
+    )
+    fake = _SpyEvidenceService(existing=[prior, from_other_source])
+
+    observations = [
+        _observation(digest, _INGEST_AT),  # identical observation -> skip
+        _observation(digest, _INGEST_AT + timedelta(hours=1)),  # later scan -> create
+    ]
+    result = CollectionIngestor(fake).ingest(observations, source_id=_INGEST_SOURCE)
+
+    assert result.skipped_duplicates == 1
+    assert result.created == 1
+    assert len(fake.created) == 1
+
+
+def test_ingest_skips_duplicates_created_within_the_same_batch() -> None:
+    """Two rows with one identity: the first insert is folded back into the
+    lookup map so the second is skipped, as a per-row re-read would."""
+    digest = sha256(b"twice").hexdigest()
+    observations = [_observation(digest, _INGEST_AT), _observation(digest, _INGEST_AT)]
+
+    fake = _SpyEvidenceService()
+    result = CollectionIngestor(fake).ingest(observations, source_id=_INGEST_SOURCE)
+
+    assert result.created == 1
+    assert result.skipped_duplicates == 1
+    assert len(fake.batch_calls) == 1
+
+
+def test_ingest_empty_batch_issues_no_query() -> None:
+    fake = _SpyEvidenceService()
+
+    result = CollectionIngestor(fake).ingest((), source_id=_INGEST_SOURCE)
+
+    assert fake.batch_calls == []
+    assert fake.created == []
+    assert result == IngestionResult(created=0, skipped_duplicates=0, evidence_ids=())
