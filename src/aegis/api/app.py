@@ -1,12 +1,15 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.middleware.base import RequestResponseEndpoint
 
 from aegis.api.analysis import run_synthetic_analysis
 from aegis.api.deps import get_db, get_evidence_service
+from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
 from aegis.db.session import engine
 from aegis.evidence.service import EvidenceService
 from aegis.schemas.analysis import (
@@ -23,6 +26,16 @@ from aegis.schemas.evidence import (
 from aegis.settings import settings
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
+_api_limiter = RequestRateLimiter()
+_guard = request_guard(_api_limiter, max_bytes=1_048_576)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
 
 
 @app.get("/health")
@@ -41,6 +54,7 @@ def database_health() -> dict[str, str]:
 def create_source(
     payload: SourceCreate,
     service: Annotated[EvidenceService, Depends(get_evidence_service)],
+    _: Annotated[None, Depends(_guard)],
 ) -> dict[str, object]:
     source = service.create_source(payload)
     return {
@@ -55,6 +69,7 @@ def create_source(
 def create_evidence(
     payload: EvidenceCreate,
     service: Annotated[EvidenceService, Depends(get_evidence_service)],
+    _: Annotated[None, Depends(_guard)],
 ) -> Evidence:
     try:
         record = service.create_evidence(payload)
@@ -118,5 +133,6 @@ def get_provenance(
 def synthetic_analysis(
     payload: SyntheticAnalysisRequest,
     db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(_guard)],
 ) -> SyntheticAnalysisResponse:
     return run_synthetic_analysis(payload, db)
