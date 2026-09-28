@@ -12,6 +12,7 @@ from aegis.api.deps import get_db, get_evidence_service
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
 from aegis.db.session import engine
 from aegis.evidence.service import EvidenceService
+from aegis.observability import Metrics
 from aegis.schemas.analysis import (
     SyntheticAnalysisRequest,
     SyntheticAnalysisResponse,
@@ -28,11 +29,13 @@ from aegis.settings import settings
 app = FastAPI(title=settings.app_name, version="0.2.0")
 _api_limiter = RequestRateLimiter()
 _guard = request_guard(_api_limiter, max_bytes=1_048_576)
+_metrics = Metrics()
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next: RequestResponseEndpoint) -> Response:
     response = await call_next(request)
+    _metrics.increment(f"api.status.{response.status_code}")
     for header, value in SECURITY_HEADERS.items():
         response.headers.setdefault(header, value)
     return response
@@ -41,6 +44,13 @@ async def security_headers(request: Request, call_next: RequestResponseEndpoint)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "api"}
+
+
+@app.get("/metrics")
+def metrics() -> dict[str, object]:
+    """Operational snapshot; deploy behind operator authentication in production."""
+    snapshot = _metrics.snapshot()
+    return {"counters": snapshot.counters, "latencies_ms": snapshot.latencies_ms}
 
 
 @app.get("/health/db")

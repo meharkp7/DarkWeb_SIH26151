@@ -18,3 +18,11 @@ def test_sliding_window_rate_limiter_expires_entries() -> None:
     assert not limiter.allow("client")
     now[0] = 10.0
     assert limiter.allow("client")
+
+
+def test_metrics_endpoint_exposes_api_counters() -> None:
+    client = TestClient(app)
+    client.get("/health")
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert response.json()["counters"]["api.status.200"] >= 1
