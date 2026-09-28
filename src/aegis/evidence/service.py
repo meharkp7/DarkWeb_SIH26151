@@ -104,6 +104,6 @@ class EvidenceService:
             evidence_id=evidence.evidence_id,
             sha256=evidence.sha256,
             artifact_uri=evidence.raw_artifact_uri,
-            parent_evidence_ids=[row.parent_evidence_id for row in rows],
+            parent_evidence_ids=tuple(row.parent_evidence_id for row in rows),
             derivation_count=len(rows),
         )
