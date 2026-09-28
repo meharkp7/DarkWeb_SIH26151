@@ -28,6 +28,23 @@ count series and runs one of the plan's algorithms — ``cusum``,
 points into :class:`~aegis.timeline.types.MigrationCandidate`
 records with a data-derived confidence: the fraction of the subject's
 later events on that channel still showing the destination value.
+
+Evidence propagation
+--------------------
+Every emitted :class:`~aegis.timeline.types.ChangePoint` /
+:class:`~aegis.timeline.types.MigrationCandidate` cites the immutable
+evidence behind its claim via ``evidence_ids``:
+
+* state changes cite the change event **and** its ``min_persist``
+  confirmation events (together they justify the claim);
+* activity shifts cite the events falling in the bucket where the
+  detector fired (epoch-aligned bucketing shared with
+  :func:`build_activity_series` via :func:`_bucket_key`);
+* migration candidates inherit their supporting change point's ids.
+
+Ordering is deterministic: ids are deduplicated **preserving
+first-seen order** (chronological event order, then id order within
+an event), so identical inputs always yield identical citations.
 """
 
 from __future__ import annotations
@@ -73,6 +90,27 @@ def _channel_events(
     return sorted(selected, key=lambda event: (event.observed_at, event.event_id))
 
 
+def _bucket_key(stamp: datetime, bucket: timedelta) -> int:
+    """Epoch-aligned bucket index — the single source of bucketing math.
+
+    Shared by :func:`build_activity_series` (counting) and
+    :func:`detect_activity_shifts` (evidence attribution) so a change
+    point's ``evidence_ids`` cite exactly the events in the bucket its
+    ``changed_at`` stamps — never a neighbouring bucket.
+    """
+    return int(stamp.timestamp() // bucket.total_seconds())
+
+
+def _union_evidence(events: Sequence[TimelineEvent]) -> tuple[str, ...]:
+    """Union of the events' ``evidence_ids`` in first-seen order.
+
+    Deterministic: events arrive in chronological order and ids keep
+    the order they appear within each event; duplicates are dropped
+    without reordering.
+    """
+    return tuple(dict.fromkeys(eid for event in events for eid in event.evidence_ids))
+
+
 def _detect_state_changes(
     events: Sequence[TimelineEvent],
     kind: TimelineEventKind,
@@ -80,6 +118,13 @@ def _detect_state_changes(
     min_persist: int,
     prefix: str,
 ) -> tuple[ChangePoint, ...]:
+    """Confirmed value transitions on one categorical channel.
+
+    A change point cites the evidence of the change event **and** its
+    ``min_persist`` confirmation events — together they are what
+    justifies the claim (with ``min_persist=0`` the change event
+    alone).
+    """
     if min_persist < 0:
         raise ValueError("min_persist must be >= 0")
     selected = _channel_events(events, kind)
@@ -97,6 +142,7 @@ def _detect_state_changes(
             continue  # not enough runway left in the stream
         if not all(event.value == current for event in confirmations):
             continue  # flap: the new value did not persist
+        supporting = (selected[index], *confirmations)
         changes.append(
             ChangePoint(
                 change_id=f"cp-{prefix}-{len(changes) + 1:04d}",
@@ -107,6 +153,8 @@ def _detect_state_changes(
                 score=1.0,
                 from_value=previous,
                 to_value=current,
+                # the claim rests on the change event + its confirmations
+                evidence_ids=_union_evidence(supporting),
             )
         )
         previous = current
@@ -186,7 +234,7 @@ def build_activity_series(
     bucket_seconds = bucket.total_seconds()
     counts: dict[int, float] = {}
     for event in selected:
-        key = int(event.observed_at.timestamp() // bucket_seconds)
+        key = _bucket_key(event.observed_at, bucket)
         counts[key] = counts.get(key, 0.0) + 1.0
 
     lowest, highest = min(counts), max(counts)
@@ -216,6 +264,12 @@ def detect_activity_shifts(
     reimplemented here).  ``changed_at`` is the start of the bucket
     where the detector fired — for CUSUM that is an upper bound on
     when the shift began, documented as approximate.
+
+    Each change point's ``evidence_ids`` is the union of the evidence
+    ids of the activity events inside the fired bucket (computed with
+    the same epoch-aligned bucketing as :func:`build_activity_series`,
+    deduped first-seen order).  A detector firing inside a zero-filled
+    gap bucket cites no evidence (``()``) — honest: no event backs it.
     """
     if method not in ACTIVITY_METHODS:
         raise ValueError(f"unknown method {method!r}; expected one of {sorted(ACTIVITY_METHODS)}")
@@ -248,15 +302,22 @@ def detect_activity_shifts(
 
     changes: list[ChangePoint] = []
     for index, score, direction in sorted(detections):
+        fired_at = series[index][0]
+        fired_key = _bucket_key(fired_at, bucket)
+        in_bucket = [
+            event for event in selected if _bucket_key(event.observed_at, bucket) == fired_key
+        ]
         changes.append(
             ChangePoint(
                 change_id=f"cp-activity-{len(changes) + 1:04d}",
                 subject_id=subject_id,
                 kind=TimelineEventKind.ACTIVITY,
                 detector=method,
-                changed_at=series[index][0],
+                changed_at=fired_at,
                 score=score,
                 direction=direction,
+                # cite only the events inside the fired bucket
+                evidence_ids=_union_evidence(in_bucket),
             )
         )
     return tuple(changes)
@@ -272,6 +333,8 @@ def build_migration_candidates(
     cadence, not a move.  Confidence is the fraction of the subject's
     later events on the same channel that still show the destination
     value; ``basis`` states the detector that produced the change.
+    Each candidate inherits ``evidence_ids`` from its supporting change
+    point (first-seen order preserved from the detector).
     """
     candidates: list[MigrationCandidate] = []
     for change in changes:
@@ -301,6 +364,8 @@ def build_migration_candidates(
                     f"state_change persistence on {change.kind.value} events "
                     f"(detector={change.detector})"
                 ),
+                # the migration cites exactly what its change point cited
+                evidence_ids=change.evidence_ids,
             )
         )
     return tuple(
