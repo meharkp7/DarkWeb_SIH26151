@@ -15,6 +15,17 @@ class CalibrationResult:
     calibration_version: str
 
 
+@dataclass(frozen=True)
+class ReliabilityBin:
+    """One reliability-diagram bin; empty bins are intentionally omitted."""
+
+    lower: float
+    upper: float
+    count: int
+    mean_confidence: float
+    empirical_rate: float
+
+
 class Calibrator:
     name: str
     version = "calibration-0.1"
@@ -157,6 +168,60 @@ def expected_calibration_error(
             accuracy = sum(labels[j] for j in members) / len(members)
             ece += len(members) / total * abs(confidence - accuracy)
     return ece
+
+
+def reliability_diagram(
+    scores: Sequence[float], labels: Sequence[int], bins: int = 10
+) -> tuple[ReliabilityBin, ...]:
+    """Return plot-ready reliability bins without taking a plotting dependency."""
+    if len(scores) != len(labels) or not scores:
+        raise ValueError("scores and labels must have equal non-zero length")
+    if bins < 1:
+        raise ValueError("bins must be positive")
+    result: list[ReliabilityBin] = []
+    for index in range(bins):
+        lower, upper = index / bins, (index + 1) / bins
+        members = [
+            offset
+            for offset, score in enumerate(scores)
+            if (lower <= score < upper) or (index == bins - 1 and score == upper)
+        ]
+        if members:
+            result.append(
+                ReliabilityBin(
+                    lower=lower,
+                    upper=upper,
+                    count=len(members),
+                    mean_confidence=sum(scores[item] for item in members) / len(members),
+                    empirical_rate=sum(labels[item] for item in members) / len(members),
+                )
+            )
+    return tuple(result)
+
+
+def calibration_by_group(
+    scores: Sequence[float], labels: Sequence[int], groups: Sequence[str], bins: int = 10
+) -> dict[str, dict[str, float]]:
+    """Brier/ECE slices, used for evidence-count and modality audits."""
+    if len(scores) != len(labels) or len(scores) != len(groups):
+        raise ValueError("scores, labels and groups must have equal length")
+    grouped: dict[str, list[int]] = {}
+    for index, group in enumerate(groups):
+        if not group.strip():
+            raise ValueError("groups must contain only non-empty strings")
+        grouped.setdefault(group, []).append(index)
+    return {
+        group: {
+            "count": float(len(indices)),
+            "brier": brier_score(
+                [scores[index] for index in indices], [labels[index] for index in indices]
+            ),
+            "ece": expected_calibration_error(
+                [scores[index] for index in indices], [labels[index] for index in indices], bins
+            ),
+        }
+        for group, indices in sorted(grouped.items())
+    }
 
 
 def calibrator_suite() -> tuple[Calibrator, ...]:

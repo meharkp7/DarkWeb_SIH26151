@@ -4,8 +4,10 @@ from aegis.attribution.calibration import (
     IsotonicCalibrator,
     PlattCalibrator,
     brier_score,
+    calibration_by_group,
     calibrator_suite,
     expected_calibration_error,
+    reliability_diagram,
 )
 
 SCORES = [0.05, 0.15, 0.25, 0.65, 0.8, 0.95]
@@ -42,3 +44,11 @@ def test_invalid_metric_inputs_rejected():
         brier_score([0.1], [0, 1])
     with pytest.raises(ValueError):
         expected_calibration_error([0.1], [0], bins=0)
+
+
+def test_reliability_diagram_and_group_slices_are_plot_ready():
+    diagram = reliability_diagram(SCORES, LABELS, bins=2)
+    slices = calibration_by_group(SCORES, LABELS, ["low"] * 3 + ["high"] * 3)
+    assert sum(item.count for item in diagram) == len(SCORES)
+    assert set(slices) == {"high", "low"}
+    assert slices["low"]["count"] == 3.0
