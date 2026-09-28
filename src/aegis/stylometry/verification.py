@@ -53,6 +53,12 @@ DEFAULT_SEED = 26151
 #: Hard limit on standardized feature values (out-of-distribution guard).
 MAX_ZSCORE = 4.0
 
+#: Cap on ``PairFeatureExtractor._cache``. That memo is keyed by full document
+#: text, so an untrusted stream of documents would otherwise retain every text
+#: ever scored (each entry holding several derived vectors). Past this many
+#: distinct documents the oldest-inserted entry is evicted.
+MAX_DOCUMENT_CACHE_ENTRIES = 1024
+
 
 @dataclass(frozen=True)
 class PairFeatures:
@@ -219,6 +225,8 @@ class PairFeatureExtractor:
             distinctive_tokens=tokens & self._distinctive_tokens,
             shingle_set=frozenset(shingles(text)),
         )
+        if len(self._cache) >= MAX_DOCUMENT_CACHE_ENTRIES:
+            self._cache.pop(next(iter(self._cache)))
         self._cache[text] = summary
         return summary
 
