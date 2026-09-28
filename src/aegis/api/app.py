@@ -16,6 +16,7 @@ from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_gua
 from aegis.db.audit import AuditService
 from aegis.db.models import CaseRecord
 from aegis.db.session import engine
+from aegis.evidence.search_index import EvidenceSearchIndexer
 from aegis.evidence.service import EvidenceService
 from aegis.observability import Metrics
 from aegis.schemas.analysis import (
@@ -32,6 +33,7 @@ from aegis.schemas.evidence import (
     SourceCreate,
     SourceType,
 )
+from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
@@ -155,6 +157,18 @@ def create_evidence(
         record = service.create_evidence(payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    search = OpenSearchAdapter(
+        settings.opensearch_url,
+        index_prefix=settings.opensearch_index_prefix,
+        http_auth=(
+            (settings.opensearch_username, settings.opensearch_password)
+            if settings.opensearch_username is not None
+            and settings.opensearch_password is not None
+            else None
+        ),
+    )
+    EvidenceSearchIndexer(search).index(record)
+
     return Evidence(
         **payload.model_dump(),
         evidence_id=record.evidence_id,
