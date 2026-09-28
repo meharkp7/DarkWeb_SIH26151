@@ -42,10 +42,24 @@ Implementation and optimization notes
     weights, plus flat bonuses for whole-field exact matches and phrase
     hits. Determinism is guaranteed: ties break on ``doc_id``, and
     fields are always iterated in sorted order.
+-   Query-level hoisting: everything that depends only on the query and
+    the corpus snapshot (de-duplicated token order, per-token IDF from
+    postings document frequencies, average document length, the exact
+    query string for field-equality bonuses, and the query n-gram set)
+    is computed once in :meth:`InProcessSearchEngine.search` and passed
+    down to per-candidate scoring, so the inner loop never rebuilds
+    query sets or re-derives corpus statistics.
+-   Top-k selection uses :func:`heapq.nsmallest` over the same
+    ``(-score, doc_id)`` key the full sort used, giving O(n log k)
+    selection instead of O(n log n) while producing a byte-identical
+    ranking (the key is a total order because ``doc_id`` values are
+    unique within an index). ``tests/test_search_ranking_regression.py``
+    pins the output to a pre-optimization golden fixture.
 """
 
 from __future__ import annotations
 
+import heapq
 import math
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -173,6 +187,38 @@ class _Prepared:
     matched_terms: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _QueryStats:
+    """Per-query BM25 constants, computed once and shared by all candidates.
+
+    Every value here depends only on the query and the corpus snapshot
+    taken when the query starts, never on an individual document, so
+    hoisting them out of the candidate loop keeps the hot path free of
+    ``dict.fromkeys`` rebuilds, ``math.log`` IDF recomputation, and
+    repeated corpus property evaluation.
+    """
+
+    unique_tokens: tuple[str, ...]
+    """Query tokens de-duplicated, preserving first-seen order."""
+
+    idf: dict[str, float]
+    """IDF per query token; tokens absent from the index are omitted."""
+
+    avg_length: float
+    """Corpus average document length (``1.0`` fallback, as before)."""
+
+
+def _ranking_key(item: _Prepared) -> tuple[float, str]:
+    """Sort key for final ranking: score descending, then ``doc_id`` ascending.
+
+    ``-score`` rather than ``reverse=True`` because the two components
+    rank in opposite directions; a single ascending sort on this key is
+    exactly the order the previous full sort produced, which is what
+    keeps :func:`heapq.nsmallest` output identical.
+    """
+    return (-item.final, item.entry.document.doc_id)
+
+
 def _posting_union(corpus: _Corpus, tokens: Sequence[str]) -> set[str]:
     doc_ids: set[str] = set()
     for token in tokens:
@@ -203,12 +249,12 @@ def _phrase_fields(entry: _DocEntry, tokens: Sequence[str]) -> tuple[str, ...]:
 
 
 def _fields_with_terms(entry: _DocEntry, tokens: Sequence[str]) -> tuple[str, ...]:
-    wanted = tuple(dict.fromkeys(tokens))
+    """Fields containing any of *tokens*; callers pass pre-deduplicated tokens."""
     return tuple(
         sorted(
             name
             for name, counts in entry.field_counts.items()
-            if any(token in counts for token in wanted)
+            if any(token in counts for token in tokens)
         )
     )
 
@@ -349,30 +395,49 @@ class InProcessSearchEngine:
 
     # -------------------------------------------------------------- querying
 
-    def _bm25(self, corpus: _Corpus, entry: _DocEntry, tokens: Sequence[str]) -> float:
-        """BM25 over unique query tokens with optional per-field weights."""
+    @staticmethod
+    def _build_query_stats(corpus: _Corpus, tokens: Sequence[str]) -> _QueryStats:
+        """Derive per-query BM25 constants once, before scoring candidates.
+
+        IDF depends only on each token's postings frequency and the corpus
+        document count, so it is safe (and much cheaper) to evaluate it a
+        single time per query rather than once per candidate document.
+        """
+        unique_tokens = tuple(dict.fromkeys(tokens))
+        doc_count = corpus.doc_count
+        idf: dict[str, float] = {}
+        for token in unique_tokens:
+            postings = corpus.postings.get(token)
+            if postings:
+                df = len(postings)
+                idf[token] = math.log(1.0 + (doc_count - df + 0.5) / (df + 0.5))
+        avg_length = corpus.avg_length or 1.0
+        return _QueryStats(unique_tokens=unique_tokens, idf=idf, avg_length=avg_length)
+
+    def _bm25(self, entry: _DocEntry, stats: _QueryStats) -> float:
+        """BM25 over unique query tokens with optional per-field weights.
+
+        All query-level constants (token order, IDF, average length) come
+        from *stats*, so this method only touches per-document state.
+        """
         if not entry.token_counts:
             return 0.0
-        doc_count = corpus.doc_count
-        avg_length = corpus.avg_length or 1.0
+        field_weights = self._field_weights
+        length_norm = 1.0 - _BM25_B + _BM25_B * (entry.length / stats.avg_length)
         score = 0.0
-        for token in dict.fromkeys(tokens):
-            postings = corpus.postings.get(token)
-            if not postings:
+        for token in stats.unique_tokens:
+            token_idf = stats.idf.get(token)
+            if token_idf is None:
                 continue
             frequency = 0.0
             for name, counts in entry.field_counts.items():
                 count = counts.get(token, 0)
                 if count:
-                    frequency += count * self._field_weights.get(name, 1.0)
+                    frequency += count * field_weights.get(name, 1.0)
             if frequency <= 0.0:
                 continue
-            df = len(postings)
-            idf = math.log(1.0 + (doc_count - df + 0.5) / (df + 0.5))
-            saturation = frequency + _BM25_K1 * (
-                1.0 - _BM25_B + _BM25_B * (entry.length / avg_length)
-            )
-            score += idf * (frequency * (_BM25_K1 + 1.0)) / saturation
+            saturation = frequency + _BM25_K1 * length_norm
+            score += token_idf * (frequency * (_BM25_K1 + 1.0)) / saturation
         return score
 
     def search(self, query: SearchQuery) -> SearchResult:
@@ -414,6 +479,9 @@ class InProcessSearchEngine:
         query_ngrams = (
             character_ngrams(query.text, _NGRAM_SIZE) if hybrid and tokens else frozenset()
         )
+        # Query-level BM25 constants (IDF, unique token order, average length)
+        # are derived once here instead of once per candidate document.
+        stats = self._build_query_stats(corpus, tokens)
 
         prepared: list[_Prepared] = []
         for doc_id in candidate_ids:
@@ -428,10 +496,10 @@ class InProcessSearchEngine:
             )
             if query.match_mode is MatchMode.PHRASE:
                 matched_fields = phrase_fields[doc_id]
-                lexical = self._bm25(corpus, entry, tokens) + _PHRASE_BONUS
+                lexical = self._bm25(entry, stats) + _PHRASE_BONUS
             else:
                 matched_fields = _fields_with_terms(entry, tokens)
-                lexical = self._bm25(corpus, entry, tokens)
+                lexical = self._bm25(entry, stats)
                 if query.match_mode is MatchMode.EXACT and query_norm in entry.field_norms.values():
                     lexical += _FIELD_EXACT_BONUS
                 if not hybrid and not matched_terms:
@@ -450,8 +518,10 @@ class InProcessSearchEngine:
             for item in prepared:
                 item.final = item.lexical
 
-        # Deterministic ranking: score desc, then doc_id asc.
-        prepared.sort(key=lambda item: (-item.final, item.entry.document.doc_id))
+        # Deterministic ranking: score desc, then doc_id asc. Only the top
+        # ``query.limit`` survive, so select them with a bounded heap over
+        # the same key a full sort would have used.
+        top = heapq.nsmallest(query.limit, prepared, key=_ranking_key)
         hits = tuple(
             SearchHit(
                 index=query.index,
@@ -464,7 +534,7 @@ class InProcessSearchEngine:
                 matched_terms=item.matched_terms,
                 document=item.entry.document,
             )
-            for item in prepared[: query.limit]
+            for item in top
         )
         took_ms = (perf_counter() - started) * 1000.0
         return SearchResult(query=query, hits=hits, total=len(prepared), took_ms=took_ms)
