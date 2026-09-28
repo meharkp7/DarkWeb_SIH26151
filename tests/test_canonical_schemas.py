@@ -187,9 +187,7 @@ def test_hypothesis_upgrades_from_flat_evidence_list() -> None:
 
 def test_unsupported_version_rejected() -> None:
     with pytest.raises(ValueError, match="unsupported schema_version"):
-        Hypothesis.model_validate(
-            {**Hypothesis.example().model_dump(), "schema_version": "99.0"}
-        )
+        Hypothesis.model_validate({**Hypothesis.example().model_dump(), "schema_version": "99.0"})
 
 
 # ----------------------------------------------------------------- gate

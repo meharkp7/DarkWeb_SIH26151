@@ -122,9 +122,7 @@ def test_collector_respects_time_window_and_limit() -> None:
 
     earliest = min(c.observed_hint for c in full)
     windowed = asyncio.run(
-        collector.discover(
-            CollectionScope(limit=10_000, since=datetime.fromisoformat(earliest))
-        )
+        collector.discover(CollectionScope(limit=10_000, since=datetime.fromisoformat(earliest)))
     )
     assert all(c.observed_hint >= earliest for c in windowed)
 

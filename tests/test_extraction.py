@@ -136,19 +136,11 @@ def test_domain_extraction_and_context_confidence() -> None:
     assert secured_domains and secured_domains[0].confidence == 0.95
     # scheme context allows non-allowlisted TLDs too
     niche = pipeline.extract_matches("see https://sub.examplenewtld/x")
-    niche_domains = {
-        m.normalized_form
-        for m in niche
-        if m.entity_type == EntityType.DOMAIN
-    }
+    niche_domains = {m.normalized_form for m in niche if m.entity_type == EntityType.DOMAIN}
     assert "sub.examplenewtld" in niche_domains
     # ...but the same unknown TLD bare, without context, is not a host
     bare_niche = pipeline.extract_matches("look at sub.examplenewtld directly")
-    assert not [
-        m
-        for m in bare_niche
-        if m.entity_type == EntityType.DOMAIN
-    ]
+    assert not [m for m in bare_niche if m.entity_type == EntityType.DOMAIN]
 
 
 def test_url_extraction_span_and_normalization() -> None:
@@ -225,9 +217,7 @@ def test_short_and_bogus_handles_rejected() -> None:
 
 
 def test_ip_addresses_and_dates_are_not_extracted() -> None:
-    matches = _pipeline().extract_matches(
-        "on 2026-01-15 at 192.168.10.55 port 8443"
-    )
+    matches = _pipeline().extract_matches("on 2026-01-15 at 192.168.10.55 port 8443")
     assert EntityType.DOMAIN not in _types(matches)
     assert EntityType.WALLET_ADDRESS not in _types(matches)
 
@@ -237,9 +227,7 @@ def test_ip_addresses_and_dates_are_not_extracted() -> None:
 
 def test_platform_suffix_grammar() -> None:
     pipeline = _pipeline()
-    matches = pipeline.extract_matches(
-        "listed on Acme market and discussed on Delta forum"
-    )
+    matches = pipeline.extract_matches("listed on Acme market and discussed on Delta forum")
     marketplaces = [m for m in matches if m.entity_type == EntityType.MARKETPLACE]
     forums = [m for m in matches if m.entity_type == EntityType.FORUM]
     assert [m.normalized_form for m in marketplaces] == ["acme market"]
@@ -254,9 +242,7 @@ def test_platform_gazetteer_lookup() -> None:
 
 
 def test_prose_market_mention_not_a_platform() -> None:
-    matches = _pipeline().extract_matches(
-        "the goods traded on the black market for weeks"
-    )
+    matches = _pipeline().extract_matches("the goods traded on the black market for weeks")
     assert EntityType.MARKETPLACE not in _types(matches)
 
 
@@ -332,9 +318,7 @@ def test_pipeline_emits_canonical_entities_with_span_provenance() -> None:
 def test_pipeline_can_disable_ner() -> None:
     text = "vendor ghostbroker on Delta forum"
     with_ner = ExtractionPipeline().extract(text, evidence_id=uuid4())
-    without_ner = ExtractionPipeline(include_ner=False).extract(
-        text, evidence_id=uuid4()
-    )
+    without_ner = ExtractionPipeline(include_ner=False).extract(text, evidence_id=uuid4())
     assert EntityType.ALIAS in {e.entity_type for e in with_ner.entities}
     assert EntityType.ALIAS not in {e.entity_type for e in without_ner.entities}
     assert EntityType.FORUM not in {e.entity_type for e in without_ner.entities}

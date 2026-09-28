@@ -78,9 +78,7 @@ def test_synthetic_source_collector_evidence_pipeline() -> None:
         assert repeat.created == 0
         assert repeat.skipped_duplicates == 30
     finally:
-        db.execute(
-            delete(EvidenceRecord).where(EvidenceRecord.source_id == source.source_id)
-        )
+        db.execute(delete(EvidenceRecord).where(EvidenceRecord.source_id == source.source_id))
         db.execute(delete(SourceRecord).where(SourceRecord.source_id == source.source_id))
         db.commit()
         db.close()

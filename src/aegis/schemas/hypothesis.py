@@ -63,11 +63,19 @@ class Hypothesis(CanonicalModel):
     MIGRATIONS = {
         # 0.9 stored a flat ``evidence_ids`` list without roles.
         "0.9": lambda p: migrate(
-            {**p, "links": [
-                {"evidence_id": eid, "role": "supporting", "modality": "unknown",
-                 "independence_group": "legacy", "weight": 1.0}
-                for eid in p.pop("evidence_ids", []) or []
-            ]},
+            {
+                **p,
+                "links": [
+                    {
+                        "evidence_id": eid,
+                        "role": "supporting",
+                        "modality": "unknown",
+                        "independence_group": "legacy",
+                        "weight": 1.0,
+                    }
+                    for eid in p.pop("evidence_ids", []) or []
+                ],
+            },
             "1.0",
             drops=("evidence_ids",),
         ),

@@ -53,9 +53,7 @@ WALLET_BTC_BASE58_RE = re.compile(
     r"(?P<addr>[13][1-9A-HJ-NP-Za-km-z]{25,34})"
     r"(?![0-9A-HJ-NP-Za-km-z])"
 )
-WALLET_ETH_RE = re.compile(
-    r"(?<![A-Za-z0-9])0x(?P<addr>[0-9A-Fa-f]{40})(?![A-Za-z0-9])"
-)
+WALLET_ETH_RE = re.compile(r"(?<![A-Za-z0-9])0x(?P<addr>[0-9A-Fa-f]{40})(?![A-Za-z0-9])")
 
 # PGP v4 fingerprints: 40 hex chars, shown grouped (10x4) or raw.
 # Raw form requires non-alphanumeric boundaries so an EIP-55 address
@@ -102,13 +100,69 @@ KNOWN_TLDS = frozenset(
 #: not explicitly trusted (``report.pdf``, ``notes.txt``...).
 _NOT_HOST_TLDS = frozenset(
     {
-        "txt", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv",
-        "json", "xml", "yml", "yaml", "md", "log", "bak", "tmp", "swp",
-        "py", "js", "ts", "jsx", "go", "rs", "java", "c", "h", "cpp",
-        "sh", "bat", "ps1", "sql", "ini", "cfg", "conf", "env", "lock",
-        "png", "jpg", "jpeg", "gif", "svg", "webp", "mp3", "mp4", "zip",
-        "tar", "gz", "rar", "7z", "iso", "img", "exe", "dll", "so",
-        "deb", "rpm", "apk", "dmg", "pkg", "db", "sqlite", "pcap",
+        "txt",
+        "pdf",
+        "doc",
+        "docx",
+        "xls",
+        "xlsx",
+        "ppt",
+        "pptx",
+        "csv",
+        "json",
+        "xml",
+        "yml",
+        "yaml",
+        "md",
+        "log",
+        "bak",
+        "tmp",
+        "swp",
+        "py",
+        "js",
+        "ts",
+        "jsx",
+        "go",
+        "rs",
+        "java",
+        "c",
+        "h",
+        "cpp",
+        "sh",
+        "bat",
+        "ps1",
+        "sql",
+        "ini",
+        "cfg",
+        "conf",
+        "env",
+        "lock",
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "svg",
+        "webp",
+        "mp3",
+        "mp4",
+        "zip",
+        "tar",
+        "gz",
+        "rar",
+        "7z",
+        "iso",
+        "img",
+        "exe",
+        "dll",
+        "so",
+        "deb",
+        "rpm",
+        "apk",
+        "dmg",
+        "pkg",
+        "db",
+        "sqlite",
+        "pcap",
     }
 )
 
@@ -136,14 +190,30 @@ def keccak256(data: bytes) -> bytes:
 
     def _permute() -> None:
         rc = (
-            0x0000000000000001, 0x0000000000008082, 0x800000000000808A,
-            0x8000000080008000, 0x000000000000808B, 0x0000000080000001,
-            0x8000000080008081, 0x8000000000008009, 0x000000000000008A,
-            0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
-            0x000000008000808B, 0x800000000000008B, 0x8000000000008089,
-            0x8000000000008003, 0x8000000000008002, 0x8000000000000080,
-            0x000000000000800A, 0x800000008000000A, 0x8000000080008081,
-            0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+            0x0000000000000001,
+            0x0000000000008082,
+            0x800000000000808A,
+            0x8000000080008000,
+            0x000000000000808B,
+            0x0000000080000001,
+            0x8000000080008081,
+            0x8000000000008009,
+            0x000000000000008A,
+            0x0000000000000088,
+            0x0000000080008009,
+            0x000000008000000A,
+            0x000000008000808B,
+            0x800000000000008B,
+            0x8000000000008089,
+            0x8000000000008003,
+            0x8000000000008002,
+            0x8000000000000080,
+            0x000000000000800A,
+            0x800000008000000A,
+            0x8000000080008081,
+            0x8000000000008080,
+            0x0000000080000001,
+            0x8000000080008008,
         )
         rotations = (
             (0, 36, 3, 41, 18),
@@ -173,9 +243,7 @@ def keccak256(data: bytes) -> bytes:
             b = [0] * 25
             for x in range(5):
                 for y in range(5):
-                    b[y + 5 * ((2 * x + 3 * y) % 5)] = _rotl(
-                        state[x + 5 * y], rotations[x][y]
-                    )
+                    b[y + 5 * ((2 * x + 3 * y) % 5)] = _rotl(state[x + 5 * y], rotations[x][y])
             # chi
             for x in range(5):
                 for y in range(5):
@@ -314,9 +382,7 @@ def is_valid_onion(address: str, *, version: int) -> bool:
     public_key, checksum, version_byte = decoded[:32], decoded[32:34], decoded[34]
     if version_byte != 0x03:
         return False
-    expected = hashlib.sha3_256(
-        _ONION_V3_DOMAIN + public_key + bytes([version_byte])
-    ).digest()[:2]
+    expected = hashlib.sha3_256(_ONION_V3_DOMAIN + public_key + bytes([version_byte])).digest()[:2]
     return checksum == expected
 
 

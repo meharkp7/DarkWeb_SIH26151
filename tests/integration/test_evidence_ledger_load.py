@@ -126,24 +126,30 @@ def test_ten_thousand_records_unique_and_indexed(
 
         # duplicate sha256 must be rejected at the database level
         with pytest.raises(Exception):  # noqa: B017 - driver-specific IntegrityError
-            db.execute(
-                insert(EvidenceRecord).values(**{**rows[0], "evidence_id": uuid.uuid4()})
-            )
+            db.execute(insert(EvidenceRecord).values(**{**rows[0], "evidence_id": uuid.uuid4()}))
             db.commit()
         db.rollback()
 
         # 2. index usage for the required lookup paths
-        plan = db.execute(
-            text("EXPLAIN SELECT evidence_id FROM evidence WHERE sha256 = :digest"),
-            {"digest": rows[0]["sha256"]},
-        ).scalars().all()
+        plan = (
+            db.execute(
+                text("EXPLAIN SELECT evidence_id FROM evidence WHERE sha256 = :digest"),
+                {"digest": rows[0]["sha256"]},
+            )
+            .scalars()
+            .all()
+        )
         plan_text = "\n".join(str(line) for line in plan)
         assert "ix_evidence_sha256" in plan_text, plan_text
 
-        plan_case = db.execute(
-            text("EXPLAIN SELECT evidence_id FROM evidence WHERE case_id = :cid"),
-            {"cid": str(case_id)},
-        ).scalars().all()
+        plan_case = (
+            db.execute(
+                text("EXPLAIN SELECT evidence_id FROM evidence WHERE case_id = :cid"),
+                {"cid": str(case_id)},
+            )
+            .scalars()
+            .all()
+        )
         assert "ix_evidence_case_id" in "\n".join(str(line) for line in plan_case)
 
         # 3. audit creation + verifiable hash chain
@@ -165,9 +171,7 @@ def test_ten_thousand_records_unique_and_indexed(
         assert len(audit.entries_for_entity(marker)) == 2
 
         # 4. audit log is append-only at the database level
-        entry = db.scalar(
-            select(AuditLogRecord).where(AuditLogRecord.entity_id == marker).limit(1)
-        )
+        entry = db.scalar(select(AuditLogRecord).where(AuditLogRecord.entity_id == marker).limit(1))
         assert entry is not None
         with pytest.raises(Exception):  # noqa: B017 - raises via DB trigger
             db.execute(

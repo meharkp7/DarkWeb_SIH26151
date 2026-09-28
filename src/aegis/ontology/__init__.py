@@ -166,62 +166,64 @@ del _rel
 #: consistent.
 ConstraintMap = dict[RelationshipType, frozenset[tuple[EntityCategory, EntityCategory]]]
 
-RELATIONSHIP_CONSTRAINTS: ConstraintMap = (
-    {
-        RelationshipType.USES_HANDLE: frozenset(
-            {
-                (EntityCategory.IDENTITY, EntityCategory.IDENTITY),
-                (EntityCategory.ANALYTICAL, EntityCategory.IDENTITY),
-            }
-        ),
-        RelationshipType.USES_PGP: frozenset(
-            {
-                (EntityCategory.IDENTITY, EntityCategory.IDENTITY),
-                (EntityCategory.ANALYTICAL, EntityCategory.IDENTITY),
-            }
-        ),
-        RelationshipType.ASSOCIATED_WITH_WALLET: frozenset(
-            {(EntityCategory.IDENTITY, EntityCategory.FINANCIAL),
-             (EntityCategory.FINANCIAL, EntityCategory.FINANCIAL),
-             (EntityCategory.ANALYTICAL, EntityCategory.FINANCIAL)}
-        ),
-        RelationshipType.POSTED_ON: frozenset(
-            {(EntityCategory.CONTENT, EntityCategory.PLATFORM),
-             (EntityCategory.IDENTITY, EntityCategory.PLATFORM)}
-        ),
-        RelationshipType.POSTED_IN: frozenset(
-            {(EntityCategory.CONTENT, EntityCategory.PLATFORM)}
-        ),
-        RelationshipType.REPLIES_TO: frozenset({(EntityCategory.CONTENT, EntityCategory.CONTENT)}),
-        RelationshipType.REPLY_TO: frozenset({(EntityCategory.CONTENT, EntityCategory.CONTENT)}),
-        RelationshipType.MENTIONS: frozenset(
-            {(EntityCategory.CONTENT, EntityCategory.IDENTITY),
-             (EntityCategory.CONTENT, EntityCategory.INFRASTRUCTURE),
-             (EntityCategory.CONTENT, EntityCategory.FINANCIAL)}
-        ),
-        RelationshipType.MIGRATED_TO: frozenset(
-            {(EntityCategory.IDENTITY, EntityCategory.IDENTITY)}
-        ),
-        RelationshipType.USES_INFRASTRUCTURE: frozenset(
-            {(EntityCategory.IDENTITY, EntityCategory.INFRASTRUCTURE),
-             (EntityCategory.PLATFORM, EntityCategory.INFRASTRUCTURE)}
-        ),
-        RelationshipType.CERTIFICATE_ASSOCIATED_WITH: frozenset(
-            {(EntityCategory.INFRASTRUCTURE, EntityCategory.INFRASTRUCTURE)}
-        ),
-        RelationshipType.DERIVED_FROM: frozenset(
-            {(EntityCategory.ANALYTICAL, EntityCategory.ANALYTICAL),
-             (EntityCategory.CONTENT, EntityCategory.CONTENT),
-             (EntityCategory.ANALYTICAL, EntityCategory.CONTENT)}
-        ),
-        RelationshipType.SUPPORTS: frozenset(
-            {(EntityCategory.ANALYTICAL, EntityCategory.ANALYTICAL)}
-        ),
-        RelationshipType.CONTRADICTS: frozenset(
-            {(EntityCategory.ANALYTICAL, EntityCategory.ANALYTICAL)}
-        ),
-    }
-)
+RELATIONSHIP_CONSTRAINTS: ConstraintMap = {
+    RelationshipType.USES_HANDLE: frozenset(
+        {
+            (EntityCategory.IDENTITY, EntityCategory.IDENTITY),
+            (EntityCategory.ANALYTICAL, EntityCategory.IDENTITY),
+        }
+    ),
+    RelationshipType.USES_PGP: frozenset(
+        {
+            (EntityCategory.IDENTITY, EntityCategory.IDENTITY),
+            (EntityCategory.ANALYTICAL, EntityCategory.IDENTITY),
+        }
+    ),
+    RelationshipType.ASSOCIATED_WITH_WALLET: frozenset(
+        {
+            (EntityCategory.IDENTITY, EntityCategory.FINANCIAL),
+            (EntityCategory.FINANCIAL, EntityCategory.FINANCIAL),
+            (EntityCategory.ANALYTICAL, EntityCategory.FINANCIAL),
+        }
+    ),
+    RelationshipType.POSTED_ON: frozenset(
+        {
+            (EntityCategory.CONTENT, EntityCategory.PLATFORM),
+            (EntityCategory.IDENTITY, EntityCategory.PLATFORM),
+        }
+    ),
+    RelationshipType.POSTED_IN: frozenset({(EntityCategory.CONTENT, EntityCategory.PLATFORM)}),
+    RelationshipType.REPLIES_TO: frozenset({(EntityCategory.CONTENT, EntityCategory.CONTENT)}),
+    RelationshipType.REPLY_TO: frozenset({(EntityCategory.CONTENT, EntityCategory.CONTENT)}),
+    RelationshipType.MENTIONS: frozenset(
+        {
+            (EntityCategory.CONTENT, EntityCategory.IDENTITY),
+            (EntityCategory.CONTENT, EntityCategory.INFRASTRUCTURE),
+            (EntityCategory.CONTENT, EntityCategory.FINANCIAL),
+        }
+    ),
+    RelationshipType.MIGRATED_TO: frozenset({(EntityCategory.IDENTITY, EntityCategory.IDENTITY)}),
+    RelationshipType.USES_INFRASTRUCTURE: frozenset(
+        {
+            (EntityCategory.IDENTITY, EntityCategory.INFRASTRUCTURE),
+            (EntityCategory.PLATFORM, EntityCategory.INFRASTRUCTURE),
+        }
+    ),
+    RelationshipType.CERTIFICATE_ASSOCIATED_WITH: frozenset(
+        {(EntityCategory.INFRASTRUCTURE, EntityCategory.INFRASTRUCTURE)}
+    ),
+    RelationshipType.DERIVED_FROM: frozenset(
+        {
+            (EntityCategory.ANALYTICAL, EntityCategory.ANALYTICAL),
+            (EntityCategory.CONTENT, EntityCategory.CONTENT),
+            (EntityCategory.ANALYTICAL, EntityCategory.CONTENT),
+        }
+    ),
+    RelationshipType.SUPPORTS: frozenset({(EntityCategory.ANALYTICAL, EntityCategory.ANALYTICAL)}),
+    RelationshipType.CONTRADICTS: frozenset(
+        {(EntityCategory.ANALYTICAL, EntityCategory.ANALYTICAL)}
+    ),
+}
 
 
 def relationship_allowed(

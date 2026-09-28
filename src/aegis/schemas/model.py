@@ -31,9 +31,12 @@ class ModelRun(CanonicalModel):
     CURRENT_VERSION = "1.0"
     MIGRATIONS = {
         # 0.9 omitted calibration and artifact paths.
-        "0.9": lambda p: {**p, "calibration": p.get("calibration") or {},
-                          "artifact_paths": p.get("artifact_paths") or [],
-                          "schema_version": "1.0"},
+        "0.9": lambda p: {
+            **p,
+            "calibration": p.get("calibration") or {},
+            "artifact_paths": p.get("artifact_paths") or [],
+            "schema_version": "1.0",
+        },
     }
 
     run_id: UUID = Field(default_factory=uuid4)

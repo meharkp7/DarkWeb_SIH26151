@@ -113,14 +113,17 @@ def test_node_and_edge_validation() -> None:
     store.add_node("n2", NodeLabel.FORUM)
     with pytest.raises(GraphValidationError, match="timezone-aware"):
         store.add_edge(
-            RelationshipType.ASSOCIATED_WITH, "n1", "n2",
-            first_seen=datetime(2026, 1, 1), last_seen=JUN, confidence=0.5,
+            RelationshipType.ASSOCIATED_WITH,
+            "n1",
+            "n2",
+            first_seen=datetime(2026, 1, 1),
+            last_seen=JUN,
+            confidence=0.5,
         )
     with pytest.raises(GraphValidationError, match="last_seen"):
         _edge(store, RelationshipType.ASSOCIATED_WITH, "n1", "n2", JUN, JAN)
     with pytest.raises(GraphValidationError, match="confidence"):
-        _edge(store, RelationshipType.ASSOCIATED_WITH, "n1", "n2", JAN, JUN,
-              confidence=1.5)
+        _edge(store, RelationshipType.ASSOCIATED_WITH, "n1", "n2", JAN, JUN, confidence=1.5)
 
 
 def test_ontology_category_constraints_enforced() -> None:
@@ -136,8 +139,14 @@ def test_duplicate_edges_merge_window_and_evidence() -> None:
     store = _fixture_store()
     before = len(store.edges)
     merged = _edge(
-        store, RelationshipType.ASSOCIATED_WITH, "a", "b", FEB, DEC,
-        ("ev9",), confidence=0.95,
+        store,
+        RelationshipType.ASSOCIATED_WITH,
+        "a",
+        "b",
+        FEB,
+        DEC,
+        ("ev9",),
+        confidence=0.95,
     )
     del merged
     assert len(store.edges) == before  # merged, not duplicated
@@ -469,9 +478,7 @@ def test_adapter_runs_with_injected_driver_and_merges_parameters() -> None:
         def close(self) -> None:
             captured["closed"] = True
 
-    adapter = Neo4jGraphAdapter(
-        "bolt://localhost:7687", ("user", "pass"), driver=_FakeDriver()
-    )
+    adapter = Neo4jGraphAdapter("bolt://localhost:7687", ("user", "pass"), driver=_FakeDriver())
     rows = adapter.run(CypherBuilder.two_hop_neighborhood("n1"), extra_param=1)
     assert rows == [{"node_id": "x", "hops": 1}]
     assert captured["parameters"] == {

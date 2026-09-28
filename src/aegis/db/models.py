@@ -107,31 +107,17 @@ class EvidenceDerivationRecord(Base):
 class AttributionHypothesisRecord(Base):
     __tablename__ = "attribution_hypotheses"
 
-    hypothesis_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True
-    )
-    source_actor_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True
-    )
-    target_actor_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True
-    )
+    hypothesis_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    source_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    target_actor_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     raw_score: Mapped[float] = mapped_column(Float, nullable=False)
     support_score: Mapped[float] = mapped_column(Float, nullable=False)
     contradiction_score: Mapped[float] = mapped_column(Float, nullable=False)
     final_score: Mapped[float] = mapped_column(Float, nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="candidate"
-    )
-    evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, default=list
-    )
-    explanations_json: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="candidate")
+    evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    explanations_json: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class HypothesisContradictionRecord(Base):
@@ -146,17 +132,11 @@ class HypothesisContradictionRecord(Base):
         nullable=False,
         index=True,
     )
-    evidence_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, index=True
-    )
-    contradiction_type: Mapped[str] = mapped_column(
-        String(128), nullable=False
-    )
+    evidence_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    contradiction_type: Mapped[str] = mapped_column(String(128), nullable=False)
     severity: Mapped[float] = mapped_column(Float, nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +155,7 @@ class RoleRecord(Base):
     permissions: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserRecord(Base):
@@ -194,9 +172,7 @@ class UserRecord(Base):
         PGUUID(as_uuid=True), ForeignKey("roles.role_id"), nullable=False, index=True
     )
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -224,9 +200,7 @@ class EntityRecord(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class RelationshipRecord(Base):
@@ -258,9 +232,7 @@ class RelationshipRecord(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class HypothesisRecord(Base):
@@ -289,9 +261,7 @@ class HypothesisRecord(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -311,9 +281,7 @@ class HypothesisLinkRecord(Base):
     modality: Mapped[str] = mapped_column(String(64), nullable=False)
     independence_group: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AssessmentRecord(Base):
@@ -350,9 +318,7 @@ class AssessmentRecord(Base):
     limitations: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ModelRunRecord(Base):
@@ -382,9 +348,7 @@ class ModelRunRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AuditLogRecord(Base):

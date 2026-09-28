@@ -105,9 +105,7 @@ class AuditService:
 
     def verify_chain(self) -> bool:
         """Recompute the whole chain; returns False on any tamper evidence."""
-        rows = self.db.scalars(
-            select(AuditLogRecord).order_by(AuditLogRecord.seq.asc())
-        ).all()
+        rows = self.db.scalars(select(AuditLogRecord).order_by(AuditLogRecord.seq.asc())).all()
 
         previous: str | None = None
         for row in rows:

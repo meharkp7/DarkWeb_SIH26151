@@ -30,15 +30,27 @@ PERSONAS: tuple[str, ...] = ("broker", "developer", "operator", "seller", "resea
 LANGUAGES: tuple[str, ...] = ("en", "ru", "de", "fr", "es")
 
 _TOPIC_TERMS: tuple[str, ...] = (
-    "escrow", "dump", "fees", "rotation", "listing", "vendor", "wallet",
-    "session", "mirror", "invites", "reviews", "shipping", "leak", "bounty",
+    "escrow",
+    "dump",
+    "fees",
+    "rotation",
+    "listing",
+    "vendor",
+    "wallet",
+    "session",
+    "mirror",
+    "invites",
+    "reviews",
+    "shipping",
+    "leak",
+    "bounty",
 )
 
 _STYLE_MARKERS: dict[int, tuple[str, ...]] = {
-    0: ("imo", "tbh", "lol"),          # casual
+    0: ("imo", "tbh", "lol"),  # casual
     1: ("nb.", "regards,", "per above"),  # formal
-    2: (":-)", "==>", "fyi"),          # symbol-heavy
-    3: ("shipped", "asap", "net"),     # clipped
+    2: (":-)", "==>", "fyi"),  # symbol-heavy
+    3: ("shipped", "asap", "net"),  # clipped
 }
 
 

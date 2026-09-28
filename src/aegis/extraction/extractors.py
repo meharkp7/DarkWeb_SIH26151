@@ -280,9 +280,7 @@ class DomainExtractor(BaseExtractor):
             preceding = text[: match.start()]
             if not patterns.domain_looks_like_host(domain, preceding):
                 continue
-            context_trusted = preceding[-8:].lower().endswith(
-                ("://", "www.", "//")
-            )
+            context_trusted = preceding[-8:].lower().endswith(("://", "www.", "//"))
             matches.append(
                 _match(
                     EntityType.DOMAIN,

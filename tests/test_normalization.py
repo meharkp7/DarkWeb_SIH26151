@@ -53,9 +53,7 @@ def _pipeline() -> NormalizationPipeline:
 
 def test_html_only_change_yields_identical_hashes() -> None:
     plain = canonical_text(ORIGINAL)
-    html_version = canonical_text(
-        f"<p>{ORIGINAL}</p>", html_input=True
-    )
+    html_version = canonical_text(f"<p>{ORIGINAL}</p>", html_input=True)
     assert plain == html_version
 
     pipeline = _pipeline()
@@ -80,12 +78,8 @@ def test_html_entities_and_script_blocks_stripped() -> None:
 
 
 def test_volatile_metadata_dropped_and_stable_order() -> None:
-    left = normalize_metadata(
-        {"b": " two ", "fetched_at": "2026-01-01", "a": {"n": 1, "z": " x "}}
-    )
-    right = normalize_metadata(
-        {"a": {"z": "x", "n": 1}, "fetched_at": "2026-06-06", "b": "two"}
-    )
+    left = normalize_metadata({"b": " two ", "fetched_at": "2026-01-01", "a": {"n": 1, "z": " x "}})
+    right = normalize_metadata({"a": {"z": "x", "n": 1}, "fetched_at": "2026-06-06", "b": "two"})
     assert left == right == {"a": {"n": 1, "z": "x"}, "b": "two"}
 
 
@@ -95,15 +89,11 @@ def test_volatile_metadata_dropped_and_stable_order() -> None:
 def test_simhash_and_minhash_separate_similar_from_dissimilar() -> None:
     near = simhash64(ORIGINAL)
     near_copy = simhash64(ORIGINAL + " extra tail token appended here")
-    different = simhash64(
-        "Unrelated discussion about shipping logistics and wallet backups."
-    )
+    different = simhash64("Unrelated discussion about shipping logistics and wallet backups.")
 
     assert hamming_distance(near, near_copy) < hamming_distance(near, different)
 
-    close = jaccard_from_signatures(
-        minhash_signatures(ORIGINAL), minhash_signatures(ORIGINAL)
-    )
+    close = jaccard_from_signatures(minhash_signatures(ORIGINAL), minhash_signatures(ORIGINAL))
     assert close == 1.0
 
 

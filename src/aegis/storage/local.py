@@ -48,7 +48,7 @@ class LocalObjectStore:
 
     def list_keys(self, prefix: str) -> list[str]:
         validate_key(prefix)
-        base = (self.root / prefix)
+        base = self.root / prefix
         if not base.exists():
             return []
         if base.is_file():

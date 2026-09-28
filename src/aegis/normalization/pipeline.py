@@ -155,14 +155,10 @@ class NormalizationPipeline:
             raise ValueError("evidence_ids must align with items")
 
         documents = tuple(
-            self.normalize_document(
-                text, document_id=document_id, metadata=metadata
-            )
+            self.normalize_document(text, document_id=document_id, metadata=metadata)
             for document_id, text, metadata in items
         )
-        assignment = self.clusterer.cluster(
-            [document.fingerprint() for document in documents]
-        )
+        assignment = self.clusterer.cluster([document.fingerprint() for document in documents])
 
         group = independence_group or self.independence_group_for(source_id)
         lineage_path = self.lineage_path(source_id)
@@ -180,9 +176,7 @@ class NormalizationPipeline:
             for document, evidence_id in zip(documents, evidence_ids, strict=True)
         )
 
-        return BatchResult(
-            documents=documents, assignment=assignment, observations=observations
-        )
+        return BatchResult(documents=documents, assignment=assignment, observations=observations)
 
     def build_observation(
         self,

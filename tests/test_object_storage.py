@@ -76,9 +76,12 @@ def test_upload_checksum_and_retrieval(
     assert parts.metadata["sha256"] == receipt.raw_sha256
     assert parts.metadata["case_id"] == CASE_ID
 
-    assert package_store.verify(
-        authorized, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9
-    ) == []
+    assert (
+        package_store.verify(
+            authorized, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9
+        )
+        == []
+    )
 
 
 def test_corrupted_artifact_detected(
@@ -122,28 +125,26 @@ def test_authorization_is_case_scoped(
     )
 
     with pytest.raises(EvidenceAccessDenied):
-        package_store.read(
-            stranger, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9
-        )
+        package_store.read(stranger, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9)
     with pytest.raises(EvidenceAccessDenied):
         package_store.write(
-            stranger, case_id=CASE_ID, evidence_id=str(uuid.uuid4()),
-            raw=b"inject", collected_at=NOW,
+            stranger,
+            case_id=CASE_ID,
+            evidence_id=str(uuid.uuid4()),
+            raw=b"inject",
+            collected_at=NOW,
         )
     with pytest.raises(EvidenceAccessDenied):
-        package_store.verify(
-            stranger, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9
-        )
+        package_store.verify(stranger, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9)
 
 
 def test_admin_role_crosses_case_scope(package_store: EvidencePackageStore) -> None:
     admin = AccessContext(user_id="root", roles=frozenset({"admin"}))
-    package_store.write(
-        admin, case_id=CASE_ID, evidence_id=EVIDENCE_ID, raw=b"x", collected_at=NOW
+    package_store.write(admin, case_id=CASE_ID, evidence_id=EVIDENCE_ID, raw=b"x", collected_at=NOW)
+    assert (
+        package_store.read(admin, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9).raw
+        == b"x"
     )
-    assert package_store.read(
-        admin, case_id=CASE_ID, evidence_id=EVIDENCE_ID, year=2026, month=9
-    ).raw == b"x"
 
 
 def test_missing_package_raises_not_found(
@@ -216,8 +217,16 @@ class FakeS3Client:
         self.objects: dict[tuple[str, str], tuple[bytes, dict[str, str]]] = {}
         self.calls: list[str] = []
 
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes, Metadata: dict[str, str],
-                   ContentType: str | None = None, **_: object) -> dict[str, str]:
+    def put_object(
+        self,
+        *,
+        Bucket: str,
+        Key: str,
+        Body: bytes,
+        Metadata: dict[str, str],
+        ContentType: str | None = None,
+        **_: object,
+    ) -> dict[str, str]:
         del ContentType
         self.calls.append(f"put:{Bucket}/{Key}")
         self.objects[(Bucket, Key)] = (bytes(Body), dict(Metadata))

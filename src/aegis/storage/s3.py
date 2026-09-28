@@ -79,11 +79,11 @@ class S3ObjectStore:
         validate_key(prefix)
         full_prefix = f"{self.prefix}/{prefix}" if self.prefix else prefix
         keys: list[str] = []
-        token: str | None = None
+        continuation: str | None = None
         while True:
             kwargs: dict[str, Any] = {"Bucket": self.bucket, "Prefix": full_prefix}
-            if token:
-                kwargs["ContinuationToken"] = token
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
             try:
                 response = self.client.list_objects_v2(**kwargs)
             except Exception as exc:  # noqa: BLE001 - adapter boundary
@@ -93,7 +93,7 @@ class S3ObjectStore:
                 keys.append(item["Key"].removeprefix(strip))
             if not response.get("IsTruncated"):
                 break
-            token = response.get("NextContinuationToken")
+            continuation = response.get("NextContinuationToken")
         return sorted(keys)
 
 

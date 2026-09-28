@@ -85,9 +85,7 @@ def shingles(text: str, size: int = DEFAULT_SHINGLE_SIZE) -> set[str]:
 
 
 def _shingle_hash(value: str) -> int:
-    return int.from_bytes(
-        hashlib.blake2b(value.encode("utf-8"), digest_size=8).digest(), "big"
-    )
+    return int.from_bytes(hashlib.blake2b(value.encode("utf-8"), digest_size=8).digest(), "big")
 
 
 def minhash_signatures(
@@ -135,9 +133,7 @@ def jaccard_sets(left: Iterable[str], right: Iterable[str]) -> float:
     return len(a & b) / len(a | b)
 
 
-def minhash_buckets(
-    signatures: Sequence[int], band_size: int = 8
-) -> list[tuple[int, int]]:
+def minhash_buckets(signatures: Sequence[int], band_size: int = 8) -> list[tuple[int, int]]:
     """LSH band buckets: (band_index, band_hash) candidate keys."""
     if band_size <= 0 or len(signatures) % band_size != 0:
         raise ValueError(

@@ -39,9 +39,7 @@ from aegis.ontology import (
 NodeKey = str
 
 
-def edge_key(
-    rel_type: RelationshipType, source: NodeKey, target: NodeKey, symmetric: bool
-) -> str:
+def edge_key(rel_type: RelationshipType, source: NodeKey, target: NodeKey, symmetric: bool) -> str:
     """Stable identity for an edge (endpoint order folded for
     symmetric types)."""
     left, right = sorted((source, target)) if symmetric else (source, target)
@@ -226,9 +224,7 @@ class InMemoryGraphStore:
                 first_seen=min(existing.first_seen, first),
                 last_seen=max(existing.last_seen, last),
                 confidence=max(existing.confidence, confidence),
-                evidence_ids=tuple(
-                    dict.fromkeys((*existing.evidence_ids, *evidence_ids))
-                ),
+                evidence_ids=tuple(dict.fromkeys((*existing.evidence_ids, *evidence_ids))),
             )
             self._edges[key] = merged
             return merged
@@ -309,9 +305,7 @@ class InMemoryGraphStore:
             if hops[current] >= max_hops:
                 continue
             for edge in self._incident(current, direction=direction):
-                if at_time is not None and not active_at(
-                    edge.first_seen, edge.last_seen, at_time
-                ):
+                if at_time is not None and not active_at(edge.first_seen, edge.last_seen, at_time):
                     continue
                 neighbor = self._neighbor(current, edge, direction=direction)
                 if neighbor is None:
@@ -347,15 +341,11 @@ class InMemoryGraphStore:
                 grouped.setdefault(label, []).append(node_id)
         return grouped
 
-    def _identifier_neighbors(
-        self, node_id: NodeKey, *, at_time: datetime | None
-    ) -> set[NodeKey]:
+    def _identifier_neighbors(self, node_id: NodeKey, *, at_time: datetime | None) -> set[NodeKey]:
         self.get_node(node_id)
         found: set[NodeKey] = set()
         for edge in self._incident(node_id, direction="both"):
-            if at_time is not None and not active_at(
-                edge.first_seen, edge.last_seen, at_time
-            ):
+            if at_time is not None and not active_at(edge.first_seen, edge.last_seen, at_time):
                 continue
             neighbor = self._other_end(edge, node_id)
             if neighbor != node_id:
@@ -376,7 +366,7 @@ class InMemoryGraphStore:
                 continue
             other = self._other_end(edge, node_id)
             results.append((self._nodes[node_id], edge, self._nodes[other]))
-        results.sort(key=lambda item: (item[1].edge_id))
+        results.sort(key=lambda item: item[1].edge_id)
         return results
 
     # --------------------------------------------- required query 4:
@@ -478,12 +468,8 @@ class InMemoryGraphStore:
             cursor = previous
         nodes.reverse()
         edges.reverse()
-        evidence = tuple(
-            dict.fromkeys(eid for edge in edges for eid in edge.evidence_ids)
-        )
-        return EvidencePath(
-            nodes=tuple(nodes), edges=tuple(edges), evidence_ids=evidence
-        )
+        evidence = tuple(dict.fromkeys(eid for edge in edges for eid in edge.evidence_ids))
+        return EvidencePath(nodes=tuple(nodes), edges=tuple(edges), evidence_ids=evidence)
 
     @staticmethod
     def _depth_of(
@@ -525,16 +511,12 @@ class InMemoryGraphStore:
             dice=dice,
         )
 
-    def _open_neighborhood(
-        self, node_id: NodeKey, *, at_time: datetime | None
-    ) -> set[NodeKey]:
+    def _open_neighborhood(self, node_id: NodeKey, *, at_time: datetime | None) -> set[NodeKey]:
         self.get_node(node_id)
         moment = ensure_aware(at_time, field_name="at_time") if at_time else None
         neighbors: set[NodeKey] = set()
         for edge in self._incident(node_id, direction="both"):
-            if moment is not None and not active_at(
-                edge.first_seen, edge.last_seen, moment
-            ):
+            if moment is not None and not active_at(edge.first_seen, edge.last_seen, moment):
                 continue
             neighbors.add(self._other_end(edge, node_id))
         return neighbors
@@ -564,9 +546,11 @@ class InMemoryGraphStore:
                 str(entity.entity_id),
                 label,
                 entity_type=entity.entity_type,
-                properties={"surface_form": entity.surface_form,
-                            "normalized_form": entity.normalized_form,
-                            "confidence": entity.confidence},
+                properties={
+                    "surface_form": entity.surface_form,
+                    "normalized_form": entity.normalized_form,
+                    "confidence": entity.confidence,
+                },
             )
 
         for relationship in relationships:

@@ -126,9 +126,7 @@ class CypherBuilder:
 
     # ----------------------------------------- historical associations
     @classmethod
-    def historical_associations(
-        cls, node_id: str, at_time: datetime
-    ) -> CypherQuery:
+    def historical_associations(cls, node_id: str, at_time: datetime) -> CypherQuery:
         query = """
         MATCH (center {id: $node_id})-[edge]-(other)
         WHERE edge.first_seen <= $at_time AND edge.last_seen >= $at_time
@@ -138,9 +136,7 @@ class CypherBuilder:
                edge.evidence_ids AS evidence_ids
         ORDER BY edge.first_seen, other.id
         """
-        return CypherQuery(
-            query=query, parameters={"node_id": node_id, "at_time": at_time}
-        )
+        return CypherQuery(query=query, parameters={"node_id": node_id, "at_time": at_time})
 
     # ------------------------------------- time-filtered neighborhood
     @classmethod
@@ -178,9 +174,7 @@ class CypherBuilder:
 
     # ------------------------------------------------- evidence path
     @classmethod
-    def evidence_path(
-        cls, left_id: str, right_id: str, *, max_hops: int = 6
-    ) -> CypherQuery:
+    def evidence_path(cls, left_id: str, right_id: str, *, max_hops: int = 6) -> CypherQuery:
         hops = int(max_hops)
         if not 1 <= hops <= 25:
             raise GraphValidationError("max_hops must be within 1..25")
@@ -197,9 +191,7 @@ class CypherBuilder:
                reduce(acc = [], e IN relationships(path) |
                      acc + coalesce(e.evidence_ids, [])) AS evidence_ids
         """
-        return CypherQuery(
-            query=query, parameters={"left_id": left_id, "right_id": right_id}
-        )
+        return CypherQuery(query=query, parameters={"left_id": left_id, "right_id": right_id})
 
     # ------------------------------ candidate pair neighborhood similarity
     @classmethod

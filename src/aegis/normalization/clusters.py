@@ -194,6 +194,4 @@ class DuplicateClusterer:
                 document_to_cluster[member] = cluster_id
 
         clusters.sort(key=lambda cluster: cluster.cluster_id)
-        return ClusterAssignment(
-            clusters=tuple(clusters), document_to_cluster=document_to_cluster
-        )
+        return ClusterAssignment(clusters=tuple(clusters), document_to_cluster=document_to_cluster)

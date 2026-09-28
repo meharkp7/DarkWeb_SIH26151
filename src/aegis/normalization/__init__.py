@@ -1,7 +1,7 @@
 """Normalization and deduplication layer (Phase 06).
 
-    raw -> canonical encoding -> metadata normalization -> exact hash
-        -> near-duplicate clustering -> source lineage -> Observation
+raw -> canonical encoding -> metadata normalization -> exact hash
+    -> near-duplicate clustering -> source lineage -> Observation
 """
 
 from aegis.normalization.canonical import (

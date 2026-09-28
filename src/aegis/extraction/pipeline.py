@@ -80,8 +80,7 @@ class ExtractionPipeline:
         for match in matches:
             if not 0 <= match.start < match.end <= len(text):
                 raise ValueError(
-                    f"span [{match.start}, {match.end}) outside text of "
-                    f"length {len(text)}"
+                    f"span [{match.start}, {match.end}) outside text of length {len(text)}"
                 )
             surface = text[match.start : match.end]
             if match.surface_form and surface != match.surface_form:
@@ -96,9 +95,7 @@ class ExtractionPipeline:
                     normalized_form=match.normalized_form,
                     confidence=match.confidence,
                     evidence_id=evidence_id,
-                    span=EntitySpan(
-                        start=match.start, end=match.end, field=field_name
-                    ),
+                    span=EntitySpan(start=match.start, end=match.end, field=field_name),
                     case_id=case_id,
                     first_seen=first_seen,
                     last_seen=last_seen,
@@ -106,6 +103,4 @@ class ExtractionPipeline:
                 )
             )
 
-        return ExtractionResult(
-            entities=tuple(entities), matches=tuple(matches)
-        )
+        return ExtractionResult(entities=tuple(entities), matches=tuple(matches))

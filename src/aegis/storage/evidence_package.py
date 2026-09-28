@@ -89,9 +89,7 @@ class EvidencePackageStore:
     def _authorize(context: AccessContext, case_id: str) -> None:
         if context.is_admin or case_id in context.case_ids:
             return
-        raise EvidenceAccessDenied(
-            f"user {context.user_id} is not authorized for case {case_id}"
-        )
+        raise EvidenceAccessDenied(f"user {context.user_id} is not authorized for case {case_id}")
 
     # ------------------------------------------------------------- write
 
@@ -111,16 +109,25 @@ class EvidencePackageStore:
         timestamp = collected_at if collected_at.tzinfo else collected_at.replace(tzinfo=UTC)
 
         raw_key = evidence_package_key(
-            year=timestamp.year, month=timestamp.month, case_id=case_id,
-            evidence_id=evidence_id, part=PART_RAW,
+            year=timestamp.year,
+            month=timestamp.month,
+            case_id=case_id,
+            evidence_id=evidence_id,
+            part=PART_RAW,
         )
         norm_key = evidence_package_key(
-            year=timestamp.year, month=timestamp.month, case_id=case_id,
-            evidence_id=evidence_id, part=PART_NORMALIZED,
+            year=timestamp.year,
+            month=timestamp.month,
+            case_id=case_id,
+            evidence_id=evidence_id,
+            part=PART_NORMALIZED,
         )
         meta_key = evidence_package_key(
-            year=timestamp.year, month=timestamp.month, case_id=case_id,
-            evidence_id=evidence_id, part=PART_METADATA,
+            year=timestamp.year,
+            month=timestamp.month,
+            case_id=case_id,
+            evidence_id=evidence_id,
+            part=PART_METADATA,
         )
 
         raw_result = self.store.put(raw_key, raw, content_type="application/octet-stream")
@@ -155,7 +162,9 @@ class EvidencePackageStore:
             case_id=case_id,
             evidence_id=evidence_id,
             prefix=evidence_package_prefix(
-                year=timestamp.year, month=timestamp.month, case_id=case_id,
+                year=timestamp.year,
+                month=timestamp.month,
+                case_id=case_id,
                 evidence_id=evidence_id,
             ),
             raw_sha256=raw_digest,
@@ -173,11 +182,17 @@ class EvidencePackageStore:
             year=year, month=month, case_id=case_id, evidence_id=evidence_id, part=PART_RAW
         )
         norm_key = evidence_package_key(
-            year=year, month=month, case_id=case_id, evidence_id=evidence_id,
+            year=year,
+            month=month,
+            case_id=case_id,
+            evidence_id=evidence_id,
             part=PART_NORMALIZED,
         )
         meta_key = evidence_package_key(
-            year=year, month=month, case_id=case_id, evidence_id=evidence_id,
+            year=year,
+            month=month,
+            case_id=case_id,
+            evidence_id=evidence_id,
             part=PART_METADATA,
         )
         if not self.store.exists(raw_key):

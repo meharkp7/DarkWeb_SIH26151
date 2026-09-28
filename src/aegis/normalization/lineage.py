@@ -62,9 +62,7 @@ class SourceLineageRegistry:
             raise LineageError(f"source {source_id!r} cannot copy from itself")
 
         if copied_from is not None and copied_from not in self._sources:
-            raise LineageError(
-                f"source {source_id!r} copies from unknown source {copied_from!r}"
-            )
+            raise LineageError(f"source {source_id!r} copies from unknown source {copied_from!r}")
 
         existing = self._sources.get(source_id)
         if existing is not None:
@@ -129,9 +127,7 @@ class SourceLineageRegistry:
     def members(self, root: str) -> list[str]:
         """Every source whose independence root is *root* (root included)."""
         return sorted(
-            source_id
-            for source_id in self._sources
-            if self.independence_root(source_id) == root
+            source_id for source_id in self._sources if self.independence_root(source_id) == root
         )
 
     def get(self, source_id: str) -> SourceLineage | None:

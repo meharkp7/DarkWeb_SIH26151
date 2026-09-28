@@ -29,26 +29,120 @@ DEFAULT_PLATFORM_GAZETTEER: dict[str, EntityType] = {
 #: Role cues that introduce a person-scoped alias ("vendor ghostbroker").
 ROLE_CUES: frozenset[str] = frozenset(
     {
-        "vendor", "seller", "buyer", "customer", "admin", "administrator",
-        "moderator", "mod", "operator", "staff", "reseller", "owner",
-        "curator", "broker", "supplier", "affiliate",
+        "vendor",
+        "seller",
+        "buyer",
+        "customer",
+        "admin",
+        "administrator",
+        "moderator",
+        "mod",
+        "operator",
+        "staff",
+        "reseller",
+        "owner",
+        "curator",
+        "broker",
+        "supplier",
+        "affiliate",
     }
 )
 
 #: Tokens that follow role cues but are prose, not names.
 NAME_STOPWORDS: frozenset[str] = frozenset(
     {
-        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-        "will", "would", "shall", "should", "may", "might", "must", "can",
-        "could", "do", "does", "did", "has", "have", "had", "not", "no",
-        "and", "or", "but", "if", "then", "than", "so", "as", "of", "to",
-        "for", "from", "by", "in", "on", "at", "with", "without", "into",
-        "this", "that", "these", "those", "it", "its", "they", "them",
-        "who", "what", "when", "where", "why", "how", "all", "any", "some",
-        "shipped", "ship", "sent", "send", "paid", "pay", "buy", "sell",
-        "listed", "posts", "post", "writes", "write", "said", "says",
-        "here", "there", "now", "today", "yesterday", "new", "old",
-        "first", "last", "next", "previous", "please", "thanks", "thank",
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "may",
+        "might",
+        "must",
+        "can",
+        "could",
+        "do",
+        "does",
+        "did",
+        "has",
+        "have",
+        "had",
+        "not",
+        "no",
+        "and",
+        "or",
+        "but",
+        "if",
+        "then",
+        "than",
+        "so",
+        "as",
+        "of",
+        "to",
+        "for",
+        "from",
+        "by",
+        "in",
+        "on",
+        "at",
+        "with",
+        "without",
+        "into",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "they",
+        "them",
+        "who",
+        "what",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "any",
+        "some",
+        "shipped",
+        "ship",
+        "sent",
+        "send",
+        "paid",
+        "pay",
+        "buy",
+        "sell",
+        "listed",
+        "posts",
+        "post",
+        "writes",
+        "write",
+        "said",
+        "says",
+        "here",
+        "there",
+        "now",
+        "today",
+        "yesterday",
+        "new",
+        "old",
+        "first",
+        "last",
+        "next",
+        "previous",
+        "please",
+        "thanks",
+        "thank",
     }
 )
 
@@ -57,12 +151,46 @@ NAME_STOPWORDS: frozenset[str] = frozenset(
 #: a marketplace entity.
 SUFFIX_NAME_STOPWORDS: frozenset[str] = frozenset(
     {
-        "the", "a", "an", "on", "in", "at", "to", "for", "from", "by",
-        "black", "grey", "gray", "underground", "open", "free", "global",
-        "local", "new", "old", "second", "secret", "hidden", "dark",
-        "job", "stock", "capital", "property", "farmers", "real",
-        "world", "night", "wide", "source", "media",
-        "social", "online", "digital", "virtual", "whole",
+        "the",
+        "a",
+        "an",
+        "on",
+        "in",
+        "at",
+        "to",
+        "for",
+        "from",
+        "by",
+        "black",
+        "grey",
+        "gray",
+        "underground",
+        "open",
+        "free",
+        "global",
+        "local",
+        "new",
+        "old",
+        "second",
+        "secret",
+        "hidden",
+        "dark",
+        "job",
+        "stock",
+        "capital",
+        "property",
+        "farmers",
+        "real",
+        "world",
+        "night",
+        "wide",
+        "source",
+        "media",
+        "social",
+        "online",
+        "digital",
+        "virtual",
+        "whole",
     }
 )
 
@@ -85,9 +213,7 @@ class _PlatformGazetteer:
     names: Mapping[str, EntityType] = field(default_factory=dict)
 
     @classmethod
-    def from_iterable(
-        cls, entries: Iterable[tuple[str, EntityType]]
-    ) -> _PlatformGazetteer:
+    def from_iterable(cls, entries: Iterable[tuple[str, EntityType]]) -> _PlatformGazetteer:
         return cls({name.strip().lower(): kind for name, kind in entries})
 
     def lookup(self, token: str) -> EntityType | None:
@@ -102,13 +228,9 @@ class PlatformMentionExtractor(BaseExtractor):
     """
 
     name = "ner_platform"
-    entity_types = frozenset(
-        {EntityType.MARKETPLACE, EntityType.FORUM, EntityType.CHANNEL}
-    )
+    entity_types = frozenset({EntityType.MARKETPLACE, EntityType.FORUM, EntityType.CHANNEL})
 
-    def __init__(
-        self, gazetteer: Mapping[str, EntityType] | None = None
-    ) -> None:
+    def __init__(self, gazetteer: Mapping[str, EntityType] | None = None) -> None:
         table = dict(DEFAULT_PLATFORM_GAZETTEER)
         if gazetteer:
             table.update({k.strip().lower(): v for k, v in gazetteer.items()})
