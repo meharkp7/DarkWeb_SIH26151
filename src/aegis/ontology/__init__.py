@@ -33,6 +33,7 @@ class EntityType(StrEnum):
     # Infrastructure
     ONION_SERVICE = "onion_service"
     DOMAIN = "domain"
+    URL = "url"
     IP_OBSERVATION = "ip_observation"
     CERTIFICATE = "certificate"
     HOSTING_ENTITY = "hosting_entity"
@@ -81,6 +82,7 @@ ENTITY_CATEGORIES: dict[EntityType, EntityCategory] = {
     EntityType.CONTACT_IDENTIFIER: EntityCategory.IDENTITY,
     EntityType.ONION_SERVICE: EntityCategory.INFRASTRUCTURE,
     EntityType.DOMAIN: EntityCategory.INFRASTRUCTURE,
+    EntityType.URL: EntityCategory.INFRASTRUCTURE,
     EntityType.IP_OBSERVATION: EntityCategory.INFRASTRUCTURE,
     EntityType.CERTIFICATE: EntityCategory.INFRASTRUCTURE,
     EntityType.HOSTING_ENTITY: EntityCategory.INFRASTRUCTURE,
