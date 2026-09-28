@@ -46,7 +46,16 @@ class CollectionIngestor:
 
         for observation in observations:
             raw = observation.raw
-            if self.evidence_service.get_by_sha256(raw.sha256) is not None:
+            # Idempotency is scoped to observation identity (content +
+            # source + observed time): the same bytes seen from a
+            # different source or at a later scan are a new observation,
+            # not a duplicate.
+            if (
+                self.evidence_service.get_observation(
+                    raw.sha256, source_id, observation.observed_at
+                )
+                is not None
+            ):
                 skipped += 1
                 continue
 

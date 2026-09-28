@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from aegis.db.audit import AuditService
 from aegis.db.models import ArtifactRecord, EvidenceDerivationRecord, EvidenceRecord, SourceRecord
 from aegis.evidence.artifacts import ArtifactStore
 from aegis.schemas.evidence import EvidenceCreate, EvidenceProvenance, SourceCreate
@@ -24,6 +27,13 @@ class EvidenceService:
             metadata_json=payload.metadata,
         )
         self.db.add(source)
+        self.db.flush()
+        AuditService(self.db).record(
+            "source.created",
+            entity_type="source",
+            entity_id=str(source.source_id),
+            payload={"name": payload.name, "reliability": payload.reliability},
+        )
         self.db.commit()
         self.db.refresh(source)
         return source
@@ -34,30 +44,42 @@ class EvidenceService:
         if self.db.get(SourceRecord, payload.source_id) is None:
             raise ValueError(f"Unknown source_id: {payload.source_id}")
 
+        # Duplicate check BEFORE any artifact write so a rejected request
+        # cannot leave an orphan object behind (review finding), and
+        # against the observation identity — the same content observed
+        # again from another source or a later scan is a new observation,
+        # not a conflict (content identity lives on ArtifactRecord).
+        digest = payload.sha256.lower()
+        duplicate = self.db.scalar(
+            select(EvidenceRecord).where(
+                EvidenceRecord.sha256 == digest,
+                EvidenceRecord.source_id == payload.source_id,
+                EvidenceRecord.observed_at == payload.observed_at,
+            )
+        )
+        if duplicate is not None:
+            raise ValueError(f"Evidence already observed for this source at this time: {digest}")
+
         artifact_id = None
         raw_uri = payload.raw_artifact_uri
         if artifact_bytes is not None:
-            uri, digest = self.artifact_store.put_bytes(artifact_bytes, payload.sha256)
+            # Server-side verification: put_bytes recomputes the digest of
+            # the actual bytes and raises on mismatch with payload.sha256.
+            uri, computed = self.artifact_store.put_bytes(artifact_bytes, digest)
             raw_uri = uri
-            artifact = self.db.scalar(select(ArtifactRecord).where(ArtifactRecord.sha256 == digest))
+            artifact = self.db.scalar(
+                select(ArtifactRecord).where(ArtifactRecord.sha256 == computed)
+            )
             if artifact is None:
                 artifact = ArtifactRecord(
                     artifact_id=uuid4(),
-                    sha256=digest,
+                    sha256=computed,
                     storage_uri=uri,
                     size_bytes=len(artifact_bytes),
                 )
                 self.db.add(artifact)
                 self.db.flush()
             artifact_id = artifact.artifact_id
-        elif payload.raw_artifact_uri.startswith("file://"):
-            pass
-
-        duplicate = self.db.scalar(
-            select(EvidenceRecord).where(EvidenceRecord.sha256 == payload.sha256)
-        )
-        if duplicate is not None:
-            raise ValueError(f"Evidence with SHA-256 already exists: {payload.sha256}")
 
         record = EvidenceRecord(
             evidence_id=uuid4(),
@@ -81,7 +103,28 @@ class EvidenceService:
             metadata_json=payload.metadata,
         )
         self.db.add(record)
-        self.db.commit()
+        self.db.flush()
+        AuditService(self.db).record(
+            "evidence.created",
+            case_id=payload.case_id,
+            entity_type="evidence",
+            entity_id=str(record.evidence_id),
+            payload={
+                "sha256": digest,
+                "source_id": str(payload.source_id),
+                "collector_name": payload.collector_name,
+            },
+        )
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            # Lost the race against a concurrent identical observation:
+            # uq_evidence_observation (the DB-side check the review asked
+            # for) rejects it atomically; roll back and report as a conflict.
+            self.db.rollback()
+            raise ValueError(
+                f"Evidence already observed for this source at this time: {digest}"
+            ) from exc
         self.db.refresh(record)
         return record
 
@@ -89,7 +132,31 @@ class EvidenceService:
         return self.db.get(EvidenceRecord, evidence_id)
 
     def get_by_sha256(self, sha256: str) -> EvidenceRecord | None:
-        return self.db.scalar(select(EvidenceRecord).where(EvidenceRecord.sha256 == sha256))
+        """Any observation of this content (content-level lookup).
+
+        Multiple sources may observe the same bytes, so this returns the
+        earliest record rather than assuming uniqueness.
+        """
+        return self.db.scalar(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.sha256 == sha256)
+            .order_by(EvidenceRecord.created_at.asc())
+            .limit(1)
+        )
+
+    def get_observation(
+        self, sha256: str, source_id: UUID, observed_at: datetime | None
+    ) -> EvidenceRecord | None:
+        """Exact observation identity: content + source + observed time."""
+        return self.db.scalar(
+            select(EvidenceRecord)
+            .where(
+                EvidenceRecord.sha256 == sha256,
+                EvidenceRecord.source_id == source_id,
+                EvidenceRecord.observed_at == observed_at,
+            )
+            .limit(1)
+        )
 
     def provenance(self, evidence_id: UUID) -> EvidenceProvenance:
         evidence = self.db.get(EvidenceRecord, evidence_id)

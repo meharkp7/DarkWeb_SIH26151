@@ -2,7 +2,17 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Sequence, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Float,
+    ForeignKey,
+    Sequence,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -55,6 +65,18 @@ class CollectionJobRecord(Base):
 
 class EvidenceRecord(Base):
     __tablename__ = "evidence"
+    #: Observation identity: the same content re-observed from another
+    #: source or at a later scan is a distinct evidence row. Content
+    #: (bytes) identity lives on ArtifactRecord, not here.
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "sha256",
+            "observed_at",
+            name="uq_evidence_observation",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
     evidence_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     case_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("cases.case_id"), nullable=True, index=True
@@ -76,7 +98,7 @@ class EvidenceRecord(Base):
     artifact_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("artifacts.artifact_id"), nullable=True
     )
-    sha256: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     collector_name: Mapped[str] = mapped_column(String(128), nullable=False)
     collector_version: Mapped[str] = mapped_column(String(64), nullable=False)
     normalizer_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
