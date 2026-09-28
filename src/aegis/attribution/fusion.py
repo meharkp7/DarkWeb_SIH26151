@@ -5,15 +5,9 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import StrEnum
 
 from aegis.attribution.signals import sigmoid
-
-
-class EvidenceRole(StrEnum):
-    SUPPORTING = "supporting"
-    CONTRADICTING = "contradicting"
-    UNKNOWN = "unknown"
+from aegis.schemas.hypothesis import EvidenceRole
 
 
 @dataclass(frozen=True)
