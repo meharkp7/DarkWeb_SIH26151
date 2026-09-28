@@ -10,37 +10,25 @@ Run by ``make train-baselines``:
 
 Per plan section 35 the artifact doubles as the experiment registry
 entry (experiment id, seeds, hyperparameters, metrics, git commit,
-artifact path).
+artifact path). The registry itself lives in :mod:`aegis.experiments`;
+this script only builds the run, registers it, and writes the payload.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from aegis.experiments import ExperimentRecord, ExperimentRegistry, current_git_commit
 from aegis.resolution.baselines import RANDOM_SEED
 from aegis.resolution.evaluate import evaluate_baselines, format_report
 
 DEFAULT_OUTPUT_DIR = Path("artifacts/baselines")
 REPORT_FILENAME = "resolution_baselines.json"
-
-
-def _git_commit() -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            check=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
-    return completed.stdout.strip() or "unknown"
+EXPERIMENT_ID = "phase09-resolution-baselines"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,28 +69,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(format_report(report))
 
-    payload = {
-        "experiment_id": "phase09-resolution-baselines",
-        "dataset_version": f"synthetic-corpus-seed-{report.corpus_seed}",
-        "feature_version": "resolution-features-v1",
-        "model_version": "baselines-v1",
-        "seed": report.split_seed,
-        "hyperparameters": {
-            "train_fraction": report.train_fraction,
-            "negatives_per_positive": report.negatives_per_positive,
-            "k": report.k,
-            "use_graph": report.use_graph,
-            "exclude_handle_features": report.exclude_handle_features,
-        },
-        "metrics": {baseline.name: baseline.as_dict() for baseline in report.baselines},
-        "git_commit": _git_commit(),
-        "created_at": datetime.now(UTC).isoformat(),
-        "report": report.as_dict(),
-    }
+    record = ExperimentRegistry().register(
+        ExperimentRecord(
+            experiment_id=EXPERIMENT_ID,
+            dataset_version=f"synthetic-corpus-seed-{report.corpus_seed}",
+            feature_version="resolution-features-v1",
+            model_version="baselines-v1",
+            seed=report.split_seed,
+            hyperparameters={
+                "train_fraction": report.train_fraction,
+                "negatives_per_positive": report.negatives_per_positive,
+                "k": report.k,
+                "use_graph": report.use_graph,
+                "exclude_handle_features": report.exclude_handle_features,
+            },
+            metrics={baseline.name: baseline.as_dict() for baseline in report.baselines},
+            git_commit=current_git_commit(),
+            created_at=datetime.now(UTC),
+            report=report.as_dict(),
+        )
+    )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     output_path = args.output_dir / REPORT_FILENAME
-    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path.write_text(
+        json.dumps(record.to_payload(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(f"\nfrozen report written to {output_path}")
     return 0
 
