@@ -28,3 +28,8 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Frontend (apps/frontend)
+node_modules/
+apps/frontend/dist/
+apps/frontend/.vite/
