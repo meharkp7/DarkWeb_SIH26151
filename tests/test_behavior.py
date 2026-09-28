@@ -19,6 +19,7 @@ from aegis.behavior import (
     DEFAULT_WEIGHTS,
     INTER_ARRIVAL_BIN_EDGES,
     INTER_ARRIVAL_BIN_LABELS,
+    MAX_TOPIC_VOCABULARY_SIZE,
     BehaviorProfile,
     PostingEvent,
     assign_topic,
@@ -280,6 +281,69 @@ class TestAssignTopic:
 
     def test_custom_vocabulary(self) -> None:
         assert assign_topic("quantum posting", ("quantum",)) == "quantum"
+
+
+# --------------------------------------------------------------------------- #
+# Topic vocabulary cap
+# --------------------------------------------------------------------------- #
+class TestTopicVocabularyCap:
+    """``build_behavior_profile`` scans at most MAX_TOPIC_VOCABULARY_SIZE terms."""
+
+    def test_constant_is_exported_and_sane(self) -> None:
+        assert MAX_TOPIC_VOCABULARY_SIZE > 0
+
+    def test_terms_past_cap_fall_through_to_general(self) -> None:
+        # first MAX terms never match; the matching term sits past the cap
+        vocabulary = [f"filler{i}" for i in range(MAX_TOPIC_VOCABULARY_SIZE)]
+        vocabulary.append("overflow-topic")
+        assert "overflow-topic" in vocabulary[MAX_TOPIC_VOCABULARY_SIZE:]
+
+        profile = build_behavior_profile(
+            [_event("e1", text="posting about overflow-topic")],
+            profile_id="p",
+            topic_vocabulary=vocabulary,
+        )
+
+        assert profile.topic_labels == ("general",)
+
+    def test_terms_within_cap_still_match(self) -> None:
+        vocabulary = [f"filler{i}" for i in range(MAX_TOPIC_VOCABULARY_SIZE - 1)]
+        vocabulary.append("capped-term")  # last slot inside the cap
+
+        profile = build_behavior_profile(
+            [_event("e1", text="posting about capped-term")],
+            profile_id="p",
+            topic_vocabulary=vocabulary,
+        )
+
+        assert profile.topic_labels == ("capped-term",)
+
+    def test_topic_label_cardinality_is_bounded(self) -> None:
+        # one event per distinct term, far more terms than the cap allows
+        vocabulary = [f"term{i}" for i in range(MAX_TOPIC_VOCABULARY_SIZE * 3)]
+        events = [
+            _event(f"e{i}", posted_at=_at(10, i % 7), text=f"about term{i}")
+            for i in range(MAX_TOPIC_VOCABULARY_SIZE * 2)
+        ]
+
+        profile = build_behavior_profile(
+            events,
+            profile_id="p",
+            topic_vocabulary=vocabulary,
+        )
+
+        assert len(profile.topic_labels) <= MAX_TOPIC_VOCABULARY_SIZE + 1
+
+    def test_capped_build_is_deterministic(self) -> None:
+        vocabulary = [f"term{i}" for i in range(MAX_TOPIC_VOCABULARY_SIZE * 2)]
+        events = [
+            _event(f"e{i}", posted_at=_at(10, i % 7), text=f"about term{i}") for i in range(40)
+        ]
+
+        first = build_behavior_profile(events, profile_id="p", topic_vocabulary=vocabulary)
+        second = build_behavior_profile(events, profile_id="p", topic_vocabulary=vocabulary)
+
+        assert first == second
 
 
 # --------------------------------------------------------------------------- #
