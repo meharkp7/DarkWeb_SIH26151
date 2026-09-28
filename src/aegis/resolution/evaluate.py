@@ -210,10 +210,17 @@ def split_actors(
     return frozenset(ranked[:train_size]), frozenset(ranked[train_size:])
 
 
-def _positive_pairs(corpus: SyntheticCorpus, alias_ids: set[str]) -> list[tuple[str, str]]:
-    """Ground-truth same-actor pairs fully contained in ``alias_ids``."""
+def _positive_pairs(
+    corpus_pairs: set[tuple[str, str]],
+    alias_ids: set[str],
+) -> list[tuple[str, str]]:
+    """Ground-truth same-actor pairs fully contained in ``alias_ids``.
+
+    Takes the precomputed ground-truth set (not the corpus) because
+    ``SyntheticCorpus.same_actor_pairs`` rebuilds it on every access.
+    """
     pairs: list[tuple[str, str]] = []
-    for left, right in corpus.same_actor_pairs:
+    for left, right in corpus_pairs:
         if left in alias_ids and right in alias_ids:
             pairs.append((min(left, right), max(left, right)))
     return sorted(pairs)
@@ -266,7 +273,11 @@ def evaluate_baselines(
     train_aliases = {a.alias_id for a in corpus.aliases if a.actor_id in train_actors}
     test_aliases = {a.alias_id for a in corpus.aliases if a.actor_id in test_actors}
 
-    train_positives = _positive_pairs(corpus, train_aliases)
+    # Ground truth is a property that rebuilds its pairs on every access;
+    # read it ONCE here instead of once per candidate pair below.
+    same_actor_pairs = corpus.same_actor_pairs
+
+    train_positives = _positive_pairs(same_actor_pairs, train_aliases)
     test_pairs = _all_pairs(test_aliases)
     train_positives_set = set(train_positives)
     train_negatives = _sample_negatives(
@@ -303,7 +314,7 @@ def evaluate_baselines(
 
     train_pairs = [make_pair(left, right, label) for left, right, label in train_pair_keys]
     test_labels = {
-        (left, right): int((min(left, right), max(left, right)) in corpus.same_actor_pairs)
+        (left, right): int((min(left, right), max(left, right)) in same_actor_pairs)
         for left, right in test_pairs
     }
     scored_test = [make_pair(left, right, test_labels[(left, right)]) for left, right in test_pairs]
@@ -315,19 +326,33 @@ def evaluate_baselines(
         partners.setdefault(pair.right_alias_id, []).append(pair)
     rankings_by_model: dict[str, list[list[int]]] = {model.name: [] for model in models}
 
+    # loop-invariant inputs of every model pass, computed once instead of
+    # once per baseline (byte-identical values, just not rebuilt N times)
+    query_ids = sorted(partners)
+    train_labels = [pair.label for pair in train_pairs]
+    test_label_list = [pair.label for pair in scored_test]
+
     reports: list[BaselineReport] = []
     for model in models:
         model.fit(train_pairs)
-        train_scores = [model.score(pair) for pair in train_pairs]
-        train_labels = [pair.label for pair in train_pairs]
+        # Score each pair exactly once per model: the ranking sorts, the
+        # threshold fit and the classification metrics all read this memo
+        # (previously sorted() re-invoked model.score on every comparison).
+        score_by_pair = {
+            (pair.left_alias_id, pair.right_alias_id): model.score(pair)
+            for pair in (*train_pairs, *scored_test)
+        }
+        train_scores = [
+            score_by_pair[(pair.left_alias_id, pair.right_alias_id)] for pair in train_pairs
+        ]
         threshold = best_f1_threshold(train_scores, train_labels)
 
         query_rankings: list[list[int]] = []
-        for alias_id in sorted(partners):
+        for alias_id in query_ids:
             ranked = sorted(
                 partners[alias_id],
                 key=lambda pair: (
-                    -model.score(pair),
+                    -score_by_pair[(pair.left_alias_id, pair.right_alias_id)],
                     pair.left_alias_id,
                     pair.right_alias_id,
                 ),
@@ -348,8 +373,9 @@ def evaluate_baselines(
             query_rankings.append(labels)
         rankings_by_model[model.name] = query_rankings
 
-        test_scores = [model.score(pair) for pair in scored_test]
-        test_label_list = [pair.label for pair in scored_test]
+        test_scores = [
+            score_by_pair[(pair.left_alias_id, pair.right_alias_id)] for pair in scored_test
+        ]
         classification = classification_metrics(test_scores, test_label_list, threshold)
         ranking = ranking_metrics(query_rankings, k=k)
         reports.append(
