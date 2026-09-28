@@ -377,6 +377,34 @@ class OpenSearchAdapter:
         except Exception as exc:  # noqa: BLE001 - adapter boundary
             raise SearchError(f"indexing {document.doc_id!r} failed: {exc}") from exc
 
+    def bulk_index(self, documents: Sequence[IndexedDocument]) -> int:
+        """Bulk-index documents with one refresh instead of one request per record."""
+        if not documents:
+            return 0
+        try:
+            from opensearchpy import helpers  # noqa: PLC0415
+
+            actions = [
+                {
+                    "_index": index_name(self.index_prefix, document.index),
+                    "_id": document.doc_id,
+                    "_source": document_body(document),
+                }
+                for document in documents
+            ]
+            for physical_index in {
+                index_name(self.index_prefix, document.index) for document in documents
+            }:
+                if not self.client.indices.exists(index=physical_index):
+                    self.client.indices.create(
+                        index=physical_index,
+                        body={"mappings": INDEX_MAPPING},
+                    )
+            helpers.bulk(self.client, actions, refresh="wait_for")
+            return len(actions)
+        except Exception as exc:  # noqa: BLE001 - adapter boundary
+            raise SearchError(f"bulk indexing failed: {exc}") from exc
+
     def remove(self, index: IndexName, doc_id: str) -> bool:
         """Delete ``doc_id``; ``False`` when the document is absent (404)."""
         try:

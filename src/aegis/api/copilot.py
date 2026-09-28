@@ -56,9 +56,17 @@ def copilot_query(
         rule=answer.intent.rule,
         tools_run=[tool.value for tool in answer.tools_run],
         evidence_ids=list(answer.pack.ids),
-        flagged_evidence_ids=[item.item_id for item in answer.flagged_items],
-        claims=[_claim_dict(entry) for entry in answer.validation.supported],
-        unsupported_claims=[_claim_dict(entry) for entry in answer.validation.unsupported],
-        dropped_claims=[_claim_dict(entry) for entry in answer.validation.dropped],
+        flagged_evidence_ids=[
+            item.item_id for item in answer.flagged_items
+        ],
+        claims=[
+            _claim_dict(entry) for entry in answer.validation.supported
+        ],
+        unsupported_claims=[
+            _claim_dict(entry) for entry in answer.validation.unsupported
+        ],
+        dropped_claims=[
+            _claim_dict(entry) for entry in answer.validation.dropped
+        ],
         text=answer.text,
     )

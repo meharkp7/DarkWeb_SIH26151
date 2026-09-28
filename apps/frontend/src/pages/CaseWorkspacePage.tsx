@@ -1,122 +1,24 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { apiUrl } from '../api/client';
-import type { CaseWorkspace, InvestigationCase } from '../api/types';
-import { Badge } from '../components/Badge';
-import { Panel } from '../components/Panel';
-import { ErrorState, LoadingState } from '../components/States';
+import type { CaseWorkspace } from '../api/types';
 import { useApi } from '../hooks/useApi';
-import { formatDateTime } from '../lib/format';
-import { useSession } from '../store/session';
+import { useLive } from '../hooks/useLive';
 
-interface WorkspaceTile {
-  readonly to: string;
-  readonly label: string;
-  readonly description: string;
-}
-
-const TILES: readonly WorkspaceTile[] = [
-  {
-    to: '/evidence',
-    label: 'Evidence',
-    description: 'Fetch by ID, ingest new records, inspect provenance.',
-  },
-  { to: '/timeline', label: 'Timeline', description: 'Observed → collected intervals.' },
-  { to: '/graph', label: 'Graph', description: 'Actor links from analysis hypotheses.' },
-  { to: '/attribution', label: 'Attribution', description: 'Scores, explanations, evidence counts.' },
-  { to: '/hypotheses', label: 'Hypotheses', description: 'Run and compare competing explanations.' },
-  { to: '/sources', label: 'Sources', description: 'Registry entries and reliability.' },
-  { to: '/reports', label: 'Reports', description: 'Section checklist and export plan.' },
-];
-
-/**
- * Screen 2 — case workspace.
- *
- * Case metadata is loaded from the durable case registry while sub-screens
- * progressively surface the evidence and analysis services.
- */
-export function CaseWorkspacePage() {
-  const { caseId = 'unknown' } = useParams();
-  const { evidence, sources, analysis } = useSession();
-  const workspace = useApi<CaseWorkspace>(
-    caseId === 'unknown' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/workspace`),
-  );
-  const caseResource = useApi<InvestigationCase>(
-    caseId === 'unknown' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}`),
-  );
-  const investigation = caseResource.data;
-
-  return (
-    <div className="stack">
-      <header className="page-header">
-        <div>
-          <p className="page-eyebrow">Case workspace</p>
-          <h1 className="page-title">
-            {investigation?.name ?? <span className="mono">{caseId}</span>}
-          </h1>
-          <p className="page-sub">
-            Evidence-first analysis workspace with a durable case record and auditable activity.
-          </p>
-        </div>
-        <div className="page-actions">
-          <Link className="btn" to="/">
-            ← All cases
-          </Link>
-        </div>
-      </header>
-
-      <div className="grid-2">
-        <Panel title="Case overview" description="Durable investigation record.">
-          {caseResource.loading && <LoadingState label="Loading case details…" />}
-          {caseResource.error !== null && <ErrorState message={caseResource.error} onRetry={caseResource.reload} />}
-          {investigation !== null && (
-            <dl className="kv">
-              <dt>Case ID</dt>
-              <dd className="mono">{investigation.case_id}</dd>
-              <dt>Name</dt>
-              <dd>{investigation.name}</dd>
-              <dt>Status</dt>
-              <dd>
-                <Badge tone="info">{investigation.status}</Badge>
-              </dd>
-              <dt>Created</dt>
-              <dd>{formatDateTime(investigation.created_at)}</dd>
-              {investigation.description !== null && (
-                <>
-                  <dt>Scope</dt>
-                  <dd>{investigation.description}</dd>
-                </>
-              )}
-            </dl>
-          )}
-        </Panel>
-
-        <Panel title="Session data" description="Everything loaded or created in this browser session.">
-          <dl className="kv">
-            <dt>Evidence records</dt>
-            <dd>{workspace.data?.counts.evidence ?? evidence.length}</dd>
-            <dt>Sources registered</dt>
-            <dd>{sources.length}</dd>
-            <dt>Analysis runs</dt>
-            <dd>{analysis === null ? 0 : 1}</dd>
-            <dt>Hypotheses returned</dt>
-            <dd>{analysis === null ? 0 : analysis.hypotheses.length}</dd>
-          </dl>
-          <p className="hint">Durable workspace counts are loaded from the case API; session data remains available for interactive runs.</p>
-        </Panel>
-      </div>
-
-      <Panel title="Sub-screens" description="Jump into the investigation views.">
-        <ul className="link-cards">
-          {TILES.map((tile) => (
-            <li key={tile.to} className="link-card">
-              <Link className="link-card__title" to={tile.to}>
-                {tile.label}
-              </Link>
-              <p className="link-card__desc">{tile.description}</p>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-    </div>
-  );
+function ScoreRing({ value }: { value:number }){const r=38,c=2*Math.PI*r,d=Math.max(0,Math.min(1,value))*c;return <div className="score-ring"><svg viewBox="0 0 100 100"><circle className="score-ring__track" cx="50" cy="50" r={r}/><circle className="score-ring__value" cx="50" cy="50" r={r} strokeDasharray={`${d} ${c-d}`}/></svg><div><b>{Math.round(value*100)}%</b><small>confidence</small></div></div>}
+function Graph({data}:{data:CaseWorkspace}){const nodes=data.entities.slice(0,24); const index=new Map(nodes.map((n,i)=>[n.entity_id,i])); const pos=nodes.map((_,i)=>({x:50+38*Math.cos(i*2.399),y:50+36*Math.sin(i*2.399)})); return <div className="graph-canvas"><svg viewBox="0 0 100 100" preserveAspectRatio="none">{data.relationships.slice(0,38).map((edge,i)=>{const a=index.get(edge.subject_entity_id);const b=index.get(edge.object_entity_id);if(a===undefined||b===undefined)return null;return <line key={i} x1={pos[a].x} y1={pos[a].y} x2={pos[b].x} y2={pos[b].y} className="graph-edge"/>})}{nodes.map((node,i)=><g key={node.entity_id} className={`graph-node ${node.type==='actor'?'graph-node--actor':''}`}><circle cx={pos[i].x} cy={pos[i].y} r={node.type==='actor'?2.5:1.6}/><text x={pos[i].x+2.2} y={pos[i].y+1.1}>{node.surface_form.slice(0,18)}</text></g>)}</svg><div className="graph-legend"><span><i className="legend-dot legend-dot--actor"/>Actors</span><span><i className="legend-dot"/>Entities</span><span>{data.relationships.length} relationships</span></div></div>}
+function SignalBars({signals}:{signals:Record<string,number>}){return <div className="signal-bars">{Object.entries(signals).map(([name,value])=><div key={name} className="signal-bar"><span>{name}</span><div><i style={{width:`${Math.round(value*100)}%`}}/></div><b>{value.toFixed(2)}</b></div>)}</div>}
+export function CaseWorkspacePage(){
+ const {caseId=''}=useParams(); const {snapshot}=useLive(); const resource=useApi<CaseWorkspace>(caseId?`/api/v1/cases/${encodeURIComponent(caseId)}/workspace`:null); const [tab,setTab]=useState<'overview'|'evidence'|'network'|'timeline'|'assessment'>('overview');
+ useEffect(()=>{if(snapshot?.server_time) resource.reload();},[snapshot?.server_time]);
+ const data=resource.data; const assessment=data?.assessments[0]; const confidence=assessment?.calibrated_confidence??assessment?.raw_score??0;
+ const timeline=useMemo(()=>data?.activity??[],[data]);
+ if(!data)return <div className="page-stack"><div className="loading-block">Loading investigation workspace…</div></div>;
+ return <div className="page-stack workspace-page"><header className="workspace-head"><div><div className="breadcrumbs"><Link to="/cases">Cases</Link><span>›</span><span>{data.case.name}</span></div><div className="title-line"><h1>{data.case.name}</h1><span className={`pill pill--${data.case.status}`}>{data.case.status}</span></div><p>{data.case.description}</p></div><div className="workspace-actions"><span className="synced"><i/> Live synced</span><button className="button">Export</button></div></header>
+ <nav className="workspace-tabs">{(['overview','evidence','network','timeline','assessment'] as const).map(item=><button key={item} onClick={()=>setTab(item)} className={tab===item?'active':''}>{item}</button>)}</nav>
+ {tab==='overview'&&<><section className="workspace-signal"><div><span className="eyebrow">Case signal</span><h2>Evidence-backed intelligence picture</h2><p>Derived from {data.counts.evidence} evidence records, {data.counts.entities} entities and {data.counts.relationships} observed relationships.</p></div><ScoreRing value={confidence}/><div className="signal-summary"><div><b>{data.counts.evidence}</b><span>evidence</span></div><div><b>{data.counts.entities}</b><span>entities</span></div><div><b>{data.counts.relationships}</b><span>links</span></div></div></section><section className="workspace-grid"><div className="surface surface--graph"><div className="surface-head"><div><span className="eyebrow">Network</span><h2>Relationship field</h2></div><button className="quiet-button" onClick={()=>setTab('network')}>Explore →</button></div><Graph data={data}/></div><div className="surface"><div className="surface-head"><div><span className="eyebrow">Assessment</span><h2>Signal composition</h2></div></div>{assessment?<SignalBars signals={assessment.signals}/>:<div className="empty-state">No assessment yet.</div>}</div></section><section className="workspace-grid workspace-grid--bottom"><div className="surface"><div className="surface-head"><div><span className="eyebrow">Latest</span><h2>Intelligence activity</h2></div><button className="quiet-button" onClick={()=>setTab('timeline')}>Full timeline →</button></div><div className="activity-list">{timeline.slice(0,6).map(row=><div className="activity-row" key={row.seq}><span className="activity-marker"/><div><strong>{String(row.payload.message??row.action)}</strong><small>{new Date(row.occurred_at).toLocaleString()}</small></div></div>)}</div></div><div className="surface"><div className="surface-head"><div><span className="eyebrow">Actors & entities</span><h2>Most connected</h2></div></div><div className="entity-list">{data.entities.filter(x=>x.type==='actor').slice(0,7).map((entity,i)=><div key={entity.entity_id}><span className="entity-rank">0{i+1}</span><strong>{entity.surface_form}</strong><span>{Math.round(entity.confidence*100)}%</span></div>)}</div></div></section></>}
+ {tab==='evidence'&&<section className="surface"><div className="surface-head"><div><span className="eyebrow">Source ledger</span><h2>Evidence</h2></div><span className="surface-meta">{data.evidence.length} loaded</span></div><div className="evidence-table"><div className="evidence-row evidence-row--head"><span>Source</span><span>Observed</span><span>Reliability</span><span>Integrity</span></div>{data.evidence.slice(0,100).map(e=><div className="evidence-row" key={e.evidence_id}><span><b>{e.source_type}</b><small>{e.metadata.title ? String(e.metadata.title):e.evidence_id.slice(0,12)}</small></span><span>{e.observed_at?new Date(e.observed_at).toLocaleDateString():'—'}</span><span>{Math.round(e.reliability*100)}%</span><span className="mono">{e.sha256.slice(0,12)}…</span></div>)}</div></section>}
+ {tab==='network'&&<section className="surface surface--network"><div className="surface-head"><div><span className="eyebrow">Entity graph</span><h2>Network investigation</h2></div><span className="surface-meta">{data.relationships.length} links</span></div><Graph data={data}/></section>}
+ {tab==='timeline'&&<section className="surface"><div className="surface-head"><div><span className="eyebrow">Chronology</span><h2>Investigation timeline</h2></div></div><div className="timeline">{timeline.map(row=><div className="timeline-row" key={row.seq}><span>{new Date(row.occurred_at).toLocaleDateString()}</span><i/><div><b>{String(row.payload.message??row.action)}</b><small>{row.action} · seq {row.seq}</small></div></div>)}</div></section>}
+ {tab==='assessment'&&<section className="assessment-grid"><div className="surface"><span className="eyebrow">Model assessment</span><h2>Evidence-weighted assessment</h2><div className="assessment-score"><ScoreRing value={confidence}/><div><b>{assessment?.model_id??'No model run'}</b><span>{assessment?.model_version??'—'}</span></div></div>{assessment?.explanations.map(x=><p className="assessment-note" key={x}>• {x}</p>)}</div><div className="surface"><span className="eyebrow">Limitations</span><h2>Read before acting</h2>{(assessment?.limitations??['No assessment limitations returned.']).map(x=><p className="assessment-note" key={x}>• {x}</p>)}<div className="caution">Model confidence is not identity certainty. Review supporting and contradictory evidence before any operational decision.</div></div></section>}
+ </div>;
 }

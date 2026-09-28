@@ -12,7 +12,9 @@ def test_copilot_query_endpoint() -> None:
     evidence = Evidence.example()
     search.index(IndexedDocument.from_evidence(evidence))
 
-    app.dependency_overrides[get_copilot_context] = lambda: CopilotToolContext(search=search)
+    app.dependency_overrides[get_copilot_context] = lambda: CopilotToolContext(
+        search=search
+    )
 
     try:
         response = TestClient(app).post(

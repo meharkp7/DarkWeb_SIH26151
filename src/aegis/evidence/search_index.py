@@ -43,8 +43,11 @@ class EvidenceSearchIndexer:
         self.search.index(IndexedDocument.from_evidence(evidence))
 
     def index_many(self, records: Iterable[EvidenceRecord]) -> int:
-        count = 0
-        for record in records:
-            self.index(record)
-            count += 1
-        return count
+        rows = list(records)
+        documents = [IndexedDocument.from_evidence(evidence_from_record(row)) for row in rows]
+        bulk_index = getattr(self.search, "bulk_index", None)
+        if callable(bulk_index):
+            return int(bulk_index(documents))
+        for document in documents:
+            self.search.index(document)
+        return len(documents)

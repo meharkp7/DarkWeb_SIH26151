@@ -1,10 +1,9 @@
 """Case-scoped report builder and export API."""
-
 from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Annotated, cast
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -44,7 +43,9 @@ def build_case_report(db: Session, case_id: UUID) -> tuple[Report, ReportProvena
     # only as background attribution candidates; case-scoped assessments are
     # the authoritative case-bound model records below.
     _ = db.scalars(
-        select(AttributionHypothesisRecord).order_by(AttributionHypothesisRecord.created_at.asc())
+        select(AttributionHypothesisRecord).order_by(
+            AttributionHypothesisRecord.created_at.asc()
+        )
     ).all()
     assessments = db.scalars(
         select(AssessmentRecord)
@@ -133,9 +134,11 @@ def build_case_report(db: Session, case_id: UUID) -> tuple[Report, ReportProvena
 
 
 @router.get("/preview")
-def report_preview(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
+def report_preview(
+    case_id: UUID, db: Annotated[Session, Depends(get_db)]
+) -> dict[str, object]:
     report, provenance = build_case_report(db, case_id)
-    return cast(dict[str, object], json.loads(export_json(report, provenance)))
+    return json.loads(export_json(report, provenance))
 
 
 @router.get("/export")

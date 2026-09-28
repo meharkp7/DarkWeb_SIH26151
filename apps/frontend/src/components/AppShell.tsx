@@ -1,97 +1,35 @@
-import { NavLink, Outlet } from 'react-router-dom';
-import { HealthIndicator } from './HealthIndicator';
-import { cx } from '../lib/format';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { AgentButton } from './AgentButton';
+import { useLive } from '../hooks/useLive';
 
-interface NavItem {
-  readonly to: string;
-  readonly label: string;
-  readonly glyph: string;
-  readonly end?: boolean;
-}
-
-interface NavGroup {
-  readonly label: string;
-  readonly items: readonly NavItem[];
-}
-
-const NAV_GROUPS: readonly NavGroup[] = [
-  {
-    label: 'Investigations',
-    items: [
-      { to: '/', label: 'Cases', glyph: '▤', end: true },
-      { to: '/evidence', label: 'Evidence', glyph: '⬡' },
-      { to: '/timeline', label: 'Timeline', glyph: '⌗' },
-      { to: '/graph', label: 'Graph', glyph: '✦' },
-    ],
-  },
-  {
-    label: 'Analysis',
-    items: [
-      { to: '/attribution', label: 'Attribution', glyph: '◎' },
-      { to: '/hypotheses', label: 'Hypotheses', glyph: '⚖' },
-      { to: '/sources', label: 'Sources', glyph: '⚲' },
-    ],
-  },
-  {
-    label: 'Output',
-    items: [{ to: '/reports', label: 'Reports', glyph: '✎' }],
-  },
+const NAV = [
+  { to: '/', label: 'Command Center', icon: '⌂', end: true },
+  { to: '/cases', label: 'Cases', icon: '□' },
+  { to: '/watch', label: 'Threat Watch', icon: '◉' },
+  { to: '/reports', label: 'Reports', icon: '≡' },
 ];
 
-/** Application shell: header with health probe, left navigation, routed main area. */
 export function AppShell() {
+  const location = useLocation();
+  const { connected, snapshot } = useLive();
+  const context = location.pathname.startsWith('/cases/') ? `Current investigation: ${location.pathname.split('/').pop()}` : undefined;
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">
-        Skip to main content
-      </a>
-      <header className="app-header">
-        <div className="brand">
-          <span className="brand__mark" aria-hidden="true">
-            ◆
-          </span>
-          <span className="brand__name">AEGIS</span>
-          <span className="brand__tag">Investigation Console</span>
-        </div>
-        <HealthIndicator />
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark">◇</span><span>AEGIS</span><small>INTELLIGENCE</small></div>
+        <div className="sidebar-live"><span className={connected ? 'live-dot live-dot--on' : 'live-dot'} /> {connected ? 'Live' : 'Reconnecting'} <span>{snapshot ? new Date(snapshot.server_time).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—'}</span></div>
+        <nav aria-label="Primary">
+          <p className="nav-label">Workspace</p>
+          {NAV.map((item) => <NavLink key={item.to} to={item.to} end={item.end} className={({isActive}) => `nav-item ${isActive ? 'nav-item--active' : ''}`}><span>{item.icon}</span>{item.label}</NavLink>)}
+        </nav>
+        <div className="sidebar-bottom"><div className="analyst"><span>MK</span><div><strong>Analyst</strong><small>Local workspace</small></div></div><div className="secure-note">Synthetic / authorized data only</div></div>
+      </aside>
+      <header className="topbar">
+        <div className="crumb"><span>AEGIS</span><b>/</b><span>{location.pathname === '/' ? 'Command Center' : location.pathname.split('/')[1] ?? 'Workspace'}</span></div>
+        <div className="top-actions"><button className="search-pill" onClick={() => window.dispatchEvent(new Event('aegis:open-agent'))}><span>⌕</span> Search cases, actors, evidence <kbd>⌘ K</kbd></button><button className="icon-button">◌</button><div className="profile">MK</div></div>
       </header>
-
-      <nav className="app-nav" aria-label="Primary">
-        {NAV_GROUPS.map((group, index) => {
-          const labelId = `nav-group-label-${index}`;
-          return (
-            <div className="nav-group" key={group.label}>
-              <p className="nav-group__label" id={labelId}>
-                {group.label}
-              </p>
-              <ul className="nav-group__list" aria-labelledby={labelId}>
-                {group.items.map((item) => (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      end={item.end ?? false}
-                      className={({ isActive }) => cx('nav-link', isActive && 'nav-link--active')}
-                    >
-                      <span className="nav-link__glyph" aria-hidden="true">
-                        {item.glyph}
-                      </span>
-                      <span className="nav-link__label">{item.label}</span>
-                    </NavLink>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-        <p className="nav-footnote">
-          Screens render live API data where endpoints exist; otherwise they state plainly what is
-          missing.
-        </p>
-      </nav>
-
-      <main id="main-content" className="app-main" tabIndex={-1}>
-        <Outlet />
-      </main>
+      <main className="app-main"><Outlet /></main>
+      <AgentButton context={context} />
     </div>
   );
 }

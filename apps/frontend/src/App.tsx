@@ -1,36 +1,11 @@
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
+import { CommandCenterPage } from './pages/CommandCenterPage';
 import { CasesPage } from './pages/CasesPage';
 import { CaseWorkspacePage } from './pages/CaseWorkspacePage';
-import { EvidencePage } from './pages/EvidencePage';
-import { ActorPage } from './pages/ActorPage';
-import { TimelinePage } from './pages/TimelinePage';
-import { GraphPage } from './pages/GraphPage';
-import { AttributionPage } from './pages/AttributionPage';
-import { HypothesesPage } from './pages/HypothesesPage';
-import { SourcesPage } from './pages/SourcesPage';
 import { ReportsPage } from './pages/ReportsPage';
-import { NotFoundPage } from './pages/NotFoundPage';
+import { ThreatWatchPage } from './pages/ThreatWatchPage';
 
-/**
- * Route table for the Investigation UI (plan §23, screens in order).
- */
 export default function App() {
-  return (
-    <Routes>
-      <Route element={<AppShell />}>
-        <Route index element={<CasesPage />} />
-        <Route path="cases/:caseId" element={<CaseWorkspacePage />} />
-        <Route path="evidence" element={<EvidencePage />} />
-        <Route path="actors/:actorId" element={<ActorPage />} />
-        <Route path="timeline" element={<TimelinePage />} />
-        <Route path="graph" element={<GraphPage />} />
-        <Route path="attribution" element={<AttributionPage />} />
-        <Route path="hypotheses" element={<HypothesesPage />} />
-        <Route path="sources" element={<SourcesPage />} />
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
-  );
+  return <Routes><Route element={<AppShell />}><Route index element={<CommandCenterPage />} /><Route path="cases" element={<CasesPage />} /><Route path="cases/:caseId" element={<CaseWorkspacePage />} /><Route path="watch" element={<ThreatWatchPage />} /><Route path="reports" element={<ReportsPage />} /><Route path="evidence" element={<Navigate to="/cases" replace />} /><Route path="graph" element={<Navigate to="/cases" replace />} /><Route path="timeline" element={<Navigate to="/cases" replace />} /><Route path="attribution" element={<Navigate to="/cases" replace />} /><Route path="hypotheses" element={<Navigate to="/cases" replace />} /><Route path="actors/:actorId" element={<Navigate to="/cases" replace />} /><Route path="sources" element={<Navigate to="/cases" replace />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes>;
 }

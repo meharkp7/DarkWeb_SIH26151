@@ -17,6 +17,7 @@ def test_metrics_accumulate_pipeline_counts_and_average_latency() -> None:
     assert snapshot.latencies_ms == {"api.request": 15.0}
 
 
+
 def test_metrics_histogram_and_ml_snapshot() -> None:
     metrics = Metrics()
     metrics.increment("requests")

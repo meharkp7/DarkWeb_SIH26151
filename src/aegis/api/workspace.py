@@ -1,5 +1,4 @@
 """Case-workspace read APIs for the investigation UI."""
-
 from __future__ import annotations
 
 from typing import Annotated
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from aegis.api.deps import get_db
 from aegis.db.models import (
+    AuditLogRecord,
     AssessmentRecord,
     AttributionHypothesisRecord,
     CaseRecord,
@@ -30,9 +30,13 @@ def _case_or_404(db: Session, case_id: UUID) -> CaseRecord:
 
 
 @router.get("/{case_id}/workspace")
-def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
+def workspace(
+    case_id: UUID, db: Annotated[Session, Depends(get_db)]
+) -> dict[str, object]:
     case = _case_or_404(db, case_id)
-    evidence = db.scalars(select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)).all()
+    evidence = db.scalars(
+        select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)
+    ).all()
     entities = db.scalars(select(EntityRecord).where(EntityRecord.case_id == case_id)).all()
     relationships = db.scalars(
         select(RelationshipRecord).where(RelationshipRecord.case_id == case_id)
@@ -40,12 +44,19 @@ def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[st
     assessments = db.scalars(
         select(AssessmentRecord).where(AssessmentRecord.case_id == case_id)
     ).all()
+    activity = db.scalars(
+        select(AuditLogRecord)
+        .where(AuditLogRecord.case_id == case_id)
+        .order_by(AuditLogRecord.seq.desc())
+        .limit(40)
+    ).all()
     return {
         "case": {
             "case_id": str(case.case_id),
             "name": case.name,
             "description": case.description,
             "status": case.status,
+            "created_at": case.created_at.isoformat() if case.created_at else None,
         },
         "counts": {
             "evidence": len(evidence),
@@ -95,6 +106,9 @@ def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[st
                 "model_version": row.model_version,
                 "raw_score": row.raw_score,
                 "calibrated_confidence": row.calibrated_confidence,
+                "signals": row.signals_json,
+                "explanations": row.explanations,
+                "limitations": row.limitations,
                 "supporting_evidence_ids": [str(value) for value in row.supporting_evidence_ids],
                 "contradictory_evidence_ids": [
                     str(value) for value in row.contradictory_evidence_ids
@@ -102,14 +116,29 @@ def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[st
             }
             for row in assessments
         ],
+        "activity": [
+            {
+                "seq": row.seq,
+                "occurred_at": row.occurred_at.isoformat(),
+                "action": row.action,
+                "entity_type": row.entity_type,
+                "entity_id": row.entity_id,
+                "payload": row.payload_json,
+            }
+            for row in activity
+        ],
     }
 
 
 @router.get("/{case_id}/hypotheses")
-def hypotheses(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> list[dict[str, object]]:
+def hypotheses(
+    case_id: UUID, db: Annotated[Session, Depends(get_db)]
+) -> list[dict[str, object]]:
     _case_or_404(db, case_id)
     rows = db.scalars(
-        select(AttributionHypothesisRecord).order_by(AttributionHypothesisRecord.created_at.desc())
+        select(AttributionHypothesisRecord).order_by(
+            AttributionHypothesisRecord.created_at.desc()
+        )
     ).all()
     return [
         {

@@ -1,5 +1,4 @@
 """Controlled scale profile for 10K/100K/1M synthetic records."""
-
 from __future__ import annotations
 
 import argparse
@@ -39,7 +38,9 @@ def run(count: int) -> ScaleResult:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--counts", nargs="+", type=int, default=[10_000, 100_000, 1_000_000])
+    parser.add_argument(
+        "--counts", nargs="+", type=int, default=[10_000, 100_000, 1_000_000]
+    )
     parser.add_argument(
         "--output", type=Path, default=Path("artifacts/benchmarks/scale-profile.json")
     )
