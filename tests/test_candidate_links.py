@@ -127,3 +127,26 @@ def test_evidence_type_weights_are_explicit() -> None:
     ]
 
     assert engine._aggregate(features) == 0.85
+
+
+def test_index_is_built_once_per_actor(monkeypatch) -> None:
+    """``generate()`` hoists index construction out of the O(n^2) pair loop."""
+    evidence = _generate()
+    actor_ids = {item.actor_id for item in evidence}
+    assert len(actor_ids) >= 2, "fixture must contain several actors"
+
+    baseline = CandidateLinkEngine().generate(evidence)
+
+    calls = 0
+    original = CandidateLinkEngine.index
+
+    def counting_index(items):  # noqa: ANN001, ANN202
+        nonlocal calls
+        calls += 1
+        return original(items)
+
+    monkeypatch.setattr(CandidateLinkEngine, "index", staticmethod(counting_index))
+    instrumented = CandidateLinkEngine().generate(evidence)
+
+    assert calls == len(actor_ids), "one index build per actor, not per pair"
+    assert instrumented == baseline
