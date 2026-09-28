@@ -205,6 +205,20 @@ def _rehydrate_payload(type_name: object, data: object) -> object | None:
         raise SearchError(f"stored {type_name} payload failed validation: {exc}") from exc
 
 
+INDEX_MAPPING: Final[dict[str, Any]] = {
+    "properties": {
+        "doc_id": {"type": "keyword"},
+        "index": {"type": "keyword"},
+        "fields": {"type": "object"},
+        "timestamp": {"type": "date"},
+        "source": {"type": "keyword"},
+        "entity_ids": {"type": "keyword"},
+        "payload": {"type": "object", "enabled": True},
+        "payload_type": {"type": "keyword"},
+    }
+}
+
+
 def document_body(document: IndexedDocument) -> dict[str, Any]:
     """Serialize *document* into the OpenSearch ``_source`` body."""
     payload, payload_type = _serialize_payload(document.payload)
@@ -330,7 +344,7 @@ class OpenSearchAdapter:
     def client(self) -> Any:
         if self._client is None:
             try:
-                from opensearchpy import (  # type: ignore[import-not-found]  # noqa: PLC0415
+                from opensearchpy import (  # noqa: PLC0415
                     OpenSearch,
                 )
             except ImportError as exc:
@@ -345,11 +359,18 @@ class OpenSearchAdapter:
 
     def index(self, document: IndexedDocument) -> None:
         """Index (or overwrite) one document."""
+        physical_index = index_name(self.index_prefix, document.index)
         try:
+            if not self.client.indices.exists(index=physical_index):
+                self.client.indices.create(
+                    index=physical_index,
+                    body={"mappings": INDEX_MAPPING},
+                )
             self.client.index(
-                index=index_name(self.index_prefix, document.index),
+                index=physical_index,
                 id=document.doc_id,
                 body=document_body(document),
+                refresh="wait_for",
             )
         except SearchError:
             raise

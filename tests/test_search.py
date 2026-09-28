@@ -787,6 +787,22 @@ def test_parse_response_rehydrates_payload_and_provenance() -> None:
 # ------------------------------------------------- OpenSearch adapter
 
 
+class _FakeIndices:
+    """Minimal stand-in for the OpenSearch indices API."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+        self.existing: set[str] = set()
+
+    def exists(self, **kwargs: object) -> bool:
+        self.calls.append(("indices.exists", kwargs))
+        return str(kwargs["index"]) in self.existing
+
+    def create(self, **kwargs: object) -> None:
+        self.calls.append(("indices.create", kwargs))
+        self.existing.add(str(kwargs["index"]))
+
+
 class _FakeClient:
     """Minimal stand-in for ``opensearchpy.OpenSearch``."""
 
@@ -795,6 +811,7 @@ class _FakeClient:
         self.response: dict[str, object] = {}
         self.delete_error: Exception | None = None
         self.search_error: Exception | None = None
+        self.indices = _FakeIndices()
 
     def index(self, **kwargs: object) -> None:
         self.calls.append(("index", kwargs))
