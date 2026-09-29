@@ -1,0 +1,1110 @@
+/* AEGIS — Administration, Reports and Command Palette.
+   BEM prefixes: `adm-` administration, `rep-` reports, `pal-` command palette.
+   Every value comes from tokens.css; no colour literals except the rgba tints
+   derived from those tokens. */
+
+.adm-page .hero-head {
+  margin-bottom: 20px;
+}
+
+/* --------------------------------------------------------------------------
+   Administration — tabs
+   -------------------------------------------------------------------------- */
+
+.adm-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.adm-tab {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: 11px;
+  padding: 11px 14px;
+  position: relative;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.adm-tab:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.adm-tab--active {
+  color: var(--text);
+}
+
+.adm-tab--active::after {
+  content: '';
+  position: absolute;
+  inset: auto 8px -1px 8px;
+  height: 1px;
+  background: var(--white);
+}
+
+.adm-tab:focus-visible,
+.adm-select:focus-visible,
+.adm-btn:focus-visible,
+.adm-hash:focus-visible,
+.adm-details > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.adm-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.adm-panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.adm-panel__hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.adm-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.adm-faint {
+  color: var(--faint);
+  font-size: 11px;
+  margin: 0;
+}
+
+.adm-mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.adm-nowrap {
+  white-space: nowrap;
+}
+
+.adm-narrow {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Administration — team
+   -------------------------------------------------------------------------- */
+
+.adm-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.adm-role {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  min-width: 96px;
+  background: var(--surface-2);
+}
+
+.adm-role b {
+  display: block;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.adm-role span {
+  display: block;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  margin-top: 4px;
+}
+
+.adm-role--declared b {
+  color: var(--accent);
+}
+
+.adm-roles__note {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.adm-identity b {
+  display: block;
+  color: var(--text);
+  font-weight: 550;
+  font-size: 12px;
+}
+
+.adm-identity__id {
+  display: block;
+  margin-top: 3px;
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.adm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 320px;
+}
+
+/* Status is spelled out and reinforced with a shape, so it survives a
+   greyscale or colour-vision difference. */
+.adm-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.adm-state__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.adm-state--active {
+  color: var(--green);
+}
+
+.adm-state--active .adm-state__dot {
+  background: var(--green);
+}
+
+.adm-state--inactive {
+  color: var(--faint);
+}
+
+.adm-state--inactive .adm-state__dot {
+  background: transparent;
+  border: 1px solid var(--faint);
+}
+
+.adm-load {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+.adm-load__track {
+  display: block;
+  width: 72px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.adm-load__fill {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent-2);
+}
+
+.adm-load b {
+  min-width: 20px;
+  text-align: end;
+  font-weight: 550;
+  color: var(--text);
+}
+
+/* --------------------------------------------------------------------------
+   Administration — audit trail
+   -------------------------------------------------------------------------- */
+
+.adm-chain {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.adm-chain__mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.adm-chain b {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.adm-chain small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.adm-chain--ok {
+  border-color: rgba(131, 212, 170, 0.28);
+  background: rgba(131, 212, 170, 0.05);
+}
+
+.adm-chain--ok .adm-chain__mark {
+  color: var(--green);
+  border: 1px solid rgba(131, 212, 170, 0.4);
+}
+
+.adm-chain--ok b {
+  color: var(--green);
+}
+
+.adm-chain--failed {
+  border-color: rgba(237, 141, 136, 0.4);
+  background: rgba(237, 141, 136, 0.07);
+}
+
+.adm-chain--failed .adm-chain__mark {
+  color: var(--red);
+  border: 1px solid rgba(237, 141, 136, 0.5);
+}
+
+.adm-chain--failed b {
+  color: var(--red);
+  letter-spacing: 0.08em;
+}
+
+.adm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.adm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.adm-field label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+
+.adm-select {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  padding: 7px 10px;
+  min-width: 190px;
+}
+
+.adm-pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.adm-pager__count {
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 118px;
+  text-align: center;
+}
+
+.adm-btn {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
+  font-size: 10px;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.adm-btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: #454a4e;
+}
+
+.adm-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.adm-audit td {
+  vertical-align: middle;
+}
+
+.adm-audit__row:hover {
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.adm-action {
+  font-size: 11px;
+  color: var(--text);
+  font-family: var(--mono);
+}
+
+.adm-hash {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: var(--muted);
+}
+
+.adm-hash:hover {
+  color: var(--text);
+  border-color: #4a4f52;
+}
+
+.adm-hash__hint {
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.adm-audit__payload-row td {
+  padding: 0 12px 14px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.adm-payload {
+  border-left: 2px solid var(--line);
+  padding: 10px 0 4px 14px;
+}
+
+.adm-payload__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 0 0 9px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.adm-json {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: #b9c0bd;
+  background: #0c0e0f;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 11px 13px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.adm-json--inline {
+  max-height: 160px;
+}
+
+/* --------------------------------------------------------------------------
+   Administration — system
+   -------------------------------------------------------------------------- */
+
+.adm-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(196px, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--line-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.adm-fact {
+  background: var(--surface);
+  padding: 14px 16px;
+}
+
+.adm-fact dt {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+
+.adm-fact dd {
+  margin: 8px 0 0;
+}
+
+.adm-block {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.adm-block__title {
+  margin: 0 0 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.adm-block__desc {
+  margin: 0 0 12px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--faint);
+  max-width: 760px;
+}
+
+.adm-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.adm-count {
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.adm-count b {
+  display: block;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.adm-count span {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+
+.adm-adapters {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.adm-adapters li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  background: var(--surface-2);
+  font-size: 11px;
+}
+
+.adm-adapters b {
+  font-weight: 550;
+  color: var(--text);
+}
+
+.adm-metrics {
+  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.adm-metric {
+  background: var(--surface-2);
+  padding: 10px 13px;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) 1.2fr;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.adm-metric dt {
+  color: var(--faint);
+  font-size: 10px;
+  word-break: break-word;
+}
+
+.adm-metric dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 10px;
+  word-break: break-word;
+}
+
+.adm-details {
+  margin-top: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 10px 13px;
+}
+
+.adm-details > summary {
+  cursor: pointer;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.adm-metric-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.adm-metric-list li {
+  display: grid;
+  grid-template-columns: 96px 150px 1fr;
+  gap: 12px;
+  align-items: start;
+  font-size: 10px;
+}
+
+.adm-metric-list b {
+  color: var(--faint);
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------------
+   Reports
+   -------------------------------------------------------------------------- */
+
+.rep-visually-hidden,
+.pal-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.rep-page .report-select select {
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font-size: 13px;
+  min-width: 330px;
+  padding: 4px 0;
+}
+
+.rep-page .report-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.rep-exports .report-card {
+  grid-template-columns: 42px 1fr auto;
+}
+
+.rep-exports button:focus-visible,
+.rep-preview button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rep-exports button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.rep-preview {
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 22px 26px 28px;
+}
+
+.rep-preview__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+}
+
+.rep-preview__title {
+  margin: 6px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.rep-doc__head {
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 16px;
+  margin-bottom: 22px;
+}
+
+.rep-doc__title {
+  margin: 8px 0 10px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+}
+
+.rep-doc__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 0;
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.rep-section {
+  margin-bottom: 24px;
+  break-inside: avoid;
+}
+
+.rep-section__title {
+  margin: 0 0 9px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--accent-2);
+  font-weight: 650;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.rep-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rep-list li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.rep-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 5px;
+  height: 1px;
+  background: var(--faint);
+}
+
+.rep-unavailable {
+  margin: 0;
+  font-size: 11px;
+  color: var(--faint);
+  font-style: italic;
+}
+
+.rep-provenance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.rep-provenance > div {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 11px 13px;
+}
+
+.rep-provenance b {
+  display: block;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.rep-provenance span {
+  font-size: 11px;
+  color: var(--text);
+  font-family: var(--mono);
+  word-break: break-word;
+}
+
+/* Print / Export-PDF parity: the preview is the artifact, so it is the only
+   thing on the page when printing. */
+@media print {
+  .sidebar,
+  .topbar,
+  .agent-orb,
+  .report-select,
+  .rep-exports,
+  .report-footnote,
+  .rep-preview__head .badge {
+    display: none !important;
+  }
+
+  .app-main {
+    margin: 0;
+    padding: 0;
+  }
+
+  .rep-page {
+    max-width: none;
+  }
+
+  .rep-preview {
+    border: 0;
+    background: #fff;
+    color: #111;
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .rep-doc__title,
+  .rep-provenance span {
+    color: #111;
+  }
+
+  .rep-list li,
+  .rep-doc__meta {
+    color: #333;
+  }
+
+  .rep-section__title,
+  .rep-provenance b {
+    color: #444;
+    border-color: #ccc;
+  }
+
+  .rep-unavailable {
+    color: #666;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Command palette
+   -------------------------------------------------------------------------- */
+
+.pal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(5px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 20px 20px;
+}
+
+.pal-dialog {
+  width: min(620px, 100%);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: #101213;
+  border: 1px solid #34383b;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: palIn 0.16s ease-out;
+}
+
+@keyframes palIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pal-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.pal-input__icon {
+  color: var(--faint);
+  font-size: 14px;
+}
+
+.pal-input__field {
+  flex: 1;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.pal-input__field::placeholder {
+  color: var(--faint);
+}
+
+/* The dialog as a whole is the focus target while open, so the ring is drawn
+   around the input row rather than a 1px outline around the text field. */
+.pal-input__field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.pal-input__kbd,
+.pal-option__kbd,
+.pal-foot kbd {
+  font-family: var(--font);
+  font-size: 9px;
+  color: var(--muted);
+  border: 1px solid #3a3e41;
+  background: #191b1d;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+
+.pal-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+}
+
+.pal-group__label {
+  margin: 0;
+  padding: 9px 10px 5px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+  font-weight: 650;
+}
+
+.pal-group__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pal-option {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.pal-option--active {
+  /* The active row is described by the ring and the raised surface, not by
+     colour alone — `aria-activedescendant` carries it to assistive tech. */
+  background: #1e2123;
+  border-color: #4c5256;
+}
+
+.pal-option__icon {
+  width: 20px;
+  text-align: center;
+  color: var(--faint);
+  font-size: 12px;
+  flex: none;
+}
+
+.pal-option--active .pal-option__icon {
+  color: var(--accent);
+}
+
+.pal-option__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pal-option__text b {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pal-option__text small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pal-option__kbd {
+  opacity: 0;
+  flex: none;
+}
+
+.pal-option--active .pal-option__kbd,
+.pal-option:focus-visible .pal-option__kbd {
+  opacity: 1;
+}
+
+.pal-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.pal-empty {
+  padding: 26px 14px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pal-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line-soft);
+  background: #0d0f10;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.pal-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pal-foot__count {
+  margin-left: auto;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Responsive + motion preferences
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .adm-pager {
+    margin-left: 0;
+  }
+
+  .adm-metric-list li {
+    grid-template-columns: 1fr;
+  }
+
+  .pal-backdrop {
+    padding: 6vh 12px 12px;
+  }
+
+  .pal-dialog {
+    max-height: 84vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pal-dialog {
+    animation: none;
+  }
+
+  .adm-btn,
+  .adm-tab,
+  .pal-option {
+    transition: none;
+  }
+}
