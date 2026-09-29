@@ -797,6 +797,17 @@ th[aria-sort='descending'] .inv-sort__arrow::after {
   border-bottom: 1px solid var(--line-soft);
 }
 
+.inv-network__scroll {
+  /* The canvas grows to fit its tallest column so a case with many nodes of
+     one type cannot overlap them or run off the top. That makes the element
+     taller than the viewport on dense cases, so it scrolls rather than
+     being squeezed — a squashed graph has overlapping cards again, which is
+     the failure this exists to prevent. */
+  max-height: 70vh;
+  overflow: auto;
+  background: #0d1011;
+}
+
 .inv-network__canvas {
   display: block;
   width: 100%;

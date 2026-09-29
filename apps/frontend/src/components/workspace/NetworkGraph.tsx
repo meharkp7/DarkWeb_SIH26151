@@ -72,21 +72,46 @@ function groupByType(nodes: readonly CaseGraphNode[]): Map<string, CaseGraphNode
   return groups;
 }
 
-function columnLayout(nodes: readonly CaseGraphNode[]): Map<string, Point> {
+/**
+ * Column layout, and the height it needs.
+ *
+ * The height is returned rather than assumed. This layout was previously
+ * computed against a fixed 620px canvas with a gap of `max(46, …)`, so a
+ * column of 15 nodes needed 690px and a card is 52px tall — the cards
+ * overlapped each other and ran off both ends of the canvas, and the whole
+ * picture was unreadable. The canvas now grows to fit its tallest column and
+ * the container scrolls, so the number of nodes in a case cannot break the
+ * rendering.
+ */
+function columnLayout(
+  nodes: readonly CaseGraphNode[],
+): { points: Map<string, Point>; height: number } {
   const groups = groupByType(nodes);
   const types = [...groups.keys()].sort();
   const points = new Map<string, Point>();
   const usable = W - LANE_X * 2;
+  // A gap smaller than the card makes the column unreadable no matter how
+  // tall the canvas is, so the card height is the floor.
+  const gap = Math.min(84, Math.max(NODE_H + 12, 64));
+  const tallest = Math.max(0, ...types.map((type) => (groups.get(type) ?? []).length));
+  const height = Math.max(H, tallest * gap + 96);
+
   types.forEach((type, column) => {
     const list = [...(groups.get(type) ?? [])].sort(
       (left, right) => right.degree - left.degree || left.label.localeCompare(right.label),
     );
-    const x = LANE_X + LANE_W + (usable - LANE_W) * (types.length === 1 ? 0.5 : column / (types.length - 1));
-    const gap = Math.min(84, Math.max(46, (H - 60) / Math.max(1, list.length)));
-    const start = H / 2 - ((list.length - 1) * gap) / 2;
-    list.forEach((node, row) => points.set(node.entity_id, { x, y: start + row * gap }));
+    const x =
+      LANE_X +
+      LANE_W +
+      (usable - LANE_W) * (types.length === 1 ? 0.5 : column / (types.length - 1));
+    // Top-aligned, not vertically centred per column. Centring each column on
+    // the canvas put a 15-node column and a 3-node column at different
+    // starting heights, so nothing lined up across the top and the picture
+    // read as arbitrary. Top-aligned, every type starts in the same place and
+    // the eye scans down a column instead of hunting for its origin.
+    list.forEach((node, row) => points.set(node.entity_id, { x, y: 56 + row * gap }));
   });
-  return points;
+  return { points, height };
 }
 
 function hierarchyLayout(nodes: readonly CaseGraphNode[], edges: readonly CaseGraphEdge[]): Map<string, Point> {
@@ -300,10 +325,14 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
     return { nodes: nodes.slice(0, MAX_NODES), edges: edges.slice(0, 220), dropped: nodes.length - Math.min(nodes.length, MAX_NODES) };
   }, [graph, recency]);
 
-  const positions = useMemo(() => {
-    if (visible.nodes.length === 0) return new Map<string, Point>();
-    if (layout === 'hierarchy') return hierarchyLayout(visible.nodes, visible.edges);
-    if (layout === 'force') return forceLayout(visible.nodes, visible.edges);
+  const { points: positions, height: canvasHeight } = useMemo(() => {
+    if (visible.nodes.length === 0) return { points: new Map<string, Point>(), height: H };
+    if (layout === 'hierarchy') {
+      return { points: hierarchyLayout(visible.nodes, visible.edges), height: H };
+    }
+    if (layout === 'force') {
+      return { points: forceLayout(visible.nodes, visible.edges), height: H };
+    }
     return columnLayout(visible.nodes);
   }, [visible, layout]);
 
@@ -432,10 +461,10 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
         )}
         {!resource.loading && resource.error === null && visible.nodes.length > 0 && (
           <div className={selectedNode === null ? 'insp-shell' : 'insp-shell has-rail'}>
-            <div>
+            <div className="inv-network__scroll">
               <svg
                 className="inv-network__canvas"
-                viewBox={`0 0 ${W} ${H}`}
+                viewBox={`0 0 ${W} ${canvasHeight}`}
                 role="img"
                 aria-label={`Entity relationship graph for ${caseName}: ${visible.nodes.length} entities and ${visible.edges.length} relationships`}
               >
