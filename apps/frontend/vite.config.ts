@@ -9,24 +9,41 @@ import react from '@vitejs/plugin-react';
  */
 const API_PROXY_TARGET = process.env['VITE_PROXY_TARGET'] ?? 'http://127.0.0.1:8000';
 
+/**
+ * The frontend talks to the API with same-origin relative paths
+ * (`/api/v1/*`, `/health*`), so both the dev server *and* the preview server
+ * must forward those prefixes. Without the preview proxy a built bundle
+ * served by `npm run preview` sends its credentialed requests to the preview
+ * origin itself, where they are answered by the static handler — the login
+ * POST never reaches the API and every authenticated route comes back
+ * 401/404 while the backend log stays empty.
+ */
+const apiProxy = (target: string) => ({
+  target,
+  changeOrigin: true,
+  // The API answers unauthenticated requests with a bare 401 and never
+  // redirects; following one would turn a rejected token into an HTML page.
+  autoRewrite: false,
+  secure: false,
+});
+
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
     strictPort: false,
     proxy: {
-      '/api': {
-        target: API_PROXY_TARGET,
-        changeOrigin: true,
-      },
-      '/health': {
-        target: API_PROXY_TARGET,
-        changeOrigin: true,
-      },
+      '/api': apiProxy(API_PROXY_TARGET),
+      '/health': apiProxy(API_PROXY_TARGET),
     },
   },
   preview: {
     port: 4173,
+    strictPort: false,
+    proxy: {
+      '/api': apiProxy(API_PROXY_TARGET),
+      '/health': apiProxy(API_PROXY_TARGET),
+    },
   },
   build: {
     outDir: 'dist',

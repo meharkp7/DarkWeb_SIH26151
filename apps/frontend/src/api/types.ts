@@ -48,14 +48,17 @@ export interface InvestigationCase {
   updated_at: string | null;
 }
 
-export interface CaseSummary extends InvestigationCase {
-  /** Server-computed: a live SLA deadline that has already passed. */
-  sla_overdue: boolean;
-  counts: { evidence: number; entities: number; relationships: number; assessments: number };
-  last_activity: string | null;
-  queue_score?: number;
-  queue_reason?: string;
-}
+/**
+ * @deprecated Alias of {@link CaseQueueEntry}.
+ *
+ * This used to be a separate interface with a hand-guessed `counts` shape and
+ * optional `queue_score`. Two shapes for one list is how a page ends up
+ * rendering against a payload the API never sends, and every field ends up
+ * defensively optional — which is where "the dashboard is blank" bugs come
+ * from. The register and the priority queue read the same rows, so they are
+ * one type.
+ */
+export type CaseSummary = CaseQueueEntry;
 
 export interface CaseCreate {
   name: string;
@@ -103,15 +106,6 @@ export interface CaseNoteCreate {
 // ---------------------------------------------------------------------------
 // Dashboard / live
 // ---------------------------------------------------------------------------
-
-export interface DashboardSnapshot {
-  type: 'snapshot' | 'heartbeat';
-  server_time: string;
-  counts: { cases: number; evidence: number; entities: number; relationships: number; assessments: number };
-  critical_alerts: number;
-  activity: LiveActivity[];
-  case_summaries?: CaseSummary[];
-}
 
 export interface LiveActivity {
   seq: number;
@@ -174,21 +168,6 @@ export interface CaseWorkspace {
   activity: LiveActivity[];
 }
 
-/** A case-scoped hypothesis from `GET /cases/{id}/hypotheses`. */
-export interface CaseHypothesis {
-  hypothesis_id: string;
-  kind: string;
-  status: string;
-  subject_entity_id: string;
-  object_entity_id: string;
-  missing_evidence: string[];
-  analyst_disposition: string | null;
-  calibrated_confidence: number | null;
-  raw_score: number | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
 // ---------------------------------------------------------------------------
 // Copilot
 // ---------------------------------------------------------------------------
@@ -199,4 +178,295 @@ export interface CopilotResponse {
   unsupported_claims: Array<{ text: string; citations: string[]; status: string }>;
   dropped_claims: Array<{ text: string; citations: string[]; status: string }>;
   text: string;
+}
+
+// ---------------------------------------------------------------------------
+// Command Center analytics
+//
+// These mirror the Pydantic models in `src/aegis/schemas/analytics.py`. The
+// backend previously returned untyped `dict`s for all of this, so the shapes
+// were guesses; they are now declared on both sides and can be checked.
+// ---------------------------------------------------------------------------
+
+/** One named driver behind a case's queue position. */
+export interface PriorityReason {
+  readonly key: string;
+  readonly label: string;
+  readonly weight: number;
+}
+
+/** A deadline state, kept distinct from `sla_overdue`. */
+export type SlaState = 'breached' | 'at_risk' | 'ok' | 'none';
+
+/**
+ * An investigations-register row and a priority-queue row.
+ *
+ * Deliberately one type for both: the register and the queue read the same
+ * rows, and two shapes for one list is how the two views start disagreeing
+ * about a case.
+ */
+export interface CaseQueueEntry {
+  readonly case_id: UUID;
+  readonly name: string;
+  readonly status: CaseStatus;
+  readonly priority: CasePriority;
+  readonly severity: CaseSeverity;
+  readonly tags: readonly string[];
+  readonly assigned_to: UUID | null;
+  readonly sla_due_at: string | null;
+  readonly sla_overdue: boolean;
+  readonly sla_state: SlaState;
+  readonly queue_score: number;
+  readonly queue_reason: string;
+  /** Every contributor to `queue_score`, summing exactly to it. */
+  readonly reasons: readonly PriorityReason[];
+  readonly counts: {
+    readonly evidence: number;
+    readonly entities: number;
+    readonly relationships: number;
+    readonly assessments: number;
+    readonly contradictions: number;
+    readonly recent_evidence: number;
+  };
+  readonly last_activity: string | null;
+  readonly attribution: number | null;
+}
+
+export interface CommandPosture {
+  readonly active_investigations: number;
+  readonly critical: number;
+  readonly high: number;
+  readonly sla_at_risk: number;
+  readonly new_evidence: number;
+  readonly unresolved_links: number;
+  readonly total_investigations: number;
+  readonly unassigned: number;
+  readonly pressure_index: number;
+}
+
+export interface VelocityPoint {
+  readonly label: string;
+  readonly count: number;
+  /** Signed change against the previous bucket; null on the first. */
+  readonly delta: number | null;
+}
+
+export interface PressureIndicator {
+  readonly key: string;
+  readonly label: string;
+  readonly score: number;
+  /** The raw count the score was scaled from. */
+  readonly observed: number;
+  /** The count that would score 100. */
+  readonly ceiling: number;
+}
+
+export interface AttributionPosture {
+  readonly case_id: UUID;
+  readonly case_name: string;
+  readonly confidence: number;
+  readonly supporting_signals: number;
+  readonly modalities: number;
+  readonly contradictions: number;
+  readonly freshness: number;
+  readonly explanations: readonly string[];
+  readonly signals: Readonly<Record<string, number>>;
+}
+
+export interface PlatformCounts {
+  readonly cases: number;
+  readonly evidence: number;
+  readonly entities: number;
+  readonly relationships: number;
+  readonly assessments: number;
+}
+
+export interface DashboardSnapshot {
+  readonly type: 'snapshot';
+  readonly server_time: string;
+  readonly counts: PlatformCounts;
+  readonly critical_alerts: number;
+  readonly activity: readonly LiveActivity[];
+  readonly case_summaries: readonly CaseQueueEntry[];
+  readonly command_posture: CommandPosture;
+  readonly evidence_velocity: readonly VelocityPoint[];
+  readonly investigation_pressure: readonly PressureIndicator[];
+  readonly attribution_posture: readonly AttributionPosture[];
+}
+
+/** A websocket frame that is not a snapshot. */
+export interface LiveControlFrame {
+  readonly type: 'heartbeat' | 'degraded';
+  readonly server_time: string;
+  readonly detail?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Investigation workspace analytics
+// ---------------------------------------------------------------------------
+
+export type Band = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface SignalBand {
+  readonly modality: string;
+  readonly support: Band;
+  readonly contradict: Band;
+  readonly support_value: number;
+  readonly contradict_value: number;
+  readonly freshness: number;
+}
+
+export interface CaseMetrics {
+  readonly case_id: UUID;
+  readonly evidence: number;
+  readonly links: number;
+  readonly entities: number;
+  readonly sources: number;
+  readonly attribution: number | null;
+  readonly contradictions: number;
+  readonly hypotheses: number;
+  readonly independent_sources: number;
+}
+
+export type TimelineLayer = 'event' | 'actor' | 'infrastructure' | 'financial';
+
+export interface TimelineEvent {
+  readonly occurred_at: string;
+  readonly title: string;
+  readonly layer: TimelineLayer;
+  readonly evidence_id: UUID | null;
+  readonly confidence: number | null;
+  readonly detail: string | null;
+  readonly action: string | null;
+  readonly case_id: UUID | null;
+}
+
+export interface CaseTimeline {
+  readonly case_id: UUID;
+  readonly events: readonly TimelineEvent[];
+  readonly layers: readonly TimelineLayer[];
+}
+
+export interface CaseHypothesis {
+  readonly hypothesis_id: UUID;
+  readonly kind: string;
+  readonly status: string;
+  readonly subject_entity_id: UUID;
+  readonly object_entity_id: UUID;
+  readonly missing_evidence: readonly string[];
+  readonly analyst_disposition: string | null;
+  readonly calibrated_confidence: number | null;
+  readonly raw_score: number | null;
+  readonly signals: Readonly<Record<string, number>>;
+  readonly supporting_evidence_ids: readonly UUID[];
+  readonly contradictory_evidence_ids: readonly UUID[];
+  /** Distinct independence groups — three feeds copying one press release are one source. */
+  readonly independent_source_groups: number;
+  readonly created_at: string | null;
+  readonly updated_at: string | null;
+}
+
+export interface CaseGraphNode {
+  readonly entity_id: UUID;
+  readonly type: string;
+  readonly label: string;
+  readonly normalized_form: string;
+  readonly confidence: number;
+  readonly first_seen: string | null;
+  readonly last_seen: string | null;
+  readonly degree: number;
+  readonly modality: string | null;
+  readonly evidence_count: number;
+}
+
+export interface CaseGraphEdge {
+  readonly relationship_id: UUID;
+  readonly source: UUID;
+  readonly target: UUID;
+  readonly type: string;
+  readonly confidence: number;
+  readonly first_seen: string;
+  readonly last_seen: string;
+  readonly evidence_ids: readonly UUID[];
+}
+
+export interface CaseGraph {
+  readonly case_id: UUID;
+  readonly nodes: readonly CaseGraphNode[];
+  readonly edges: readonly CaseGraphEdge[];
+  readonly edge_types: Readonly<Record<string, number>>;
+  readonly node_types: Readonly<Record<string, number>>;
+}
+
+// ---------------------------------------------------------------------------
+// Administration
+// ---------------------------------------------------------------------------
+
+export interface TeamMember {
+  readonly user_id: UUID;
+  readonly email: string;
+  readonly display_name: string;
+  readonly role: string;
+  readonly permissions: readonly string[];
+  readonly is_active: boolean;
+  readonly last_login_at: string | null;
+  readonly assigned_cases: number;
+}
+
+export interface TeamResponse {
+  readonly members: readonly TeamMember[];
+  readonly roles: readonly string[];
+}
+
+export interface AuditEntry {
+  readonly seq: number;
+  readonly occurred_at: string;
+  readonly action: string;
+  readonly actor: string | null;
+  readonly entity_type: string | null;
+  readonly entity_id: string | null;
+  readonly case_id: UUID | null;
+  readonly case_name: string | null;
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly entry_hash: string;
+  readonly prev_hash: string | null;
+}
+
+export interface AuditTrailResponse {
+  readonly entries: readonly AuditEntry[];
+  readonly total: number;
+  /** Recomputed from the chain, not asserted. */
+  readonly chain_valid: boolean;
+  readonly actions: readonly string[];
+}
+
+export interface SystemHealth {
+  readonly api_status: string;
+  readonly database_status: string;
+  readonly environment: string;
+  readonly auth_mode: string;
+  readonly auth_session_ttl_s: number;
+  readonly live_socket: string;
+  readonly counts: PlatformCounts;
+  readonly metrics: Readonly<Record<string, unknown>>;
+  readonly chain_valid: boolean;
+  readonly adapters: Readonly<Record<string, string>>;
+}
+
+export interface ModelRunSummary {
+  readonly run_id: UUID;
+  readonly model_id: string;
+  readonly model_version: string;
+  readonly dataset_version: string;
+  readonly feature_version: string;
+  readonly status: string;
+  readonly seed: number;
+  readonly started_at: string | null;
+  readonly finished_at: string | null;
+  readonly metrics: Readonly<Record<string, unknown>>;
+}
+
+export interface ModelRegistryResponse {
+  readonly runs: readonly ModelRunSummary[];
+  readonly total: number;
 }
