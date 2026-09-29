@@ -50,10 +50,10 @@ export function CollectionPage() {
   const tab = (params.get('tab') === 'jobs' ? 'jobs' : 'sources') as Tab;
   const statusFilter = params.get('status') ?? '';
 
-  const status = useApi<CollectionStatus>('/v1/collection/status');
-  const sources = useApi<CollectionSource[]>('/v1/collection/sources');
+  const status = useApi<CollectionStatus>(api.collectionStatusUrl());
+  const sources = useApi<CollectionSource[]>(api.collectionSourcesUrl());
   const jobs = useApi<CollectionJob[]>(
-    `/v1/collection/jobs?limit=60${statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : ''}`,
+    api.collectionJobsUrl({ limit: 60, status: statusFilter || undefined }),
   );
 
   const [run, setRun] = useState<CollectionRunResult | null>(null);

@@ -204,6 +204,16 @@ export const api = {
     const query = new URLSearchParams({ q });
     return getJson<SearchResponse>(apiUrl(`/v1/search?${query}`), signal);
   },
+  collectionSourcesUrl: () => apiUrl('/v1/collection/sources'),
+  collectionJobsUrl: (params?:{status?:string;limit?:number;offset?:number}) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    const suffix = query.toString() ? `?${query}` : '';
+    return apiUrl(`/v1/collection/jobs${suffix}`);
+  },
+  collectionStatusUrl: () => apiUrl('/v1/collection/status'),
   collectionSources: (signal?:AbortSignal) => getJson<CollectionSource[]>(apiUrl('/v1/collection/sources'), signal),
   collectionJobs: (params?:{status?:string;limit?:number;offset?:number}, signal?:AbortSignal) => {
     const query = new URLSearchParams();
