@@ -1,0 +1,187 @@
+/* --------------------------------------------------------------------------
+   Case export popover (`exp-`)
+
+   Export is an action on a case, not a destination, so the control lives in
+   the toolbar and opens a small popover rather than a page or a modal. It is
+   deliberately dense — the analyst should be able to pick a case, pick a
+   format and be gone in two clicks. Everything here is off the shared tokens
+   so the popover matches the surrounding toolbar without new colours.
+   -------------------------------------------------------------------------- */
+
+.exp-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.exp-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.exp-trigger:hover {
+  background: var(--surface-3);
+  border-color: var(--line);
+}
+
+.exp-trigger__chevron {
+  color: var(--faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.exp-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 320px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.exp-popover__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.exp-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+.exp-select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.exp-formats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.exp-format {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.exp-format:hover {
+  background: var(--surface-2);
+}
+
+/* The selected row is tinted from the input, so the whole row reads as
+   chosen rather than only the 10px radio dot. */
+.exp-format:has(input:checked) {
+  background: var(--surface-2);
+}
+
+.exp-format:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.exp-format input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.exp-format__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.exp-format__label {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text);
+}
+
+.exp-format__hint {
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--faint);
+}
+
+.exp-error {
+  margin: 0;
+  padding: 7px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--red);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.exp-action {
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--white);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  transition: opacity 120ms ease;
+}
+
+.exp-action:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.exp-action:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.exp-trigger:focus-visible,
+.exp-select:focus-visible,
+.exp-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-trigger,
+  .exp-format,
+  .exp-action {
+    transition: none;
+  }
+}
