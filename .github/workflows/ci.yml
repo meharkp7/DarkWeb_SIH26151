@@ -33,7 +33,7 @@ jobs:
       # cannot resolve an import cannot typecheck the file that has it. CI is
       # the only place the extras are present, so this is the only place the
       # adapter code is verified at all.
-      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry --extra ml
       - name: Ruff
         run: uv run ruff check src scripts tests
       - name: Mypy

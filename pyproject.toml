@@ -12,6 +12,24 @@ dependencies = [
   "psycopg[binary]>=3.2,<4",
   "alembic>=1.16,<2",
   "numpy>=2,<3",
+]
+
+# The machine-learning stack is an *optional* extra, not a default dependency.
+#
+# Every import of torch, xgboost and scikit-learn inside `src/aegis` is
+# deliberately lazy — they are imported inside the functions that need them,
+# with `noqa: PLC0415` marking the intent — so the API serves the entire
+# console without any of them installed.
+#
+# They were defaults because the synthetic-analysis endpoint and three test
+# modules need them. That is a ~2GB install, and on a free-tier host the
+# build is the part that fails: not enough disk, or a build that outlives the
+# timeout. The analytics that matter — the command center, the actor registry,
+# infrastructure correlation, persona linkage, collection, temporal — none of
+# them touch it.
+#
+# Install it where you want the baselines: `uv sync --extra ml`.
+ml = [
   "torch>=2.6,<3",
   "xgboost>=3.1,<4 ; sys_platform == 'darwin'",
   "xgboost-cpu>=3.1,<4 ; sys_platform != 'darwin'",

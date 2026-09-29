@@ -35,7 +35,12 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: pip install uv && uv sync --frozen
+    # Default dependencies only. The machine-learning stack is an optional
+    # `ml` extra and is deliberately not installed here: it is a ~2GB build,
+    # and nothing the console calls imports it. The synthetic-analysis endpoint
+    # and the resolution baselines are the only consumers, and the platform
+    # degrades to "adapter unavailable" without them.
+    buildCommand: pip install uv && uv sync --frozen --no-dev
     startCommand: >
       uv run alembic upgrade head &&
       uv run uvicorn aegis.api.app:app --host 0.0.0.0 --port $PORT
