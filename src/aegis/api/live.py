@@ -12,11 +12,14 @@ from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from starlette import status
 from sqlalchemy import func, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from aegis.api.case_triage import case_is_overdue
 from aegis.api.deps import get_db
+from aegis.settings import settings
+from aegis.api.auth import validate_access_token
 from aegis.db.models import (
     AssessmentRecord,
     AuditLogRecord,
@@ -131,7 +134,13 @@ def dashboard_cases(db: Annotated[Session, Depends(get_db)]) -> list[dict[str, o
 
     now = datetime.now(UTC)
     result: list[dict[str, object]] = []
+    priority_weight = {"critical": 100, "high": 78, "medium": 52, "low": 28}
+    severity_weight = {"critical": 24, "high": 18, "medium": 10, "low": 5, "informational": 0}
     for case in cases:
+        overdue = case_is_overdue(case, now=now)
+        queue_score = priority_weight.get(case.priority, 40) + severity_weight.get(case.severity, 5)
+        if overdue:
+            queue_score += 18
         result.append(
             {
                 "case_id": str(case.case_id),
@@ -145,7 +154,15 @@ def dashboard_cases(db: Annotated[Session, Depends(get_db)]) -> list[dict[str, o
                 "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
                 "closed_at": case.closed_at.isoformat() if case.closed_at else None,
                 "closure_reason": case.closure_reason,
-                "sla_overdue": case_is_overdue(case, now=now),
+                "sla_overdue": overdue,
+                "queue_score": min(queue_score, 100),
+                "queue_reason": (
+                    "SLA breach + critical posture" if overdue and case.priority == "critical"
+                    else "SLA breach requires review" if overdue
+                    else "Critical investigation" if case.priority == "critical"
+                    else "High-priority investigation" if case.priority == "high"
+                    else "Routine monitoring"
+                ),
                 "created_at": case.created_at.isoformat() if case.created_at else None,
                 "updated_at": case.updated_at.isoformat() if case.updated_at else None,
                 "counts": {
@@ -180,7 +197,16 @@ def case_activity(
 
 @router.websocket("/api/v1/live")
 async def live_socket(websocket: WebSocket) -> None:
-    await websocket.accept()
+    protocols = [item.strip() for item in websocket.headers.get("sec-websocket-protocol", "").split(",") if item.strip()]
+    supplied = protocols[1] if len(protocols) >= 2 and protocols[0] == "aegis" else None
+    query_token = websocket.query_params.get("access_token")
+    credential = supplied or query_token
+    api_ok = bool(settings.enable_api_key_auth and settings.api_key and credential == settings.api_key)
+    session_ok = bool(credential and validate_access_token(credential) is not None)
+    if not api_ok and not session_ok:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    await websocket.accept(subprotocol="aegis")
     last_seq = -1
     try:
         while True:

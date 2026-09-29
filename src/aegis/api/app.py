@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
 from aegis.api.analysis import run_synthetic_analysis
+from aegis.api.auth import router as auth_router, validate_access_token
 from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
 from aegis.api.live import router as live_router
@@ -44,6 +45,7 @@ from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
+app.include_router(auth_router)
 _api_limiter = RequestRateLimiter()
 _guard = request_guard(_api_limiter, max_bytes=1_048_576)
 _metrics = Metrics()
@@ -51,7 +53,7 @@ _metrics = Metrics()
 #: Paths reachable without the deployment-level API key. Unchanged from the
 #: original inline set — extracted only so the middleware line fits in 100
 #: columns. Do not widen without a deliberate access-control decision.
-_PUBLIC_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc"})
+_PUBLIC_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc", "/api/v1/auth/login"})
 
 _cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 if _cors_origins:
@@ -62,16 +64,20 @@ if _cors_origins:
         # GET/POST cover the original read + ingest surface; PATCH was added
         # for PATCH /api/v1/cases/{id} (case triage). No other verbs are routed.
         allow_methods=["GET", "POST", "PATCH"],
-        allow_headers=["Content-Type", "Accept"],
+        allow_headers=["Content-Type", "Accept", "Authorization", "X-AEGIS-API-Key"],
     )
 
 
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Optional deployment-level API-key gate. Disabled by default for local development."""
-    if settings.enable_api_key_auth and request.url.path not in _PUBLIC_PATHS:
+    if request.url.path not in _PUBLIC_PATHS:
         supplied = request.headers.get("X-AEGIS-API-Key")
-        if not settings.api_key or supplied != settings.api_key:
+        bearer = request.headers.get("Authorization", "")
+        token = bearer.removeprefix("Bearer ").strip() if bearer.startswith("Bearer ") else ""
+        api_ok = bool(settings.enable_api_key_auth and settings.api_key and supplied == settings.api_key)
+        session_ok = bool(token and validate_access_token(token) is not None)
+        if not api_ok and not session_ok:
             return Response(status_code=401, content="authentication required")
     return await call_next(request)
 

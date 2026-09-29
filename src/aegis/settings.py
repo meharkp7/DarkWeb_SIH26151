@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     opensearch_password: str | None = None
     api_key: str | None = None
     enable_api_key_auth: bool = False
+    auth_email: str = "analyst@aegis.intel"
+    auth_password: str = "ChangeMe-AEGIS"
+    auth_secret: str = "dev-only-change-this-secret"
+    auth_session_ttl_s: int = 28800
+    auth_display_name: str = "Mehar Kapoor"
+    auth_role: str = "Senior Intelligence Analyst"
+    auth_organization: str = "AEGIS Intelligence Group"
 
     model_config = SettingsConfigDict(env_prefix="AEGIS_", env_file=".env", extra="ignore")
 
