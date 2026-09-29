@@ -349,6 +349,9 @@
      imported only the shared sheet kept the bug. */
   min-width: 0;
   overflow-x: auto;
+  /* Contains a visually-hidden `<caption>`, which is `position: absolute`
+     and would otherwise resolve against the page rather than this scroller. */
+  position: relative;
   border-top: 1px solid var(--line);
 }
 .data-table {

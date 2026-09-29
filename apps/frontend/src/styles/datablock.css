@@ -66,6 +66,11 @@
 }
 .db--dense .db__body {
   padding: 14px 0 20px;
+  /* A dense block holds a wide register. `.db` clips its overflow, so
+     without this the table's own scroll container never engaged and five of
+     ten columns were simply unreachable. */
+  overflow-x: auto;
+  min-width: 0;
 }
 
 /* A block that labels a region already framed by the page — a tile row, a

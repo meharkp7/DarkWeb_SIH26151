@@ -182,6 +182,10 @@ describe('CaseExportMenu', () => {
   });
 
   it('does not fire a second download while one is in flight', async () => {
+    // The in-flight guard is a ref, not the `disabled` attribute: a disabled
+    // button is removed from the tab order and the browser drops focus to
+    // <body>, which stranded the analyst outside the popover on failure.
+    // Asserting the attribute would therefore have locked in the focus bug.
     const user = userEvent.setup();
     // A promise the test resolves by hand, so the export stays in flight long
     // enough for the second click to land while the button is disabled.
@@ -204,15 +208,24 @@ describe('CaseExportMenu', () => {
     const action = screen.getByRole('button', { name: 'Export report' });
     await user.click(action);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Preparing…' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Preparing…' })).toHaveAttribute(
+        'aria-disabled',
+        'true',
+      );
     });
 
     const exportCalls = () =>
       fetchMock.mock.calls.filter((call) => String(call[0]).includes('/reports/export')).length;
     expect(exportCalls()).toBe(1);
 
-    // A second click on the now-disabled control must not queue a second
-    // download: two identical files in the downloads folder is a real bug.
+    // A second click must not queue a second download: two identical files in
+    // the downloads folder is a real bug.
+    //
+    // The guard is a ref rather than the `disabled` attribute. A disabled
+    // button is dropped from the tab order and the browser moves focus to
+    // <body> without restoring it, which on a failed export stranded the
+    // analyst outside the popover that was still open showing the error.
+    // Asserting `toBeDisabled()` here would have locked that in.
     await user.click(screen.getByRole('button', { name: 'Preparing…' }));
     expect(exportCalls()).toBe(1);
 

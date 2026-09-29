@@ -293,8 +293,17 @@ export function CaseExportMenu({ caseId }: CaseExportMenuProps) {
           <button
             type="button"
             className="exp-action"
-            onClick={() => void runExport()}
-            disabled={busy}
+            onClick={() => {
+              if (!busyRef.current) void runExport();
+            }}
+            // `aria-disabled` rather than `disabled`. A disabled button is
+            // removed from the tab order and the browser drops focus to
+            // <body> without restoring it — so a failed export left the
+            // analyst outside the popover that was still open and showing the
+            // error, and the next Tab escaped through the skip link. The
+            // guard against a double submit lives in a ref instead.
+            aria-disabled={busy}
+            aria-busy={busy}
           >
             {busy ? 'Preparing…' : 'Export report'}
           </button>

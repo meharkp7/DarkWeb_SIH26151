@@ -265,9 +265,15 @@ function ShiftTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <ShiftRows
-              key={row.change_id}
+              // `change_id` alone is not unique: the detector numbers change
+              // points per stream, so two streams that each produce their
+              // first change point both return `cp-activity-0001`, and React
+              // duplicates or drops the rows. Keyed on the subject and the
+              // instant as well, with the index as a last resort;
+              // `change_id` still drives expansion on its own.
+              key={`${row.change_id}:${row.subject_id}:${row.changed_at}:${index}`}
               row={row}
               expanded={open === row.change_id}
               onToggle={onToggle}
