@@ -3,7 +3,7 @@ import type {
   AuditTrailResponse, CaseCreate, CaseGraph, CaseHypothesis, CaseMetrics,
   CaseNote, CaseNoteCreate, CaseQueueEntry, CaseTimeline, CaseUpdate, CaseWorkspace, CommandPosture,
   CopilotResponse, CreatedSource, DashboardSnapshot, Evidence, EvidenceCreate, EvidenceProvenance,
-  HealthResponse, InvestigationCase, LiveActivity, ModelRegistryResponse,
+  HealthResponse, InvestigationCase, LiveActivity, ModelRegistryResponse, SearchResponse,
   SignalBand, SourceCreate, SyntheticAnalysisRequest, SystemHealth, TeamResponse,
 } from './types';
 
@@ -190,6 +190,15 @@ export const api = {
     }
     const suffix = query.toString() ? `?${query}` : '';
     return getJson<CaseGraph>(apiUrl(`/v1/cases/${encodeURIComponent(id)}/graph${suffix}`), signal);
+  },
+  /**
+   * Cross-case search. Debounce the caller's side; this has no cache and the
+   * backend applies a minimum term length rather than scanning for a
+   * one-character prefix.
+   */
+  search: (q: string, signal?:AbortSignal) => {
+    const query = new URLSearchParams({ q });
+    return getJson<SearchResponse>(apiUrl(`/v1/search?${query}`), signal);
   },
   team: (signal?:AbortSignal) => getJson<TeamResponse>(apiUrl('/v1/admin/team'),signal),
   auditTrail: (params?:{limit?:number;offset?:number;action?:string;case_id?:string},signal?:AbortSignal) => {

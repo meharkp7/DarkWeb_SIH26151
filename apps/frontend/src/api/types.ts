@@ -470,3 +470,35 @@ export interface ModelRegistryResponse {
   readonly runs: readonly ModelRunSummary[];
   readonly total: number;
 }
+
+// ---------------------------------------------------------------------------
+// Global search
+// ---------------------------------------------------------------------------
+
+export type SearchKind =
+  | 'case'
+  | 'entity'
+  | 'evidence'
+  | 'hypothesis'
+  | 'source'
+  | 'relationship';
+
+export interface SearchHit {
+  readonly kind: SearchKind;
+  readonly id: UUID;
+  readonly label: string;
+  readonly detail: string | null;
+  /** Present on everything case-scoped, so a hit is actionable without a second lookup. */
+  readonly case_id: UUID | null;
+  readonly case_name: string | null;
+  readonly occurred_at: string | null;
+  readonly score: number | null;
+}
+
+export interface SearchResponse {
+  readonly query: string;
+  readonly hits: readonly SearchHit[];
+  /** Per-kind totals, not just what was returned. */
+  readonly counts: Readonly<Partial<Record<SearchKind, number>>>;
+  readonly truncated: Readonly<Partial<Record<SearchKind, boolean>>>;
+}

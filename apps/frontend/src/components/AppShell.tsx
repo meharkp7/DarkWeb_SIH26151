@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { AgentButton } from './AgentButton';
 import { CommandPalette, openCommandPalette } from './CommandPalette';
 import { ErrorBoundary } from './ErrorBoundary';
+import { GlobalSearch } from './GlobalSearch';
 import { usePublishAgentContext } from './agent-context';
 import { useLive } from '../hooks/useLive';
 import { useAuth } from '../store/auth';
@@ -179,15 +180,13 @@ export function AppShell() {
           <span>{section}</span>
         </div>
         <div className="top-actions">
-          <button
-            type="button"
-            className="search-pill"
-            onClick={openPalette}
-            aria-label="Open command palette — navigate, search investigations and run actions"
-            aria-haspopup="dialog"
-          >
-            <span aria-hidden="true">⌕</span> Search cases, actors, evidence <kbd>⌘ K</kbd>
-          </button>
+          {/* The search box is a real, always-visible control rather than a
+              button that opens something else. A shortcut-only search is
+              invisible search: an analyst who does not know the binding has
+              no way to discover it exists, and "where have I seen this
+              handle" is not a question anyone thinks of as needing a case
+              already open. */}
+          <GlobalSearch />
           <button
             type="button"
             className="profile profile-button"
