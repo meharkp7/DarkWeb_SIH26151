@@ -10,8 +10,10 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
+from aegis.api.admin import router as admin_router
 from aegis.api.analysis import run_synthetic_analysis
-from aegis.api.auth import router as auth_router, validate_access_token
+from aegis.api.auth import router as auth_router
+from aegis.api.auth import validate_access_token
 from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
 from aegis.api.live import router as live_router
@@ -23,7 +25,7 @@ from aegis.db.models import CaseRecord
 from aegis.db.session import engine
 from aegis.evidence.search_index import EvidenceSearchIndexer
 from aegis.evidence.service import EvidenceService
-from aegis.observability import Metrics
+from aegis.observability import registry as _metrics
 from aegis.schemas.analysis import (
     SyntheticAnalysisRequest,
     SyntheticAnalysisResponse,
@@ -44,23 +46,24 @@ from aegis.schemas.evidence import (
 from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
 
-app = FastAPI(title=settings.app_name, version="0.2.0")
+app = FastAPI(title=settings.app_name, version="0.3.0")
 app.include_router(auth_router)
 _api_limiter = RequestRateLimiter()
 _guard = request_guard(_api_limiter, max_bytes=1_048_576)
-_metrics = Metrics()
 
 #: Paths reachable without the deployment-level API key. Unchanged from the
 #: original inline set — extracted only so the middleware line fits in 100
 #: columns. Do not widen without a deliberate access-control decision.
-_PUBLIC_PATHS = frozenset({
-    "/health",
-    "/health/db",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
-    "/api/v1/auth/login",
-})
+_PUBLIC_PATHS = frozenset(
+    {
+        "/health",
+        "/health/db",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/api/v1/auth/login",
+    }
+)
 
 _cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 if _cors_origins:
@@ -82,7 +85,9 @@ async def api_key_auth(request: Request, call_next: RequestResponseEndpoint) -> 
         supplied = request.headers.get("X-AEGIS-API-Key")
         bearer = request.headers.get("Authorization", "")
         token = bearer.removeprefix("Bearer ").strip() if bearer.startswith("Bearer ") else ""
-        api_ok = bool(settings.enable_api_key_auth and settings.api_key and supplied == settings.api_key)
+        api_ok = bool(
+            settings.enable_api_key_auth and settings.api_key and supplied == settings.api_key
+        )
         session_ok = bool(token and validate_access_token(token) is not None)
         if not api_ok and not session_ok:
             return Response(status_code=401, content="authentication required")
@@ -377,3 +382,4 @@ app.include_router(copilot_router)
 app.include_router(reports_router)
 app.include_router(live_router)
 app.include_router(workspace_router)
+app.include_router(admin_router)

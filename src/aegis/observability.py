@@ -100,6 +100,13 @@ def calibration_drift(reference: list[float], current: list[float]) -> float:
 
 
 def false_association_rate(false_associations: int, total_associations: int) -> float:
+    """Compute the share of associations that are false."""
     if false_associations < 0 or total_associations < 0 or false_associations > total_associations:
         raise ValueError("invalid association counts")
     return false_associations / total_associations if total_associations else 0.0
+
+
+#: Process-wide registry. The API records into this instance so ``/metrics``
+#: and the Administration → System view report the same numbers rather than
+#: two registries that quietly disagree.
+registry = Metrics()

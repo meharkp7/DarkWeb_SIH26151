@@ -6,11 +6,16 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import String, func, select
 from sqlalchemy.orm import Session
 
 from aegis.api.case_triage import case_is_overdue
-from aegis.api.dashboard_analytics import case_signal_matrix, case_timeline_layers
+from aegis.api.dashboard_analytics import (
+    case_graph,
+    case_hypotheses,
+    case_signal_matrix,
+    case_timeline_layers,
+)
 from aegis.api.deps import get_db
 from aegis.db.audit import AuditService
 from aegis.db.models import (
@@ -20,8 +25,14 @@ from aegis.db.models import (
     CaseRecord,
     EntityRecord,
     EvidenceRecord,
-    HypothesisRecord,
     RelationshipRecord,
+)
+from aegis.schemas.analytics import (
+    CaseGraph,
+    CaseHypothesis,
+    CaseMetrics,
+    CaseTimeline,
+    SignalBand,
 )
 from aegis.schemas.evidence import CaseNote, CaseNoteCreate
 from aegis.schemas.workspace import WorkspaceResponse
@@ -159,62 +170,18 @@ def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[st
     }
 
 
-@router.get("/{case_id}/hypotheses")
-def hypotheses(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> list[dict[str, object]]:
-    """Case-scoped hypotheses.
+@router.get("/{case_id}/hypotheses", response_model=list[CaseHypothesis])
+def hypotheses(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> list[CaseHypothesis]:
+    """Case-scoped hypotheses with the evidence behind each confidence figure.
 
     Reads the canonical ``hypotheses`` table, which carries a ``case_id``
     foreign key. The legacy ``attribution_hypotheses`` table has no
-    ``case_id`` column at all, so querying it here returned every
+    ``case_id`` column at all, so querying it here used to return every
     hypothesis in the database to every case's workspace regardless of the
     path parameter — a cross-case disclosure.
     """
     _case_or_404(db, case_id)
-    rows = db.execute(
-        select(
-            HypothesisRecord,
-            AssessmentRecord.calibrated_confidence,
-            AssessmentRecord.raw_score,
-        )
-        .outerjoin(
-            AssessmentRecord,
-            AssessmentRecord.hypothesis_id == HypothesisRecord.hypothesis_id,
-        )
-        .where(HypothesisRecord.case_id == case_id)
-        .order_by(
-            HypothesisRecord.created_at.desc(),
-            AssessmentRecord.created_at.desc(),
-        )
-    ).all()
-
-    seen: set[UUID] = set()
-    result: list[dict[str, object]] = []
-    for hypothesis, calibrated, raw in rows:
-        # A hypothesis may carry several assessments (one per model run);
-        # surface the hypothesis once, keeping the most recent run.
-        if hypothesis.hypothesis_id in seen:
-            continue
-        seen.add(hypothesis.hypothesis_id)
-        result.append(
-            {
-                "hypothesis_id": str(hypothesis.hypothesis_id),
-                "kind": hypothesis.kind,
-                "status": hypothesis.status,
-                "subject_entity_id": str(hypothesis.subject_entity_id),
-                "object_entity_id": str(hypothesis.object_entity_id),
-                "missing_evidence": list(hypothesis.missing_evidence or []),
-                "analyst_disposition": hypothesis.analyst_disposition,
-                "calibrated_confidence": calibrated,
-                "raw_score": raw,
-                "created_at": (
-                    hypothesis.created_at.isoformat() if hypothesis.created_at else None
-                ),
-                "updated_at": (
-                    hypothesis.updated_at.isoformat() if hypothesis.updated_at else None
-                ),
-            }
-        )
-    return result
+    return case_hypotheses(db, case_id)
 
 
 @router.get("/{case_id}/notes", response_model=list[CaseNote])
@@ -268,24 +235,37 @@ def create_case_note(
     return _note_schema(record)
 
 
-@router.get("/{case_id}/signals")
-def case_signals(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> list[dict[str, object]]:
+@router.get("/{case_id}/signals", response_model=list[SignalBand])
+def case_signals(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> list[SignalBand]:
+    """Per-modality support, contradiction and freshness for one case."""
     _case_or_404(db, case_id)
     return case_signal_matrix(db, case_id)
 
 
-@router.get("/{case_id}/timeline")
+@router.get("/{case_id}/timeline", response_model=CaseTimeline)
 def case_timeline(
     case_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=200)] = 80,
-) -> dict[str, object]:
+) -> CaseTimeline:
+    """Three-lane timeline: what happened, who did it, and what it touched."""
     _case_or_404(db, case_id)
-    return case_timeline_layers(db, case_id, limit=limit)
+    return CaseTimeline(
+        case_id=case_id,
+        events=case_timeline_layers(db, case_id, limit=limit),
+        layers=["event", "actor", "infrastructure", "financial"],
+    )
 
 
-@router.get("/{case_id}/metrics")
-def case_metrics(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
+@router.get("/{case_id}/metrics", response_model=CaseMetrics)
+def case_metrics(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> CaseMetrics:
+    """The six numbers the workspace header shows.
+
+    ``attribution`` is the *highest* calibrated confidence in the case, not
+    whichever assessment the query planner returned first — the previous
+    implementation read ``assessments[0]`` off an unordered SELECT, so the
+    headline figure was effectively arbitrary.
+    """
     case = _case_or_404(db, case_id)
     evidence = db.scalars(select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)).all()
     entities = db.scalars(select(EntityRecord).where(EntityRecord.case_id == case_id)).all()
@@ -295,16 +275,22 @@ def case_metrics(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict
     assessments = db.scalars(
         select(AssessmentRecord).where(AssessmentRecord.case_id == case_id)
     ).all()
-    lead = assessments[0] if assessments else None
-    return {
-        "case_id": str(case.case_id),
-        "evidence": len(evidence),
-        "links": len(relationships),
-        "entities": len(entities),
-        "sources": len({row.source_id for row in evidence}),
-        "attribution": lead.calibrated_confidence if lead else None,
-        "contradictions": sum(len(row.contradictory_evidence_ids or []) for row in assessments),
-    }
+    confidences = [
+        row.calibrated_confidence for row in assessments if row.calibrated_confidence is not None
+    ]
+    return CaseMetrics(
+        case_id=case.case_id,
+        evidence=len(evidence),
+        links=len(relationships),
+        entities=len(entities),
+        sources=len({row.source_id for row in evidence}),
+        attribution=round(max(confidences), 4) if confidences else None,
+        contradictions=sum(len(row.contradictory_evidence_ids or []) for row in assessments),
+        hypotheses=len({row.hypothesis_id for row in assessments}),
+        # Independence groups, not source ids: three feeds copying one press
+        # release are one source wearing three hats.
+        independent_sources=len({row.independence_group for row in evidence}),
+    )
 
 
 @router.get("/{case_id}/evidence")
@@ -312,14 +298,34 @@ def case_evidence(
     case_id: UUID,
     db: Annotated[Session, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+    source_type: str | None = None,
+    entity_type: str | None = None,
+    independence_group: str | None = None,
+    search: str | None = None,
 ) -> list[dict[str, object]]:
+    """The evidence ledger for a case, newest first, with server-side filters.
+
+    Filtering happens here rather than in the browser because a 5,000-row
+    ledger is not something to ship over the wire and filter in memory, and
+    because the row count the filter returns is part of what the analyst is
+    reading.
+    """
     _case_or_404(db, case_id)
-    rows = db.scalars(
-        select(EvidenceRecord)
-        .where(EvidenceRecord.case_id == case_id)
-        .order_by(EvidenceRecord.collected_at.desc())
-        .limit(limit)
-    ).all()
+    query = select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)
+    if source_type:
+        query = query.where(EvidenceRecord.source_type == source_type)
+    if entity_type:
+        query = query.where(EvidenceRecord.entity_type == entity_type)
+    if independence_group:
+        query = query.where(EvidenceRecord.independence_group == independence_group)
+    if search:
+        # Matched against the JSONB metadata blob rather than a dedicated
+        # search index: the ledger filter is a refinement of an
+        # already-scoped case, and OpenSearch is a non-authoritative adapter
+        # that may not be deployed.
+        pattern = f"%{search.strip().lower()}%"
+        query = query.where(func.lower(EvidenceRecord.metadata_json.cast(String)).like(pattern))
+    rows = db.scalars(query.order_by(EvidenceRecord.collected_at.desc()).limit(limit)).all()
     return [
         {
             "evidence_id": str(row.evidence_id),
@@ -335,3 +341,34 @@ def case_evidence(
         }
         for row in rows
     ]
+
+
+@router.get("/{case_id}/graph", response_model=CaseGraph)
+def case_network(
+    case_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    edge_type: Annotated[list[str] | None, Query()] = None,
+    node_type: Annotated[list[str] | None, Query()] = None,
+) -> CaseGraph:
+    """Nodes and edges for the case network, with per-node aggregates.
+
+    The graph is assembled server-side so the network view is one request,
+    and so the node inspector can always describe the node it is showing:
+    degree, evidence count and observation window are resolved here rather
+    than being absent from the payload and reconstructed in the browser.
+    """
+    _case_or_404(db, case_id)
+    graph = case_graph(db, case_id, edge_types=tuple(edge_type) if edge_type else None)
+    if not node_type:
+        return graph
+    allowed = set(node_type)
+    # Filtering nodes implies filtering edges: an edge whose endpoint is
+    # hidden must not be drawn, or the network shows lines into nothing.
+    kept = {node.entity_id for node in graph.nodes if node.type in allowed}
+    return CaseGraph(
+        case_id=graph.case_id,
+        nodes=[node for node in graph.nodes if node.entity_id in kept],
+        edges=[edge for edge in graph.edges if edge.source in kept and edge.target in kept],
+        edge_types=graph.edge_types,
+        node_types=graph.node_types,
+    )
