@@ -18,6 +18,7 @@ from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
 from aegis.api.live import router as live_router
 from aegis.api.reports import router as reports_router
+from aegis.api.search import router as search_router
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
 from aegis.api.workspace import router as workspace_router
 from aegis.db.audit import AuditService
@@ -383,3 +384,4 @@ app.include_router(reports_router)
 app.include_router(live_router)
 app.include_router(workspace_router)
 app.include_router(admin_router)
+app.include_router(search_router)
