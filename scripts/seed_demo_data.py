@@ -1495,7 +1495,13 @@ def seed_evidence(
         else:
             age_days = rng.randint(0, 204)
         observed = now - timedelta(days=age_days, hours=rng.randint(0, 23))
-        collected = observed + timedelta(minutes=rng.randint(2, 360))
+        # Collection follows observation, but never past *now*: with
+        # `age_days == 0` the observation lands on the current instant and the
+        # collection offset pushed it up to six hours into the future.
+        collected = min(
+            observed + timedelta(minutes=rng.randint(2, 360)),
+            now,
+        )
         content_hash = digest(case_id, index, target.surface_form)
         artifacts.append(
             ArtifactRecord(
@@ -1512,8 +1518,8 @@ def seed_evidence(
                 case_id=case_id,
                 source_id=source.source_id,
                 source_type=source.source_type,
-                observed_at=observed,
-                collected_at=collected,
+                observed_at=min(observed, now),
+                collected_at=min(collected, now),
                 entity_type=target.entity_type,
                 entity_value_hash=digest("entity", target.normalized_form)[:64],
                 context_hash=digest("context", case_id, index)[:64],
@@ -2217,8 +2223,14 @@ def _infra_subject_plan(
         observed = now - timedelta(days=rng.randint(150, 260), hours=rng.randint(0, 23))
         window_end = observed + timedelta(days=rng.randint(4, 12))
     else:
-        observed = now - timedelta(days=rng.randint(1, 34), hours=rng.randint(0, 23))
+        # The window is clamped to the observation's own age. Drawn
+        # independently it could end 29 days ahead — evidence dated in the
+        # future, which no collection can produce and which makes a temporal
+        # chart show a bucket for a day that has not happened.
+        age_days = rng.randint(1, 34)
+        observed = now - timedelta(days=age_days, hours=rng.randint(0, 23))
         window_end = observed + timedelta(days=rng.randint(8, 30))
+    window_end = min(window_end, now)
 
     fingerprint = digest("cert", label)
     spki = digest("spki", label)
@@ -2261,6 +2273,12 @@ def _infra_subject_plan(
         else INFRA_CUSTOM_BANNERS[index % len(INFRA_CUSTOM_BANNERS)]
     )
 
+    # The single place a plan's window becomes real. Producers upstream may
+    # draw a window wider than the observation is old; a row dated after
+    # `now` is evidence that cannot have been collected, and it makes a
+    # temporal chart show a bucket for a day that has not happened.
+    observed = min(observed, now)
+    window_end = min(max(window_end, observed), now)
     return PlannedInfraObservation(
         key=str(sid(f"infra-observation:{label}")),
         subject=subject,
@@ -2604,7 +2622,12 @@ def seed_infrastructure(
         # deciding whether these pairs correlate — which is a statement about
         # the seeder's dice rather than about the infrastructure.
         onion.observed = clearnet.observed
-        onion.window_end = clearnet.window_end
+        # The clamp the plan applied is re-applied here. This assignment
+        # happens *after* `_infra_subject_plan` returned, so it bypasses it —
+        # and a mirror window copied from a fresh clearnet observation can
+        # still end in the future, which is the one row of evidence that was
+        # dated 29 September-plus while "now" was the 29th.
+        onion.window_end = min(clearnet.window_end, now)
         _infra_link(onion, clearnet, mode)
 
     # Repeat observations of two subjects, with different TLS metadata.
@@ -2616,8 +2639,13 @@ def seed_infrastructure(
             network=original.network,
             case=original.case,
             source=sources[(len(sources) - 1 - position) % len(sources)],
-            observed=original.observed + timedelta(days=2, hours=3),
-            window_end=original.window_end + timedelta(hours=6),
+            # Clamped, unlike the other three producers. The drift repeat is
+            # built by offsetting another plan's window forward, so a recent
+            # original pushes it past `now` — and `PlannedInfraObservation` is
+            # constructed directly here rather than through the helper that
+            # clamps, which is exactly why it needs its own.
+            observed=min(original.observed + timedelta(days=2, hours=3), now),
+            window_end=min(original.window_end + timedelta(hours=6), now),
             tls={**original.tls, "ja3": digest("ja3-drift", original.key)[:32]},
             http=dict(original.http),
             certificate=dict(original.certificate),
@@ -2639,8 +2667,15 @@ def seed_infrastructure(
                 case_id=plan.case.case_id,
                 source_id=plan.source.source_id,
                 source_type=plan.source.source_type,
-                observed_at=plan.observed,
-                collected_at=plan.window_end,
+                # Clamped at construction rather than only in the producer.
+                # Four separate paths could date a row in the future,
+                # including the mirror pairing that reassigns one plan's
+                # window from another *after* the producer has already
+                # clamped its own — and a temporal chart that shows a bucket
+                # for a day that has not happened is worse than a slightly
+                # narrower observation window.
+                observed_at=min(plan.observed, now),
+                collected_at=min(plan.window_end, now),
                 entity_type="infrastructure",
                 entity_value_hash=digest("infra-entity", plan.subject)[:64],
                 context_hash=digest("infra-context", plan.key)[:64],
