@@ -22,7 +22,6 @@ const NAV = [
   { to: '/', label: 'Command Center', icon: '⌂', end: true },
   { to: '/cases', label: 'Investigations', icon: '◎', end: false },
   { to: '/threat-watch', label: 'Threat Watch', icon: '◉', end: false },
-  { to: '/reports', label: 'Reports', icon: '⎙', end: false },
 ];
 
 const SYSTEM_NAV = [{ to: '/admin', label: 'Administration', icon: '⚙', end: false }];
@@ -32,6 +31,10 @@ const SECTION_LABELS: Record<string, string> = {
   cases: 'Investigations',
   'threat-watch': 'Threat Watch',
   watch: 'Threat Watch',
+  // `/reports` is a redirect, not a destination: exporting an investigation is
+  // an action taken on a case, so it lives in the workspace header. The label
+  // remains so a bookmarked or in-flight URL still reads correctly in the
+  // breadcrumb while it bounces.
   reports: 'Reports',
   admin: 'Administration',
   settings: 'Administration',

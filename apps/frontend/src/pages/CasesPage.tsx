@@ -11,6 +11,7 @@ import type {
   PriorityReason,
   SlaState,
 } from '../api/types';
+import { RegisterExportButton } from '../components/RegisterExportButton';
 import { useApi } from '../hooks/useApi';
 import { formatDateTime, shortId } from '../lib/format';
 import { Badge } from '../components/Badge';
@@ -723,6 +724,10 @@ export function CasesPage() {
           </p>
         </div>
         <div className="inv-page__actions">
+          {/* Export sits with the register it exports, not on a page of its
+              own. Selecting a case is a click away and the menu carries the
+              selection. */}
+          <RegisterExportButton />
           <button className="button button--dark" onClick={() => setCreating(true)}>
             + New investigation
           </button>

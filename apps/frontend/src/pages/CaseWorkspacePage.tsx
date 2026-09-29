@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { api, apiUrl, authHeaders, formatApiError } from '../api/client';
+import { api, apiUrl, formatApiError } from '../api/client';
 import type {
   CaseHypothesis,
   CaseMetrics,
@@ -19,9 +19,11 @@ import { useLive } from '../hooks/useLive';
 import { formatDateTime, formatPercent, shortId } from '../lib/format';
 import { Badge } from '../components/Badge';
 import type { Tone } from '../components/Badge';
+import { CaseExportMenu } from '../components/CaseExportMenu';
 import { EvidenceDrawer } from '../components/EvidenceDrawer';
 import { EvidenceForm } from '../components/EvidenceForm';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { ReportPreview } from '../components/ReportPreview';
 import { usePublishAgentContext } from '../components/agent-context';
 import type { WorkspaceView } from '../components/agent-context';
 import { AssessmentPanel } from '../components/workspace/AssessmentPanel';
@@ -95,18 +97,6 @@ const SLA_TEXT: Record<SlaState, string> = {
   ok: 'SLA on track',
   none: 'no SLA deadline',
 };
-
-async function downloadReport(url: string, filename: string): Promise<void> {
-  const response = await fetch(url, { headers: authHeaders() });
-  if (!response.ok) throw new Error(`Export failed (${response.status})`);
-  const blob = await response.blob();
-  const href = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = href;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(href);
-}
 
 function isWorkspaceView(value: string | null): value is WorkspaceView {
   return value !== null && TABS.some((tab) => tab.id === value);
@@ -287,9 +277,9 @@ export function CaseWorkspacePage() {
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [notes, setNotes] = useState<Array<{ note_id: string; body: string; created_at: string | null }>>([]);
-  const [exportError, setExportError] = useState<string | null>(null);
   const [assignBusy, setAssignBusy] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const setTab = useCallback(
@@ -395,16 +385,6 @@ export function CaseWorkspacePage() {
     }
   };
 
-  const runExport = async (format: 'json' | 'csv' | 'stix' | 'pdf') => {
-    setExportError(null);
-    const name = `${record.name.replace(/\W+/g, '-').toLowerCase() || 'investigation'}.${format}`;
-    try {
-      await downloadReport(api.reportExportUrl(caseId, format), name);
-    } catch (err: unknown) {
-      setExportError(err instanceof Error ? err.message : 'Export failed.');
-    }
-  };
-
   const openEvidenceFromTab = (evidenceId: string) => {
     setOpenEvidence(evidenceId);
   };
@@ -458,17 +438,7 @@ export function CaseWorkspacePage() {
         </div>
 
         <div className="inv-ws__actions">
-          <details className="inv-menu">
-            <summary className="btn btn--ghost">Export ▾</summary>
-            <div className="inv-menu__list">
-              {(['json', 'csv', 'stix', 'pdf'] as const).map((format) => (
-                <button key={format} type="button" onClick={() => void runExport(format)}>
-                  {`Export ${format.toUpperCase()}`}
-                  <small>GET /reports/export?format={format}</small>
-                </button>
-              ))}
-            </div>
-          </details>
+          <CaseExportMenu caseId={caseId} />
 
           <label className="sr-only" htmlFor="inv-assign">
             Assign an owner
@@ -493,10 +463,13 @@ export function CaseWorkspacePage() {
           <details className="inv-menu">
             <summary className="btn btn--ghost">More ▾</summary>
             <div className="inv-menu__list">
-              <a href={api.reportPreviewUrl(caseId)} target="_blank" rel="noreferrer noopener">
-                Open report preview
-                <small>GET /reports/preview</small>
-              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+              >
+                Report preview
+                <small>rendered report, inspects in place</small>
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -524,7 +497,6 @@ export function CaseWorkspacePage() {
       </header>
 
       {assignError !== null && <ErrorState message={assignError} />}
-      {exportError !== null && <p className="status status--error">{exportError}</p>}
 
       <div className="inv-tabs" role="tablist" aria-label="Investigation views">
         {TABS.map((item, index) => (
@@ -767,6 +739,10 @@ export function CaseWorkspacePage() {
           </div>
         )}
       </section>
+
+      {previewOpen && (
+        <ReportPreview caseId={caseId} onClose={() => setPreviewOpen(false)} />
+      )}
 
       {openEvidence !== null && (
         <EvidenceDrawer

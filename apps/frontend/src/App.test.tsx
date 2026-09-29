@@ -8,15 +8,17 @@ import { AuthProvider } from './store/auth';
 import { installFetch, jsonResponse } from './test/mockFetch';
 
 /**
- * The route table encodes the five-space information architecture:
+ * The route table encodes the information architecture:
  *
- *   Command Center · Investigations · Investigation Workspace · Reports ·
+ *   Command Center · Investigations · Investigation Workspace ·
  *   Threat Watch · Administration
  *
  * The former global analysis surfaces are not pages any more — they redirect
- * into the case index. Both halves are pinned here, because the failure mode
- * this guards against is the sidebar quietly growing back to ten entries and
- * the same data being sliced a second time.
+ * into the case index. `/reports` went the same way: export is an action on a
+ * case, not a destination, so it is an inline popover in the workspace and
+ * register headers and the preview is a drawer. Both halves are pinned here,
+ * because the failure mode this guards against is the sidebar quietly growing
+ * back to ten entries and the same data being sliced a second time.
  */
 
 const WORKSPACE: CaseWorkspace = {
@@ -161,14 +163,15 @@ function installRouteFetch(): void {
 const PRIMARY_ROUTES: ReadonlyArray<readonly [path: string, heading: string | RegExp]> = [
   ['/cases', /Investigations|Cases/],
   ['/cases/case-123', 'Alpha Breach'],
-  ['/reports', /Reports/i],
   ['/admin', /Administration|Team|Audit|System/],
 ];
 
 /**
- * Retired global analysis surfaces. Each is reachable only as a case view, so
- * the old standalone URL has to land on the case index rather than 404 — an
- * analyst with a bookmark should still end up somewhere useful.
+ * Retired destinations. Each is reachable only as a case view or an inline
+ * control, so the old standalone URL has to land on the case index rather than
+ * 404 — an analyst with a bookmark should still end up somewhere useful.
+ * `/reports` joins them because export moved into the headers, not because it
+ * ever needed a case to mean anything.
  */
 const RETIRED_ROUTES = [
   '/graph',
@@ -178,6 +181,7 @@ const RETIRED_ROUTES = [
   '/hypotheses',
   '/sources',
   '/actors/actor-7f6d',
+  '/reports',
 ] as const;
 
 describe('App route table', () => {
@@ -247,11 +251,13 @@ describe('primary navigation', () => {
     const nav = await screen.findByRole('navigation', { name: 'Primary' });
     const labels = Array.from(nav.querySelectorAll('.nav-item')).map((el) => el.textContent?.trim());
 
+    // Reports is deliberately absent: exporting an investigation is an action
+    // taken on a case, so it lives in the workspace header rather than
+    // occupying a destination of its own.
     expect(labels).toEqual([
       '⌂Command Center',
       '◎Investigations',
       '◉Threat Watch',
-      '⎙Reports',
       '⚙Administration',
     ]);
   });

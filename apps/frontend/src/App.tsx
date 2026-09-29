@@ -6,7 +6,6 @@ import { CasesPage } from './pages/CasesPage';
 import { CommandCenterPage } from './pages/CommandCenterPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { ReportsPage } from './pages/ReportsPage';
 import { ThreatWatchPage } from './pages/ThreatWatchPage';
 import { useAuth } from './store/auth';
 
@@ -58,7 +57,6 @@ function SessionGate() {
         <Route index element={<CommandCenterPage />} />
         <Route path="cases" element={<CasesPage />} />
         <Route path="cases/:caseId" element={<CaseWorkspacePage />} />
-        <Route path="reports" element={<ReportsPage />} />
         <Route path="threat-watch" element={<ThreatWatchPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="watch" element={<Navigate to="/threat-watch" replace />} />
@@ -73,6 +71,16 @@ function SessionGate() {
           />
         ))}
         <Route path="settings" element={<Navigate to="/admin" replace />} />
+        {/*
+          `/reports` is retired for a different reason than the case-scoped
+          screens above. Those were views *of* an investigation and needed one
+          to mean anything. Reports was a standalone page for what is,
+          functionally, a format choice and a download on a case — so export
+          became a popover in the workspace and register headers, and the
+          preview became a drawer. Old bookmarks land on the register, where the
+          export control now lives.
+        */}
+        <Route path="reports/*" element={<Navigate to="/cases" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
