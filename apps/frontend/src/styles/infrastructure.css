@@ -1,0 +1,883 @@
+/* ==========================================================================
+   Tor hidden-service infrastructure
+   --------------------------------------------------------------------------
+   Owned by the infrastructure surface. Everything here is namespaced `inf-`
+   so it can sit beside `components.css` without collisions. Colour comes from
+   the tokens in `tokens.css`; there are no new colour literals, only the
+   translucent tints derived from those tokens.
+
+   The governing rule of this file: nothing that carries meaning may be
+   carried by colour alone. Severity is a word before it is a hue, a
+   decisive channel is named before it is a filled bar, an unobserved channel
+   is labelled rather than drawn at zero, and the limitations are set at the
+   same weight as the detection they qualify.
+   ========================================================================== */
+
+.inf-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 28px 64px;
+  max-width: 1680px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
+.inf-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inf-page__title {
+  margin: 6px 0 0;
+  font-size: 30px;
+  font-weight: 620;
+  letter-spacing: -0.045em;
+  color: var(--text);
+}
+
+.inf-page__sub {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.65;
+  max-width: 700px;
+}
+
+.inf-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Tabs
+   -------------------------------------------------------------------------- */
+
+.inf-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.inf-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 9px 14px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inf-tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.inf-tab[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.inf-tab__count {
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.inf-tab[aria-selected='true'] .inf-tab__count {
+  color: var(--text);
+  border-color: var(--line);
+}
+
+/* --------------------------------------------------------------------------
+   Filters and the global timeline
+   -------------------------------------------------------------------------- */
+
+.inf-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 14px;
+}
+
+.inf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inf-field__label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.inf-filters select,
+.inf-filters input {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  min-height: 30px;
+}
+
+.inf-filters input[type='search'] {
+  min-width: 260px;
+}
+
+.inf-filters select {
+  min-width: 150px;
+}
+
+/*
+ * The timeline is persistent chrome rather than a per-tab control: the
+ * problem statement requires querying across a chosen window on all three
+ * tabs, and a control that disappears per tab is a control that gets
+ * forgotten.
+ */
+.inf-timeline {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.inf-timeline__label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 700;
+  align-self: center;
+  padding-bottom: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   Buttons
+   -------------------------------------------------------------------------- */
+
+.inf-btn {
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  min-height: 30px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inf-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--muted);
+}
+
+.inf-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.inf-btn--primary:hover {
+  filter: brightness(1.08);
+}
+
+.inf-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Table shell
+   -------------------------------------------------------------------------- */
+
+.inf-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.inf-table {
+  width: 100%;
+  /* Subject, kind, severity, confidence, limitations and case is more than a
+     laptop viewport gives beside the sidebar. A floor keeps every column
+     legible and moves the overflow into a scroll rather than clipping the
+     case link off the right edge. */
+  min-width: 1020px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.inf-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  text-align: left;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.inf-table thead th[aria-sort] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.inf-table thead th[aria-sort]:hover {
+  color: var(--text);
+}
+
+.inf-sort {
+  margin-left: 5px;
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.inf-table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+
+.inf-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.inf-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.inf-table tbody tr[data-selected='true'] {
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.inf-cell--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.inf-mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.inf-muted {
+  color: var(--muted);
+}
+
+.inf-nowrap {
+  white-space: nowrap;
+}
+
+.inf-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Severity — a word first, a hue second
+   -------------------------------------------------------------------------- */
+
+.inf-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+}
+
+.inf-sev::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.inf-sev--critical::before,
+.inf-sev--high::before {
+  background: var(--red);
+}
+
+.inf-sev--medium::before {
+  background: var(--amber);
+}
+
+.inf-sev--low::before {
+  background: var(--accent-2);
+}
+
+.inf-sev--informational::before {
+  background: var(--muted);
+}
+
+.inf-sev--critical,
+.inf-sev--high {
+  color: var(--red);
+}
+
+.inf-sev--medium {
+  color: var(--amber);
+}
+
+.inf-sev--low {
+  color: var(--accent-2);
+}
+
+.inf-sev--informational {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Confidence
+   -------------------------------------------------------------------------- */
+
+.inf-conf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 96px;
+}
+
+.inf-conf__track {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  min-width: 36px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.inf-conf__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.inf-conf__value {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  min-width: 30px;
+  text-align: right;
+}
+
+/*
+ * An unscored detector is labelled in words. An empty track at zero would be
+ * read as a score, and "0" would be read as certainty that the finding is
+ * meaningless.
+ */
+.inf-conf--unscored {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Per-channel breakdown
+   -------------------------------------------------------------------------- */
+
+.inf-channels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 170px;
+}
+
+.inf-channel {
+  display: grid;
+  grid-template-columns: 68px 1fr 34px;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.inf-channel__name {
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inf-channel__track {
+  position: relative;
+  height: 5px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.inf-channel__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--muted);
+  border-radius: 999px;
+}
+
+/* A channel that carried the candidate is named and emboldened, not just filled. */
+.inf-channel--decisive .inf-channel__name,
+.inf-channel--decisive .inf-channel__value {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.inf-channel--decisive .inf-channel__fill {
+  background: var(--accent);
+}
+
+.inf-channel__value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--muted);
+}
+
+/*
+ * A channel that was not observed on both sides. Hatched, with the absence
+ * written out: drawing it as a zero-length bar would turn a missing
+ * measurement into evidence against the correlation.
+ */
+.inf-channel--absent .inf-channel__track {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 3px,
+    var(--line) 3px,
+    var(--line) 4px
+  );
+}
+
+.inf-channel--absent .inf-channel__value {
+  font-style: italic;
+  font-size: 9px;
+}
+
+/* --------------------------------------------------------------------------
+   Corroboration label
+   -------------------------------------------------------------------------- */
+
+.inf-weak {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.inf-strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--green);
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Subject pair
+   -------------------------------------------------------------------------- */
+
+.inf-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.inf-pair__side {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.inf-pair__tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  font-weight: 700;
+  flex: none;
+  width: 56px;
+}
+
+.inf-pair__subject {
+  font-family: var(--mono);
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.inf-pair__subject--clearnet {
+  color: var(--accent-2);
+}
+
+/* --------------------------------------------------------------------------
+   Limitations
+   -------------------------------------------------------------------------- */
+
+/*
+ * The single most important rule in this file: the limitations are rendered
+ * at the same weight as the detection. Shared hosting, a CDN, a migrated
+ * certificate and one scanner reused across a range all produce these signals
+ * legitimately, and a finding shown without that alternative is a false
+ * accusation with a confidence bar beside it.
+ */
+
+.inf-limits {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 10px;
+  max-width: 420px;
+}
+
+.inf-limits--compact {
+  max-width: 220px;
+}
+
+.inf-limits__toggle {
+  appearance: none;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--amber);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.inf-limits__toggle:hover {
+  border-color: var(--amber);
+  background: var(--surface-3);
+}
+
+.inf-limits__toggle[aria-expanded='true'] {
+  color: var(--text);
+}
+
+.inf-limits__list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.inf-limits__note {
+  color: var(--text);
+}
+
+.inf-limits__note::marker {
+  color: var(--amber);
+}
+
+.inf-limits__head {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+/* --------------------------------------------------------------------------
+   Summary strip
+   -------------------------------------------------------------------------- */
+
+.inf-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.inf-stat {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.inf-stat__value {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.inf-stat__label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.inf-stat__note {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* The weak-match tile is styled, not merely counted. */
+.inf-stat--weak {
+  border-color: var(--amber);
+}
+
+.inf-stat--weak .inf-stat__value {
+  color: var(--amber);
+}
+
+.inf-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 10px;
+}
+
+.inf-breakdown__row {
+  display: grid;
+  grid-template-columns: 1fr 36px;
+  align-items: center;
+  gap: 8px;
+}
+
+.inf-breakdown__name {
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inf-breakdown__count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------------------
+   Key/value and feature blocks
+   -------------------------------------------------------------------------- */
+
+.inf-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  margin: 0;
+}
+
+.inf-kv__row {
+  display: grid;
+  grid-template-columns: minmax(110px, 34%) 1fr;
+  gap: 10px;
+  align-items: baseline;
+  margin: 0;
+}
+
+.inf-kv__key {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  margin: 0;
+}
+
+.inf-kv__value {
+  margin: 0;
+  color: var(--text);
+  min-width: 0;
+  word-break: break-word;
+  line-height: 1.55;
+}
+
+.inf-features {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.5;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+
+/* --------------------------------------------------------------------------
+   Notes
+   -------------------------------------------------------------------------- */
+
+.inf-note {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 10px 14px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text);
+  margin: 0;
+}
+
+.inf-note--info {
+  border-left-color: var(--accent-2);
+}
+
+.inf-note__title {
+  margin: 0 0 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.inf-note ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.inf-footnote {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.inf-caption {
+  font-size: 10px;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Focus, motion, narrow viewports
+   -------------------------------------------------------------------------- */
+
+.inf-page :focus-visible,
+.inf-note :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inf-page *,
+  .inf-page *::before,
+  .inf-page *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 1200px) {
+  .inf-page {
+    padding: 18px 18px 48px;
+  }
+
+  .inf-filters input[type='search'] {
+    min-width: 180px;
+  }
+}
+
+@media (max-width: 860px) {
+  .inf-kv__row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

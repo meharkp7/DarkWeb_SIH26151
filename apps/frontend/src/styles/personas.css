@@ -1,0 +1,866 @@
+/*
+ * Persona linkage surface. `per-` prefix, tokens only.
+ *
+ * Two rules this stylesheet exists to enforce visually:
+ *
+ * 1. **A proposal is not a finding.** `.per-status--proposed` is a dashed
+ *    outline with a hollow mark; `.per-status--confirmed` / `--rejected` are
+ *    solid. The shape difference is not decoration — it is the same distinction
+ *    the word and the colour carry, so the row survives a monochrome display,
+ *    a colour-blind reader and a screenshot in a briefing deck.
+ * 2. **A score is a score.** `.per-score__fill--unreviewed` is muted regardless
+ *    of magnitude. A green bar next to `proposed` would say "good" where the
+ *    row means "unexamined".
+ *
+ * No animation except the two-second bar reveal, and that is disabled under
+ * `prefers-reduced-motion`. No `transition` on colour anywhere: the reduced-
+ * motion block below is not a formality, it is the whole reason the sheet has
+ * one place to opt out.
+ */
+
+.per-page {
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 24px 32px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.per-page__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.per-page__eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.per-page__head h1 {
+  margin: 0;
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+}
+.per-page__sub {
+  margin: 8px 0 0;
+  max-width: 74ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.per-page__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.per-page__hint {
+  margin: 0;
+  padding: 10px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ buttons */
+
+.per-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 7px 13px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.per-btn:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--line);
+}
+.per-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.per-btn--primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.per-btn--primary:hover:not(:disabled) {
+  background: var(--white);
+  border-color: var(--white);
+}
+.per-btn:focus-visible,
+.per-th:focus-visible,
+.per-rowbtn:focus-visible,
+.per-export__item:focus-visible,
+.per-modal__panel :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------- status */
+
+.per-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.per-status__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font-size: 9px;
+  font-weight: 700;
+}
+.per-status--proposed {
+  /* Dashed: the outline of a decision that has not been made. */
+  border-style: dashed;
+  color: var(--amber);
+  background: transparent;
+}
+.per-status--proposed .per-status__mark {
+  border-style: dashed;
+  color: var(--amber);
+}
+.per-status--confirmed {
+  border-style: solid;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.per-status--rejected {
+  border-style: solid;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.per-status--detailed {
+  align-items: flex-start;
+  white-space: normal;
+}
+.per-status__note {
+  display: block;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------------------- score */
+
+.per-score {
+  display: grid;
+  grid-template-columns: 58px auto;
+  grid-template-areas: "bar value" "caption caption";
+  align-items: center;
+  gap: 2px 8px;
+}
+.per-score--compact {
+  grid-template-columns: 40px auto;
+}
+.per-score__bar {
+  grid-area: bar;
+  width: 100%;
+  height: 6px;
+  display: block;
+}
+.per-score__track {
+  fill: var(--surface-3);
+}
+.per-score__fill {
+  fill: var(--accent);
+}
+.per-score--compact .per-score__bar {
+  height: 5px;
+}
+.per-score__value {
+  grid-area: value;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.per-score__caption {
+  grid-area: caption;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.per-td--numeric .per-score {
+  justify-items: end;
+}
+
+/* ------------------------------------------------------------------- table */
+
+.per-table {
+  width: 100%;
+  /* Dense register: aligned / apart / contested plus score, status, actor
+     and method do not fit beside a sidebar at laptop width. Without a floor
+     the table shrank and the last three columns were clipped with no
+     indication they existed. Overflow becomes a scroll instead, which is
+     visible and intentional. */
+  min-width: 1060px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.per-table__caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+.per-table thead th {
+  text-align: left;
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.per-th {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.per-th:hover {
+  color: var(--muted);
+}
+.per-th--numeric {
+  text-align: right;
+}
+.per-th--numeric .per-th {
+  flex-direction: row-reverse;
+}
+.per-sortmark {
+  font-size: 8px;
+  color: var(--faint);
+}
+.per-table__row {
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+}
+.per-table__row:hover {
+  background: var(--surface-2);
+}
+.per-table__row.is-selected {
+  background: var(--surface-3);
+}
+.per-table__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.per-td {
+  padding: 8px 10px;
+  vertical-align: top;
+  color: var(--text);
+}
+.per-td--numeric {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.per-td--primary {
+  min-width: 190px;
+}
+.per-td__sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.per-rowbtn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+}
+.per-rowbtn::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--faint);
+  font-size: 9px;
+}
+.per-rowbtn[aria-expanded='true']::before {
+  content: '▾';
+  color: var(--muted);
+}
+.per-td__adjudicated {
+  display: grid;
+  gap: 1px;
+  font-size: 11.5px;
+}
+.per-td__who {
+  color: var(--text);
+}
+.per-td__when {
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.per-td__none {
+  color: var(--faint);
+}
+.per-table__expansion > td {
+  padding: 4px 10px 18px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.per-register__count {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+/* ------------------------------------------------------------------ summary */
+
+.per-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.per-summary__scope {
+  font-size: 11.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+.per-summary__strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.per-summary__tile {
+  display: grid;
+  gap: 2px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.per-summary__tile--ok {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--line-soft));
+}
+.per-summary__tile--danger {
+  border-color: color-mix(in srgb, var(--red) 34%, var(--line-soft));
+}
+.per-summary__tilelabel {
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.per-summary__tilevalue {
+  font-family: var(--mono);
+  font-size: 21px;
+  color: var(--text);
+}
+.per-summary__tilenote {
+  font-size: 11px;
+  color: var(--muted);
+}
+.per-summary__errors {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 13px;
+  background: var(--surface-2);
+}
+.per-summary__errorsheading {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.per-summary__errorlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.per-summary__error {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+}
+.per-summary__error--danger {
+  border-left: 3px solid var(--red);
+}
+.per-summary__error--ok {
+  border-left: 3px solid var(--green);
+}
+.per-summary__errorlabel {
+  font-size: 12px;
+  color: var(--text);
+}
+.per-summary__errorvalue {
+  font-family: var(--mono);
+  font-size: 19px;
+  color: var(--text);
+}
+.per-summary__errorden {
+  font-size: 12px;
+  color: var(--muted);
+}
+.per-summary__errornote {
+  font-size: 11px;
+  color: var(--muted);
+}
+.per-summary__gap {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.per-summary__methods {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+
+/* ----------------------------------------------------------------- feature */
+
+.per-split__gloss {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 88ch;
+}
+.per-split__gloss strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.per-split__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+.per-split__col {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  background: var(--surface-2);
+}
+.per-split__col--aligned {
+  border-top: 2px solid var(--green);
+}
+.per-split__col--apart {
+  border-top: 2px solid var(--red);
+}
+.per-split__col--contested {
+  border-top: 2px solid var(--amber);
+}
+.per-split__heading {
+  margin: 0 0 3px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.per-split__count {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+.per-split__colgloss {
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+.per-split__names {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+.per-split__names li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.per-split__name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.per-split__value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+.per-split__empty,
+.per-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* ------------------------------------------------------------- limitations */
+
+.per-limitations {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 100ch;
+}
+.per-limitations__scorer {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+.per-limitations__scorer code,
+.per-modal__result code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent-2);
+}
+
+/* ------------------------------------------------------------ adjudication */
+
+.per-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.per-detail__lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 88ch;
+}
+.per-detail__ruling {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.per-adjudicate {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  max-width: 76ch;
+}
+.per-adjudicate__state {
+  margin: 0;
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.per-adjudicate__choice {
+  margin: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+.per-adjudicate__choice:disabled {
+  opacity: .55;
+}
+.per-adjudicate__legend {
+  padding: 0 4px;
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.per-adjudicate__option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  cursor: pointer;
+}
+.per-adjudicate__optionlabel {
+  font-size: 12.5px;
+  color: var(--text);
+  display: grid;
+  gap: 2px;
+}
+.per-adjudicate__gloss {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.per-adjudicate__warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--amber);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--amber);
+}
+.per-adjudicate__done {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--green) 40%, var(--line-soft));
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.per-adjudicate .per-btn--primary {
+  align-self: flex-start;
+}
+.per-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line-soft));
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--red);
+}
+
+/* ------------------------------------------------------------------ fields */
+
+.per-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.per-field__label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.per-field__req {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--amber);
+}
+.per-field__count {
+  margin-left: auto;
+  font-family: var(--mono);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.per-field__hint {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.per-field__input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.per-field__input::placeholder {
+  color: var(--faint);
+}
+.per-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+.per-filters .per-btn {
+  align-self: end;
+}
+.per-filters__note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--faint);
+  max-width: 96ch;
+}
+
+/* ------------------------------------------------------------------ export */
+
+.per-export {
+  position: relative;
+}
+.per-export__menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 268px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  box-shadow: var(--shadow);
+}
+.per-export__note {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--faint);
+}
+.per-export__item {
+  appearance: none;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.per-export__item:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
+/* ------------------------------------------------------------------- modal */
+
+.per-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+.per-modal__panel {
+  width: min(720px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.per-modal__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.per-modal__lead {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 74ch;
+}
+.per-modal__lead strong {
+  color: var(--text);
+}
+.per-modal__hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--amber);
+}
+.per-modal__result {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.per-modal__result p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.per-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ------------------------------------------------------------- preferences */
+
+@media (prefers-reduced-motion: reduce) {
+  .per-page *,
+  .per-page *::before,
+  .per-page *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .per-page {
+    padding: 18px 16px 72px;
+  }
+  .per-table__row .per-td:nth-child(n + 5) {
+    font-size: 11.5px;
+  }
+}
