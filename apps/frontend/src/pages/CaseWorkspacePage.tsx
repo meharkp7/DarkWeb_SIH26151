@@ -1,68 +1,781 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { api, authHeaders, formatApiError } from '../api/client';
-import type { CaseHypothesis, CaseWorkspace, WorkspaceAssessment, WorkspaceEntity } from '../api/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { api, apiUrl, authHeaders, formatApiError } from '../api/client';
+import type {
+  CaseHypothesis,
+  CaseMetrics,
+  CaseQueueEntry,
+  CaseTimeline,
+  CaseStatus,
+  CaseWorkspace,
+  Evidence,
+  SignalBand,
+  SlaState,
+  TeamMember,
+} from '../api/types';
 import { useApi } from '../hooks/useApi';
 import { useLive } from '../hooks/useLive';
 import { formatDateTime, formatPercent, shortId } from '../lib/format';
 import { Badge } from '../components/Badge';
-import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import type { Tone } from '../components/Badge';
 import { EvidenceDrawer } from '../components/EvidenceDrawer';
 import { EvidenceForm } from '../components/EvidenceForm';
-import { GraphView } from '../components/GraphView';
-import type { GraphEdge, GraphNode } from '../components/GraphView';
+import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { usePublishAgentContext } from '../components/agent-context';
+import type { WorkspaceView } from '../components/agent-context';
 import { AssessmentPanel } from '../components/workspace/AssessmentPanel';
-import { TimelinePanel } from '../components/workspace/TimelinePanel';
+import { EvidenceLedger } from '../components/workspace/EvidenceLedger';
+import { HypothesisBoard } from '../components/workspace/HypothesisBoard';
+import { NetworkGraph } from '../components/workspace/NetworkGraph';
+import { SignalMatrix } from '../components/workspace/SignalMatrix';
+import { TimelineLanes } from '../components/workspace/TimelineLanes';
 
-type Tab='overview'|'evidence'|'network'|'timeline'|'assessment'|'notes';
-const tabs: Array<{id:Tab;label:string}>=[{id:'overview',label:'Overview'},{id:'evidence',label:'Evidence'},{id:'network',label:'Network'},{id:'timeline',label:'Timeline'},{id:'assessment',label:'Assessment'},{id:'notes',label:'Notes'}];
-const tone=(value:number|null|undefined)=> value===null||value===undefined?'neutral':value>=.75?'ok':value>=.5?'warn':'danger';
-async function downloadReport(url:string, filename:string){ const response=await fetch(url,{headers:authHeaders()}); if(!response.ok) throw new Error(`Export failed (${response.status})`); const blob=await response.blob(); const href=URL.createObjectURL(blob); const anchor=document.createElement('a'); anchor.href=href; anchor.download=filename; anchor.click(); URL.revokeObjectURL(href); }
+const TABS: ReadonlyArray<{ id: WorkspaceView; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'evidence', label: 'Evidence' },
+  { id: 'network', label: 'Network' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'assessment', label: 'Assessment' },
+  { id: 'notes', label: 'Notes' },
+];
 
-function Metric({value,label,sub}:{value:string|number;label:string;sub?:string}){return <div className="invest-metric"><strong>{value}</strong><span>{label}</span>{sub&&<small>{sub}</small>}</div>}
-function Overview({data,assessment,onTab}:{data:CaseWorkspace;assessment:WorkspaceAssessment|undefined;onTab:(tab:Tab)=>void}){
-  const nodes=data.entities.slice().sort((a,b)=>b.confidence-a.confidence).slice(0,18).map((e:WorkspaceEntity):GraphNode=>({id:e.entity_id,label:e.surface_form,type:e.type,confidence:e.confidence}));
-  const visible=new Set(nodes.map(n=>n.id));
-  const edges=data.relationships.filter(r=>visible.has(r.subject_entity_id)&&visible.has(r.object_entity_id)).slice(0,36).map((r):GraphEdge=>({source:r.subject_entity_id,target:r.object_entity_id,label:r.type,tone:r.confidence>=.5?'ok':'danger',confidence:r.confidence}));
-  return <>
-    <section className="invest-hero-grid">
-      <div className="invest-hero-copy"><span className="eyebrow">Investigation picture</span><h2>What the evidence currently supports.</h2><p>{data.case.description||'No case description recorded.'}</p><div className="invest-hero-meta"><span>Updated {formatDateTime(data.case.updated_at)}</span><span>Last activity {formatDateTime(data.activity[0]?.occurred_at??null)}</span><span className="live-inline"><i/> live synchronized</span></div></div>
-      <div className="invest-score"><span className="eyebrow">Attribution confidence</span><strong>{assessment?formatPercent(assessment.calibrated_confidence??assessment.raw_score):'—'}</strong><div className="score-track"><i style={{width:`${Math.max(0,Math.min(100,(assessment?.calibrated_confidence??assessment?.raw_score??0)*100))}%`}}/></div><small>{assessment?.model_id??'No assessment available'}</small></div>
-    </section>
-    <section className="invest-metrics"><Metric value={data.counts.evidence} label="Evidence" sub="ledger records"/><Metric value={data.counts.entities} label="Entities" sub="extracted objects"/><Metric value={data.counts.relationships} label="Relationships" sub="observed links"/><Metric value={data.counts.assessments} label="Assessments" sub="model outputs"/></section>
-    <section className="invest-main-grid">
-      <div className="invest-panel invest-network-preview"><div className="invest-panel-head"><div><span className="eyebrow">Relationship field</span><h3>Evidence-linked entity network</h3></div><button className="text-action" onClick={()=>onTab('network')}>Open network →</button></div>{nodes.length?<GraphView nodes={nodes} edges={edges} label={`Relationship network for ${data.case.name}`} onSelectNode={()=>onTab('network')}/>:<EmptyState title="No entities" message="No extracted entities are available for this investigation."/>}</div>
-      <div className="invest-side-stack">
-        <div className="invest-panel"><div className="invest-panel-head"><div><span className="eyebrow">Evidence posture</span><h3>Signal composition</h3></div><button className="text-action" onClick={()=>onTab('assessment')}>Assessment →</button></div>{assessment?<div className="signal-bars">{Object.entries(assessment.signals).slice(0,7).map(([key,val])=><div key={key}><span>{key.replaceAll('_',' ')}</span><b>{Math.round(val*100)}%</b><i><em style={{width:`${Math.max(0,Math.min(100,val*100))}%`}}/></i></div>)}</div>:<p className="hint">No model signal decomposition is available.</p>}</div>
-        <div className="invest-panel"><div className="invest-panel-head"><div><span className="eyebrow">Recent activity</span><h3>Investigation trail</h3></div></div><div className="mini-activity">{data.activity.slice(0,6).map(row=><div key={row.seq}><i/><div><strong>{String(row.payload.message??row.action)}</strong><small>{formatDateTime(row.occurred_at)}</small></div></div>)}</div></div>
-      </div>
-    </section>
-    <section className="invest-bottom-grid"><div className="invest-panel"><div className="invest-panel-head"><div><span className="eyebrow">Leading entities</span><h3>Objects carrying the investigation</h3></div><button className="text-action" onClick={()=>onTab('network')}>Explore →</button></div><div className="entity-rail">{data.entities.slice().sort((a,b)=>b.confidence-a.confidence).slice(0,6).map((e,i)=><button key={e.entity_id} onClick={()=>onTab('network')}><span>{String(i+1).padStart(2,'0')}</span><strong>{e.surface_form}</strong><small>{e.type} · {formatPercent(e.confidence)}</small></button>)}</div></div><div className="invest-panel"><div className="invest-panel-head"><div><span className="eyebrow">Integrity</span><h3>Chain-of-custody snapshot</h3></div></div><div className="integrity-list"><div><span>Evidence records</span><b>{data.evidence.length}</b></div><div><span>Hashed artifacts</span><b>{data.evidence.filter(e=>Boolean(e.sha256)).length}</b></div><div><span>Independent groups</span><b>{new Set(data.evidence.map(e=>e.independence_group)).size}</b></div><div><span>Contradictory items</span><b>{assessment?.contradictory_evidence_ids.length??0}</b></div></div></div></section>
-  </>;
+const STATUS_TONE: Record<CaseStatus, Tone> = {
+  open: 'info',
+  active: 'ok',
+  on_hold: 'warn',
+  closed: 'neutral',
+  archived: 'neutral',
+};
+
+const SEVERITY_TONE: Record<string, Tone> = {
+  informational: 'neutral',
+  low: 'neutral',
+  medium: 'info',
+  high: 'warn',
+  critical: 'danger',
+};
+
+const PRIORITY_TONE: Record<string, Tone> = {
+  low: 'neutral',
+  medium: 'info',
+  high: 'warn',
+  critical: 'danger',
+};
+
+const SLA_TONE: Record<SlaState, Tone> = {
+  breached: 'danger',
+  at_risk: 'warn',
+  ok: 'ok',
+  none: 'neutral',
+};
+
+const METRICS_ENDPOINT = 'GET /api/v1/cases/{id}/metrics';
+const SIGNALS_ENDPOINT = 'GET /api/v1/cases/{id}/signals';
+const HYPOTHESES_ENDPOINT = 'GET /api/v1/cases/{id}/hypotheses';
+
+/**
+ * The workspace case record carries `sla_due_at` and `sla_overdue` but not the
+ * register's `sla_state` column, so the state an analyst reads in the header is
+ * derived from those two rather than invented: a closed case has no live
+ * deadline, a case past its deadline is breached, and anything else is on track.
+ */
+function slaStateFor(record: CaseWorkspace['case']): SlaState {
+  if (record.closed_at !== null || record.status === 'closed' || record.status === 'archived') {
+    return record.sla_due_at === null ? 'none' : 'ok';
+  }
+  if (record.sla_due_at === null) return 'none';
+  if (record.sla_overdue) return 'breached';
+  return 'ok';
 }
 
-export function CaseWorkspacePage(){
-  const {caseId=''}=useParams(); const {snapshot}=useLive();
-  const resource=useApi<CaseWorkspace>(caseId?`/api/v1/cases/${encodeURIComponent(caseId)}/workspace`:null);
-  const hypotheses=useApi<CaseHypothesis[]>(caseId?`/api/v1/cases/${encodeURIComponent(caseId)}/hypotheses`:null);
-  const [tab,setTab]=useState<Tab>('overview'); const [openEvidence,setOpenEvidence]=useState<string|null>(null); const [note,setNote]=useState(''); const [notes,setNotes]=useState<Array<{note_id:string;body:string;created_at:string|null}>>([]); const [selectedCase,setSelectedCase]=useState<CaseWorkspace|null>(null); const [noteBusy,setNoteBusy]=useState(false); const [noteError,setNoteError]=useState<string|null>(null);
-  useEffect(()=>{if(snapshot?.server_time) resource.reload();},[snapshot?.server_time]);
-  useEffect(()=>{if(resource.data)setSelectedCase(resource.data);},[resource.data]);
-  const data=selectedCase; const assessment=data?.assessments[0];
-  useEffect(()=>{if(!caseId)return; void api.listNotes(caseId).then(setNotes).catch(()=>undefined);},[caseId]);
-  const graphData=useMemo(()=>{if(!data)return {nodes:[] as GraphNode[],edges:[] as GraphEdge[]};const nodes=data.entities.slice(0,28).map(e=>({id:e.entity_id,label:e.surface_form,type:e.type,confidence:e.confidence}));const ids=new Set(nodes.map(n=>n.id));const edges=data.relationships.filter(r=>ids.has(r.subject_entity_id)&&ids.has(r.object_entity_id)).slice(0,60).map(r=>({source:r.subject_entity_id,target:r.object_entity_id,label:r.type,tone:r.confidence>=.5?'ok':'danger' as const,confidence:r.confidence}));return {nodes,edges};},[data]);
-  if(!caseId)return <div className="page-stack"><EmptyState title="No case selected" message="Pick an investigation from Cases."/></div>;
-  if(resource.error)return <div className="page-stack"><ErrorState message={resource.error} onRetry={resource.reload}/></div>;
-  if(!data)return <div className="page-stack"><LoadingState label="Loading investigation workspace…"/></div>;
-  const saveNote=async()=>{if(!note.trim())return;setNoteBusy(true);setNoteError(null);try{const created=await api.createNote(caseId,{body:note.trim()});setNotes(v=>[created,...v]);setNote('');}catch(e){setNoteError(formatApiError(e))}finally{setNoteBusy(false)}};
-  return <div className="page-stack workspace-page-v3">
-    <header className="invest-header"><div><div className="breadcrumbs"><Link to="/cases">Cases</Link><span>›</span><span>{data.case.name}</span></div><div className="invest-title"><span className="case-code">CASE {shortId(caseId,8).toUpperCase()}</span><h1>{data.case.name}</h1><Badge tone={tone(data.case.severity==='critical'?1:data.case.severity==='high'?0.75:0.45) as 'ok'|'warn'|'danger'|'neutral'}>{data.case.status.replace('_',' ')}</Badge></div><p>{data.case.tags.length?data.case.tags.join('  ·  '):'Investigation workspace'}</p></div><div className="invest-actions"><span className="live-inline"><i/> {snapshot?'LIVE':'SYNCING'}</span><button className="button" onClick={()=>void downloadReport(api.reportExportUrl(caseId,'pdf'),`${data.case.name.replace(/\W+/g,'-').toLowerCase()}.pdf`)}>Export report</button><button className="button button--dark" onClick={()=>setTab('assessment')}>Review assessment</button></div></header>
-    <nav className="invest-tabs" aria-label="Investigation views">{tabs.map(t=><button key={t.id} className={tab===t.id?'is-active':''} onClick={()=>setTab(t.id)}>{t.label}{t.id==='evidence'&&<small>{data.counts.evidence}</small>}{t.id==='network'&&<small>{data.counts.relationships}</small>}</button>)}</nav>
-    {tab==='overview'&&<Overview data={data} assessment={assessment} onTab={setTab}/>} 
-    {tab==='evidence'&&<section className="invest-panel invest-tab-panel"><div className="invest-panel-head"><div><span className="eyebrow">Evidence ledger</span><h3>Collected records</h3></div><button className="text-action" onClick={resource.reload}>Refresh</button></div>{openEvidence&&<EvidenceDrawer evidenceId={openEvidence} onClose={()=>setOpenEvidence(null)} onLoaded={()=>undefined} onOpenEvidence={setOpenEvidence}/>}<div className="evidence-grid">{data.evidence.slice(0,120).map(row=><button key={row.evidence_id} className="evidence-card" onClick={()=>setOpenEvidence(row.evidence_id)}><div><span>{row.source_type}</span><small>{formatDateTime(row.observed_at??row.collected_at)}</small></div><strong>{shortId(row.evidence_id,12)}</strong><p>{row.metadata?.title?String(row.metadata.title):'Evidence artifact'}</p><footer><span>REL {formatPercent(row.reliability)}</span><span className="mono">{shortId(row.sha256,10)}</span></footer></button>)}</div><EvidenceForm caseId={caseId} onCreated={resource.reload}/></section>}
-    {tab==='network'&&<section className="invest-panel invest-tab-panel"><div className="invest-panel-head"><div><span className="eyebrow">Network analysis</span><h3>Semantic relationship graph</h3></div><span className="surface-meta">{graphData.nodes.length} nodes · {graphData.edges.length} links</span></div><GraphView nodes={graphData.nodes} edges={graphData.edges} label={`Network for ${data.case.name}`} onSelectNode={()=>undefined}/></section>}
-    {tab==='timeline'&&<TimelinePanel workspace={data} onRefresh={resource.reload}/>} 
-    {tab==='assessment'&&<AssessmentPanel workspace={data} hypotheses={hypotheses} onSelectEvidence={(id)=>{setOpenEvidence(id);setTab('evidence')}}/>}
-    {tab==='notes'&&<section className="invest-panel invest-tab-panel"><div className="invest-panel-head"><div><span className="eyebrow">Analyst record</span><h3>Notes & observations</h3></div><span className="surface-meta">{notes.length} notes</span></div><div className="note-compose"><textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Record an observation, contradiction, lead or next verification step…"/><button className="button button--dark" disabled={noteBusy} onClick={()=>void saveNote()}>{noteBusy?'Saving…':'Add note'}</button></div>{noteError&&<p className="status status--error">{noteError}</p>}<div className="notes-v3">{notes.map(n=><article key={n.note_id}><p>{n.body}</p><small>{formatDateTime(n.created_at)}</small></article>)}</div></section>}
-  </div>;
+const SLA_TEXT: Record<SlaState, string> = {
+  breached: 'SLA breached',
+  at_risk: 'SLA at risk',
+  ok: 'SLA on track',
+  none: 'no SLA deadline',
+};
+
+async function downloadReport(url: string, filename: string): Promise<void> {
+  const response = await fetch(url, { headers: authHeaders() });
+  if (!response.ok) throw new Error(`Export failed (${response.status})`);
+  const blob = await response.blob();
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(href);
+}
+
+function isWorkspaceView(value: string | null): value is WorkspaceView {
+  return value !== null && TABS.some((tab) => tab.id === value);
+}
+
+function MetricStrip({ metrics }: { metrics: CaseMetrics | null }) {
+  if (metrics === null) return <LoadingState label="Reading case metrics…" />;  const cells: ReadonlyArray<{ label: string; value: string; sub?: string; tone?: string }> = [
+    { label: 'Evidence', value: String(metrics.evidence), sub: 'ledger records' },
+    { label: 'Entities', value: String(metrics.entities), sub: 'extracted objects' },
+    { label: 'Links', value: String(metrics.links), sub: 'observed relationships' },
+    { label: 'Sources', value: String(metrics.sources), sub: 'distinct sources' },
+    {
+      label: 'Attribution',
+      value: metrics.attribution === null ? 'unscored' : formatPercent(metrics.attribution),
+      sub: 'highest calibrated confidence',
+    },
+    {
+      label: 'Contradictions',
+      value: String(metrics.contradictions),
+      sub: 'cited against hypotheses',
+      tone: metrics.contradictions > 0 ? 'is-danger' : undefined,
+    },
+    { label: 'Hypotheses', value: String(metrics.hypotheses), sub: 'distinct candidates' },
+    {
+      label: 'Independent sources',
+      value: String(metrics.independent_sources),
+      sub: 'independence groups',
+      tone: 'is-ok',
+    },
+  ];
+  return (
+    <dl className="inv-metrics">
+      {cells.map((cell) => (
+        <div className={cell.tone === undefined ? 'inv-metric' : `inv-metric ${cell.tone}`} key={cell.label}>
+          <dt>{cell.label}</dt>
+          <dd>{cell.value}</dd>
+          {cell.sub !== undefined && <small>{cell.sub}</small>}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function InvestigativeBrief({
+  caseName,
+  metrics,
+  hypotheses,
+  onOpenAssessment,
+}: {
+  caseName: string;
+  metrics: CaseMetrics | null;
+  hypotheses: readonly CaseHypothesis[];
+  onOpenAssessment: () => void;
+}) {
+  const scored = useMemo(
+    () =>
+      hypotheses
+        .filter((row) => row.calibrated_confidence !== null || row.raw_score !== null)
+        .sort((left, right) => {
+          const a = left.calibrated_confidence ?? left.raw_score ?? 0;
+          const b = right.calibrated_confidence ?? right.raw_score ?? 0;
+          return b - a;
+        }),
+    [hypotheses],
+  );
+  const lead = scored[0];
+  const gaps = useMemo(() => {
+    const seen = new Set<string>();
+    for (const row of hypotheses) for (const note of row.missing_evidence) seen.add(note);
+    return [...seen];
+  }, [hypotheses]);
+  const contradictions = metrics?.contradictions ?? 0;
+  const cited = hypotheses.reduce(
+    (total, row) => total + row.supporting_evidence_ids.length + row.contradictory_evidence_ids.length,
+    0,
+  );
+
+  return (
+    <div className="inv-brief">
+      <div className="inv-brief__copy">
+        <span className="eyebrow">Investigative brief</span>
+        <h3>Where this investigation stands</h3>
+        <p>
+          {lead === undefined ? (
+            <>
+              No hypothesis for {caseName} has been scored yet, so there is no leading explanation
+              to report. The evidence below is the whole of the current picture.
+            </>
+          ) : (
+            <>
+              The leading hypothesis is{' '}
+              <strong>
+                {shortId(lead.subject_entity_id, 8)} → {shortId(lead.object_entity_id, 8)}
+              </strong>{' '}
+              ({lead.kind}, status {lead.status}) at{' '}
+              {formatPercent(lead.calibrated_confidence ?? lead.raw_score ?? 0)}
+              {lead.calibrated_confidence === null ? ' on the uncalibrated raw score' : ' calibrated'}. It rests on{' '}
+              {lead.supporting_evidence_ids.length} supporting record
+              {lead.supporting_evidence_ids.length === 1 ? '' : 's'} drawn from{' '}
+              {lead.independent_source_groups} independent source group
+              {lead.independent_source_groups === 1 ? '' : 's'}, and{' '}
+              {lead.contradictory_evidence_ids.length} record
+              {lead.contradictory_evidence_ids.length === 1 ? '' : 's'} point against it.
+            </>
+          )}
+        </p>
+        {gaps.length > 0 && (
+          <>
+            <p className="eyebrow" style={{ marginTop: 18 }}>
+              Evidence analysts flagged as missing
+            </p>
+            <ul className="inv-brief__gaps">
+              {gaps.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p style={{ marginTop: 16 }}>
+          <button type="button" className="link-button" onClick={onOpenAssessment}>
+            Compare every hypothesis on the Assessment tab →
+          </button>
+        </p>
+      </div>
+      <dl className="inv-brief__side">
+        <dt>Leading hypothesis</dt>
+        <dd>{lead === undefined ? <span className="hint">none scored</span> : shortId(lead.hypothesis_id, 12)}</dd>
+        <dt>Confidence</dt>
+        <dd>
+          {lead === undefined ? (
+            '—'
+          ) : (
+            <Badge tone={lead.status === 'accepted' ? 'ok' : 'neutral'}>
+              {formatPercent(lead.calibrated_confidence ?? lead.raw_score ?? 0)}
+            </Badge>
+          )}
+        </dd>
+        <dt>Outstanding contradictions</dt>
+        <dd>
+          <Badge tone={contradictions > 0 ? 'danger' : 'ok'}>{String(contradictions)}</Badge>
+        </dd>
+        <dt>Records cited by hypotheses</dt>
+        <dd>{cited}</dd>
+        <dt>Competing hypotheses</dt>
+        <dd>{hypotheses.length}</dd>
+      </dl>
+    </div>
+  );
+}
+
+export function CaseWorkspacePage() {
+  const { caseId = '' } = useParams();
+  const [params, setParams] = useSearchParams();
+  const { snapshot } = useLive();
+  const tabParam = params.get('tab');
+  const tab: WorkspaceView = isWorkspaceView(tabParam) ? tabParam : 'overview';
+
+  const workspace = useApi<CaseWorkspace>(
+    caseId === '' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/workspace`),
+  );
+  const metrics = useApi<CaseMetrics>(
+    caseId === '' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/metrics`),
+  );
+  const signals = useApi<SignalBand[]>(
+    caseId === '' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/signals`),
+  );
+  const timeline = useApi<CaseTimeline>(
+    caseId === '' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/timeline`),
+  );
+  const graphSummary = useApi<CaseQueueEntry[]>(apiUrl('/v1/dashboard/cases'));
+  const hypotheses = useApi<CaseHypothesis[]>(
+    caseId === '' ? null : apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/hypotheses`),
+  );
+  const team = useApi<{ members: TeamMember[] }>(apiUrl('/v1/admin/team'));
+
+  const [openEvidence, setOpenEvidence] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Array<{ note_id: string; body: string; created_at: string | null }>>([]);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const setTab = useCallback(
+    (next: WorkspaceView) => {
+      const search = new URLSearchParams(params);
+      if (next === 'overview') search.delete('tab');
+      else search.set('tab', next);
+      setParams(search, { replace: false });
+    },
+    [params, setParams],
+  );
+
+  const data = workspace.data;
+  usePublishAgentContext(data === null ? null : { place: data.case.name, view: tab });
+
+  useEffect(() => {
+    if (snapshot?.server_time !== undefined) workspace.reload();
+    // Only the server clock should trigger a refresh; `workspace` is a new
+    // object identity on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot?.server_time]);
+
+  useEffect(() => {
+    if (caseId === '') return;
+    let active = true;
+    void api
+      .listNotes(caseId)
+      .then((rows) => {
+        if (active) setNotes(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [caseId]);
+
+  if (caseId === '') {
+    return (
+      <div className="page-stack inv-page">
+        <EmptyState title="No case selected" message="Pick an investigation from the register." />
+      </div>
+    );
+  }
+  if (workspace.error !== null) {
+    return (
+      <div className="page-stack inv-page">
+        <ErrorState message={workspace.error} onRetry={workspace.reload} />
+      </div>
+    );
+  }
+  if (data === null) {
+    return (
+      <div className="page-stack inv-page">
+        <LoadingState label="Loading investigation workspace…" />
+      </div>
+    );
+  }
+
+  const record = data.case;
+  const sla = slaStateFor(record);
+  const hypothesisRows = hypotheses.data ?? [];
+  const caseSummary = (graphSummary.data ?? []).find((entry) => entry.case_id === caseId) ?? null;
+
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const last = TABS.length - 1;
+    let next: number | null = null;
+    if (event.key === 'ArrowRight') next = index === last ? 0 : index + 1;
+    else if (event.key === 'ArrowLeft') next = index === 0 ? last : index - 1;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = last;
+    if (next === null) return;
+    event.preventDefault();
+    setTab(TABS[next]?.id ?? 'overview');
+    tabRefs.current[next]?.focus();
+  };
+
+  const saveNote = async () => {
+    const body = note.trim();
+    if (body === '') return;
+    setNoteBusy(true);
+    setNoteError(null);
+    try {
+      const created = await api.createNote(caseId, { body });
+      setNotes((current) => [created, ...current]);
+      setNote('');
+    } catch (err: unknown) {
+      setNoteError(formatApiError(err));
+    } finally {
+      setNoteBusy(false);
+    }
+  };
+
+  const assign = async (memberId: string) => {
+    setAssignBusy(true);
+    setAssignError(null);
+    try {
+      await api.updateCase(caseId, { assigned_to: memberId === '' ? null : memberId });
+      workspace.reload();
+    } catch (err: unknown) {
+      setAssignError(formatApiError(err));
+    } finally {
+      setAssignBusy(false);
+    }
+  };
+
+  const runExport = async (format: 'json' | 'csv' | 'stix' | 'pdf') => {
+    setExportError(null);
+    const name = `${record.name.replace(/\W+/g, '-').toLowerCase() || 'investigation'}.${format}`;
+    try {
+      await downloadReport(api.reportExportUrl(caseId, format), name);
+    } catch (err: unknown) {
+      setExportError(err instanceof Error ? err.message : 'Export failed.');
+    }
+  };
+
+  const openEvidenceFromTab = (evidenceId: string) => {
+    setOpenEvidence(evidenceId);
+  };
+
+  return (
+    <div className="page-stack inv-page">
+      <header className="inv-ws__head">
+        <div>
+          <nav className="inv-ws__crumbs" aria-label="Breadcrumb">
+            <Link to="/cases">Register</Link>
+            <span aria-hidden="true">›</span>
+            <span>{record.name}</span>
+          </nav>
+          <div className="inv-ws__title">
+            <span className="inv-ws__code" title={caseId}>
+              {shortId(caseId, 8).toUpperCase()}
+            </span>
+            <h1>{record.name}</h1>
+          </div>
+          <div className="inv-ws__meta">
+            <Badge tone={STATUS_TONE[record.status]}>{record.status.replace('_', ' ')}</Badge>
+            <Badge tone={PRIORITY_TONE[record.priority] ?? 'neutral'} title="Triage priority">
+              priority: {record.priority}
+            </Badge>
+            <Badge tone={SEVERITY_TONE[record.severity] ?? 'neutral'} title="Impact severity">
+              severity: {record.severity}
+            </Badge>
+            <Badge tone={SLA_TONE[sla]} title={record.sla_due_at === null ? undefined : `due ${formatDateTime(record.sla_due_at)}`}>
+              {SLA_TEXT[sla]}
+            </Badge>
+            {record.assigned_to === null ? (
+              <Badge tone="warn">unassigned</Badge>
+            ) : (
+              <Badge tone="neutral" title={record.assigned_to}>
+                owner {shortId(record.assigned_to, 8)}
+              </Badge>
+            )}
+            {record.tags.map((tag) => (
+              <Badge key={tag}>{tag}</Badge>
+            ))}
+          </div>
+          <p className="inv-ws__desc">
+            {record.description ?? 'No case description recorded.'}
+            {record.sla_due_at !== null && (
+              <>
+                {' '}
+                Deadline {formatDateTime(record.sla_due_at)}.
+              </>
+            )}
+          </p>
+        </div>
+
+        <div className="inv-ws__actions">
+          <details className="inv-menu">
+            <summary className="btn btn--ghost">Export ▾</summary>
+            <div className="inv-menu__list">
+              {(['json', 'csv', 'stix', 'pdf'] as const).map((format) => (
+                <button key={format} type="button" onClick={() => void runExport(format)}>
+                  {`Export ${format.toUpperCase()}`}
+                  <small>GET /reports/export?format={format}</small>
+                </button>
+              ))}
+            </div>
+          </details>
+
+          <label className="sr-only" htmlFor="inv-assign">
+            Assign an owner
+          </label>
+          <select
+            id="inv-assign"
+            className="inv-select"
+            value={record.assigned_to ?? ''}
+            disabled={assignBusy}
+            onChange={(event) => void assign(event.target.value)}
+          >
+            <option value="">unassigned</option>
+            {(team.data?.members ?? [])
+              .filter((member) => member.is_active)
+              .map((member) => (
+                <option key={member.user_id} value={member.user_id}>
+                  {`${member.display_name} (${member.assigned_cases} case${member.assigned_cases === 1 ? '' : 's'})`}
+                </option>
+              ))}
+          </select>
+
+          <details className="inv-menu">
+            <summary className="btn btn--ghost">More ▾</summary>
+            <div className="inv-menu__list">
+              <a href={api.reportPreviewUrl(caseId)} target="_blank" rel="noreferrer noopener">
+                Open report preview
+                <small>GET /reports/preview</small>
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(window.location.href);
+                }}
+              >
+                Copy link to this view
+                <small>includes the active tab</small>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  workspace.reload();
+                  metrics.reload();
+                  hypotheses.reload();
+                  signals.reload();
+                }}
+              >
+                Refresh all panels
+                <small>re-reads every case endpoint</small>
+              </button>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      {assignError !== null && <ErrorState message={assignError} />}
+      {exportError !== null && <p className="status status--error">{exportError}</p>}
+
+      <div className="inv-tabs" role="tablist" aria-label="Investigation views">
+        {TABS.map((item, index) => (
+          <button
+            key={item.id}
+            ref={(node) => {
+              tabRefs.current[index] = node;
+            }}
+            type="button"
+            role="tab"
+            id={`inv-tab-${item.id}`}
+            className="inv-tabs__tab"
+            aria-selected={tab === item.id}
+            aria-controls={`inv-panel-${item.id}`}
+            tabIndex={tab === item.id ? 0 : -1}
+            onClick={() => setTab(item.id)}
+            onKeyDown={(event) => onTabKeyDown(event, index)}
+          >
+            {item.label}
+            {item.id === 'evidence' && data.counts.evidence !== undefined && (
+              <small>{data.counts.evidence}</small>
+            )}
+            {item.id === 'network' && data.counts.relationships !== undefined && (
+              <small>{data.counts.relationships}</small>
+            )}
+            {item.id === 'notes' && <small>{notes.length}</small>}
+          </button>
+        ))}
+      </div>
+
+      <section
+        role="tabpanel"
+        id={`inv-panel-${tab}`}
+        aria-labelledby={`inv-tab-${tab}`}
+        className="inv-tabpanel"
+        tabIndex={0}
+      >
+        {tab === 'overview' && (
+          <>
+            {metrics.error !== null ? (
+              <ErrorState
+                message={`Case metrics are unavailable: ${metrics.error}`}
+                onRetry={metrics.reload}
+              />
+            ) : (
+              <MetricStrip metrics={metrics.data} />
+            )}
+            <InvestigativeBrief
+              caseName={record.name}
+              metrics={metrics.data}
+              hypotheses={hypothesisRows}
+              onOpenAssessment={() => setTab('assessment')}
+            />
+            <p className="hint" style={{ marginTop: 8 }}>
+              {`Metrics: ${METRICS_ENDPOINT} · signals: ${SIGNALS_ENDPOINT} · hypotheses: ${HYPOTHESES_ENDPOINT}`}
+            </p>
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel__head">
+                <div className="panel__headings">
+                  <h2 className="panel__title">Case signal matrix</h2>
+                  <p className="panel__desc">
+                    Support, contradiction and freshness per modality. Each cell shows the band and
+                    the number behind it — a band on its own is not evidence.
+                  </p>
+                </div>
+                <div className="panel__actions">
+                  <button type="button" className="btn btn--ghost btn--small" onClick={signals.reload}>
+                    Refresh
+                  </button>
+                </div>
+              </div>
+              <div className="panel__body">
+                <SignalMatrix signals={signals} />
+              </div>
+            </div>
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel__head">
+                <div className="panel__headings">
+                  <h2 className="panel__title">Case record</h2>
+                  <p className="panel__desc">
+                    Triage metadata as the API holds it, including the register&apos;s view of this
+                    case.
+                  </p>
+                </div>
+              </div>
+              <div className="panel__body">
+                <dl className="kv">
+                  <dt>Case ID</dt>
+                  <dd className="mono">{caseId}</dd>
+                  <dt>Opened</dt>
+                  <dd>{formatDateTime(record.created_at)}</dd>
+                  <dt>Last updated</dt>
+                  <dd>{formatDateTime(record.updated_at)}</dd>
+                  <dt>Last activity</dt>
+                  <dd>{formatDateTime(caseSummary?.last_activity ?? null)}</dd>
+                  <dt>Queue score</dt>
+                  <dd>
+                    {caseSummary === null
+                      ? 'not present in the register'
+                      : `${caseSummary.queue_score.toFixed(1)} — ${caseSummary.queue_reason}`}
+                  </dd>
+                  <dt>Why prioritised</dt>
+                  <dd>
+                    {caseSummary === null || caseSummary.reasons.length === 0 ? (
+                      <span className="hint">no priority reasons reported</span>
+                    ) : (
+                      <ul className="plain-list">
+                        {caseSummary.reasons.map((reason) => (
+                          <li key={reason.key}>
+                            {reason.label} <span className="mono">({reason.weight.toFixed(1)})</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </dd>
+                  <dt>Closed</dt>
+                  <dd>
+                    {record.closed_at === null ? (
+                      <span className="hint">open</span>
+                    ) : (
+                      <>
+                        {formatDateTime(record.closed_at)}
+                        {record.closure_reason !== null && ` — ${record.closure_reason}`}
+                      </>
+                    )}
+                  </dd>
+                </dl>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === 'evidence' && (
+          <>
+            <EvidenceLedger
+              caseId={caseId}
+              known={data.evidence}
+              onOpenEvidence={openEvidenceFromTab}
+            />
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel__head">
+                <div className="panel__headings">
+                  <h2 className="panel__title">Attach evidence</h2>
+                  <p className="panel__desc">
+                    Record a new artifact against this case. The hash and collector fields are what
+                    make the record admissible later.
+                  </p>
+                </div>
+              </div>
+              <div className="panel__body">
+                <EvidenceForm
+                  caseId={caseId}
+                  onCreated={() => {
+                    workspace.reload();
+                    metrics.reload();
+                  }}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === 'network' && <NetworkGraph caseId={caseId} caseName={record.name} />}
+
+        {tab === 'timeline' && (
+          <TimelineLanes timeline={timeline} onSelectEvidence={openEvidenceFromTab} />
+        )}
+
+        {tab === 'assessment' && (
+          <>
+            <HypothesisBoard hypotheses={hypotheses} onSelectEvidence={openEvidenceFromTab} />
+            <div style={{ marginTop: 16 }}>
+              <AssessmentPanel
+                workspace={data}
+                hypotheses={hypotheses}
+                onSelectEvidence={openEvidenceFromTab}
+              />
+            </div>
+            {hypotheses.error !== null && (
+              <p className="hint" style={{ marginTop: 10 }}>
+                {`Hypotheses could not be read from ${HYPOTHESES_ENDPOINT}.`}
+              </p>
+            )}
+          </>
+        )}
+
+        {tab === 'notes' && (
+          <div className="panel">
+            <div className="panel__head">
+              <div className="panel__headings">
+                <h2 className="panel__title">Analyst notes</h2>
+                <p className="panel__desc">
+                  The human record: observations, contradictions flagged, leads and the next
+                  verification step.
+                </p>
+              </div>
+              <div className="panel__actions">
+                <span className="surface-meta">
+                  {notes.length} note{notes.length === 1 ? '' : 's'}
+                </span>
+              </div>
+            </div>
+            <div className="panel__body">
+              <div className="field">
+                <label htmlFor="inv-note-body">New note</label>
+                <textarea
+                  id="inv-note-body"
+                  rows={3}
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder="Record an observation, contradiction, lead or next verification step…"
+                />
+              </div>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={noteBusy || note.trim() === ''}
+                  onClick={() => void saveNote()}
+                >
+                  {noteBusy ? 'Saving…' : 'Add note'}
+                </button>
+              </div>
+              {noteError !== null && <p className="status status--error">{noteError}</p>}
+              <div className="inv-notes" style={{ marginTop: 14 }}>
+                {notes.length === 0 && (
+                  <EmptyState
+                    title="No notes yet"
+                    message="Nothing has been recorded against this investigation. The first note should say what the next verification step is."
+                  />
+                )}
+                {notes.map((row) => (
+                  <article className="inv-note" key={row.note_id}>
+                    <p>{row.body}</p>
+                    <small>{formatDateTime(row.created_at)}</small>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {openEvidence !== null && (
+        <EvidenceDrawer
+          evidenceId={openEvidence}
+          onClose={() => setOpenEvidence(null)}
+          onLoaded={(_record: Evidence) => undefined}
+          onOpenEvidence={setOpenEvidence}
+        />
+      )}
+    </div>
+  );
 }
