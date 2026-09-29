@@ -33,6 +33,7 @@ from aegis.db.models import (
     AssessmentRecord,
     CaseRecord,
     EntityRecord,
+    HypothesisLinkRecord,
     HypothesisRecord,
     RelationshipRecord,
 )
@@ -40,7 +41,13 @@ from aegis.graph.schema import NodeLabel
 from aegis.graph.store import InMemoryGraphStore
 from aegis.ontology import EntityType, RelationshipType
 from aegis.schemas.entity import Entity, Relationship
-from aegis.schemas.hypothesis import Hypothesis, HypothesisKind, HypothesisStatus
+from aegis.schemas.hypothesis import (
+    EvidenceRole,
+    Hypothesis,
+    HypothesisEvidenceLink,
+    HypothesisKind,
+    HypothesisStatus,
+)
 from aegis.timeline.types import TimelineEvent, TimelineEventKind
 
 logger = logging.getLogger(__name__)
@@ -232,6 +239,37 @@ def load_hypotheses(db: Session, *, case_id: UUID | None = None) -> list[Hypothe
     query = select(HypothesisRecord).order_by(HypothesisRecord.created_at.desc()).limit(200)
     if case_id is not None:
         query = query.where(HypothesisRecord.case_id == case_id)
+    rows = list(db.scalars(query).all())
+    if not rows:
+        return []
+
+    # Links are what make a hypothesis citable. Without them every pack came
+    # back empty and the agent answered "no evidence-backed findings were
+    # retrieved" for a case holding four hypotheses and thousands of records —
+    # which is exactly the answer an analyst cannot check.
+    links = db.scalars(
+        select(HypothesisLinkRecord).where(
+            HypothesisLinkRecord.hypothesis_id.in_([row.hypothesis_id for row in rows])
+        )
+    ).all()
+    by_hypothesis: dict[UUID, list[HypothesisEvidenceLink]] = {}
+    for link in links:
+        by_hypothesis.setdefault(link.hypothesis_id, []).append(
+            HypothesisEvidenceLink(
+                evidence_id=link.evidence_id,
+                role=(
+                    EvidenceRole.SUPPORTING
+                    if link.role == "supporting"
+                    else EvidenceRole.CONTRADICTING
+                ),
+                weight=link.weight,
+                # Carried through so the agent can discount three links that
+                # are one source wearing three hats.
+                modality=link.modality or "unattributed",
+                independence_group=str(link.independence_group or "unknown"),
+            )
+        )
+
     return [
         Hypothesis(
             hypothesis_id=row.hypothesis_id,
@@ -241,8 +279,9 @@ def load_hypotheses(db: Session, *, case_id: UUID | None = None) -> list[Hypothe
             subject_entity_id=row.subject_entity_id,
             object_entity_id=row.object_entity_id,
             missing_evidence=tuple(row.missing_evidence or ()),
+            links=tuple(by_hypothesis.get(row.hypothesis_id, [])),
         )
-        for row in db.scalars(query).all()
+        for row in rows
     ]
 
 

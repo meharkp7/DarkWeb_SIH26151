@@ -18,6 +18,16 @@ export interface AgentContext {
   place: string;
   /** The workspace view on screen, when inside an investigation. */
   view?: WorkspaceView;
+  /**
+   * The case's id, when inside an investigation.
+   *
+   * Separate from `place` on purpose: the name is what the analyst reads and
+   * what the grounding line shows, but the API needs the id to scope the
+   * graph, hypothesis, timeline and assessment tools. Passing the name as
+   * grounding text and omitting the id is what left every case-scoped
+   * question — "compare the competing hypotheses" — answered from nothing.
+   */
+  caseId?: string;
 }
 
 const DEFAULT_CONTEXT: AgentContext = { place: 'Command Center' };

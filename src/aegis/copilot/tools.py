@@ -210,11 +210,19 @@ def compare_hypotheses(
 ) -> EvidencePack:
     wanted = {str(value) for value in hypothesis_ids}
 
-    hypotheses = tuple(
-        hypothesis for hypothesis in ctx.hypotheses if str(hypothesis.hypothesis_id) in wanted
-    )
+    if not wanted:
+        # No ids in the question means "all of them in scope", not "none of
+        # them". "Compare the competing hypotheses in this investigation" — the
+        # question the console itself suggests — names no ids, and comparing
+        # zero hypotheses returned "Compared 0 competing hypotheses", which
+        # reads as "there are none" when the case has twenty-eight.
+        hypotheses = tuple(sorted(ctx.hypotheses, key=lambda h: str(h.hypothesis_id)))
+    else:
+        hypotheses = tuple(
+            hypothesis for hypothesis in ctx.hypotheses if str(hypothesis.hypothesis_id) in wanted
+        )
 
-    if len(hypotheses) != len(wanted):
+    if wanted and len(hypotheses) != len(wanted):
         found = {str(h.hypothesis_id) for h in hypotheses}
         missing = sorted(wanted - found)
         raise LookupError(f"hypotheses not found: {missing}")

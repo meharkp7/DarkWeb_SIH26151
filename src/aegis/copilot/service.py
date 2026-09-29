@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from uuid import UUID
 
@@ -17,21 +18,47 @@ from aegis.copilot.tools import (
     search_evidence,
 )
 from aegis.copilot.types import Answer, EvidencePack, ParsedIntent, ToolName
+from aegis.search.types import SearchError
+
+logger = logging.getLogger(__name__)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _run_search(
     ctx: CopilotToolContext,
     intent: ParsedIntent,
 ) -> EvidencePack:
+    """Search, degrading rather than failing.
+
+    OpenSearch is an *optional* adapter — it may be absent, misconfigured or
+    holding a query it rejects. None of those is a reason for the whole agent
+    to return a 500: the graph, hypothesis, timeline and assessment tools all
+    work without it, and a question the analyst asked should get the part of
+    an answer that is available plus a statement of what is missing.
+
+    A hard failure here meant one misconfigured optional dependency turned
+    every question into an error, including the case-scoped ones that never
+    needed search.
+    """
     query = " ".join(intent.query.terms)
-    return search_evidence(
-        ctx,
-        query,
-        limit=intent.query.limit,
-        since=intent.query.since,
-        until=intent.query.until,
-        entity_ids=intent.query.entity_ids,
-    )
+    try:
+        return search_evidence(
+            ctx,
+            query,
+            limit=intent.query.limit,
+            since=intent.query.since,
+            until=intent.query.until,
+            entity_ids=intent.query.entity_ids,
+        )
+    except SearchError as error:
+        # An empty pack, not a fabricated one. The synthesis layer reports
+        # "no evidence-backed findings were retrieved" when every pack is
+        # empty, which is exactly true here — and it is true in a way an
+        # analyst can check, unlike a plausible-looking answer.
+        logger.warning("Copilot search unavailable, continuing without it: %s", error)
+        return EvidencePack()
 
 
 def _run_graph(

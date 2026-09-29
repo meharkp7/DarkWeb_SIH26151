@@ -296,7 +296,11 @@ export function CaseWorkspacePage() {
   );
 
   const data = workspace.data;
-  usePublishAgentContext(data === null ? null : { place: data.case.name, view: tab });
+  // caseId alongside place: the name is what the analyst reads, the id is
+  // what the agent's tools need in order to be scoped to this case.
+  usePublishAgentContext(
+    data === null ? null : { place: data.case.name, view: tab, caseId: data.case.case_id },
+  );
 
   useEffect(() => {
     if (snapshot?.server_time !== undefined) workspace.reload();

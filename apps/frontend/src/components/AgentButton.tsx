@@ -61,7 +61,13 @@ export function AgentButton() {
     setBusy(true);
     setError(null);
     try {
-      setAnswer(await api.copilot(grounding ? `${q}\nContext: ${grounding}` : q));
+      // The case id travels as scope; the name travels as grounding text.
+      // Sending only the name left the graph, hypothesis, timeline and
+      // assessment tools unpopulated, so the questions the agent itself
+      // suggests were the ones it could not answer.
+      setAnswer(
+        await api.copilot(grounding ? `${q}\nContext: ${grounding}` : q, 10, context.caseId),
+      );
       setQuestion('');
     } catch (reason) {
       setError(formatApiError(reason));

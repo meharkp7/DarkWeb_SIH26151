@@ -257,7 +257,22 @@ export const api = {
   getEvidence: (id:string,signal?:AbortSignal) => getJson<Evidence>(apiUrl(`/v1/evidence/${encodeURIComponent(id)}`),signal),
   getEvidenceProvenance: (id:string,signal?:AbortSignal) => getJson<EvidenceProvenance>(apiUrl(`/v1/evidence/${encodeURIComponent(id)}/provenance`),signal),
   runSyntheticAnalysis: async (payload:SyntheticAnalysisRequest) => parseSyntheticAnalysisResponse(await postJson<unknown>(apiUrl('/v1/analysis/synthetic'),payload)),
-  copilot: (question:string,limit=10) => postJson<CopilotResponse>(apiUrl('/v1/copilot/query'),{question,limit}),
+  /**
+   * The agent's scope travels in the body, not the URL.
+   *
+   * Without `case_id` the graph, hypothesis, timeline and assessment tools are
+   * never populated, so every case-scoped question — "compare the competing
+   * hypotheses", "what changed in this investigation" — is answered from
+   * nothing. The body is where the analyst's context already is; a query
+   * parameter would mean repeating it in two places and being able to
+   * contradict one with the other.
+   */
+  copilot: (question: string, limit = 10, caseId?: string) =>
+    postJson<CopilotResponse>(apiUrl('/v1/copilot/query'), {
+      question,
+      limit,
+      ...(caseId ? { case_id: caseId } : {}),
+    }),
 
   // --- actor registry ------------------------------------------------------
   // One serialiser for the filter set, used by the list URL and the export URL,
