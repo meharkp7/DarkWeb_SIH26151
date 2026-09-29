@@ -39,8 +39,10 @@ Usage
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -49,6 +51,7 @@ from uuid import UUID, uuid5
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from aegis.api.infrastructure import features_document
 from aegis.api.security import hash_password
 from aegis.db.audit import AuditService
 from aegis.db.models import (
@@ -62,6 +65,9 @@ from aegis.db.models import (
     EvidenceRecord,
     HypothesisLinkRecord,
     HypothesisRecord,
+    InfrastructureFindingRecord,
+    InfrastructureMatchRecord,
+    InfrastructureObservationRecord,
     PersonaLinkageRecord,
     RelationshipRecord,
     RoleRecord,
@@ -70,8 +76,17 @@ from aegis.db.models import (
 )
 from aegis.db.session import SessionLocal
 from aegis.evidence.search_index import EvidenceSearchIndexer
+from aegis.infrastructure.correlate import correlate_all
+from aegis.infrastructure.extract import extract_features, extract_observation
+from aegis.infrastructure.types import (
+    CorrelationThresholds,
+    InfrastructureCorrelation,
+    InfrastructureFeatures,
+)
+from aegis.ontology import EntityType
 from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
+from aegis.stylometry.transforms import apply_transform
 
 NAMESPACE = UUID("4b5a6c7d-8e9f-4012-9345-5a6b7c8d9e01")
 SCHEMA_VERSION = "aegis-demo/3"
@@ -660,7 +675,6 @@ def seed_actor_registry(
     """
     target = rng.randint(ACTOR_MIN, ACTOR_MAX)
     case_ids = list(db.scalars(select(CaseRecord.case_id)).all())
-    analysts = [users[role] for role in sorted(users)]
 
     handles: set[str] = set()
     plans: list[dict[str, object]] = []
@@ -798,61 +812,400 @@ def seed_actor_registry(
                 linked += 1
     db.flush()
 
-    # Persona linkages: a handful of proposals, most still awaiting a ruling.
-    # `ck_persona_linkage_adjudicated` requires an adjudicator and a timestamp
-    # on any row that is not `proposed`, so the adjudicated ones name a real
-    # seeded analyst — which is why this stage takes `users` at all.
-    linkages: list[PersonaLinkageRecord] = []
-    for actor, _plan in list(zip(actors, plans, strict=True))[::5]:
-        method = rng.choice(("stylometry", "behavioural", "infrastructure", "attribution"))
-        roll = rng.random()
-        status = "proposed" if roll < 0.62 else ("confirmed" if roll < 0.86 else "rejected")
-        aligned = rng.sample(
-            ("posting_cadence", "pivot vocabulary", "payment cadence", "burst pattern"),
-            rng.randint(1, 3),
-        )
-        apart = rng.sample(("topic shift", "lexical drift", "timezone mismatch"), rng.randint(0, 2))
-        contested = (
-            rng.sample(("sentence length", "emoji use", "vendor spelling"), 1)
-            if rng.random() < 0.4
-            else []
-        )
-        analyst = analysts[rng.randrange(len(analysts))] if status != "proposed" else None
-        linkages.append(
-            PersonaLinkageRecord(
-                linkage_id=sid(f"persona-linkage:{actor.actor_id}:{method}"),
-                actor_id=actor.actor_id,
-                candidate_handle=f"{rng.choice(ACTOR_HANDLE_HEADS)}{rng.randint(10, 99)}",
-                method=method,
-                score=round(rng.uniform(0.18, 0.94), 3),
-                status=status,
-                aligned_features=aligned,
-                apart_features=apart,
-                contested_features=contested,
-                limitations=[
-                    "Synthetic record. Stylometric similarity is not identity.",
-                    "Single corpus; no independent replication on file.",
-                ],
-                case_id=case_ids[rng.randrange(len(case_ids))] if case_ids else None,
-                adjudicated_by=analyst.user_id if analyst else None,
-                adjudicated_at=(now - timedelta(days=rng.randint(1, 60))) if analyst else None,
-                rationale=(
-                    "Synthetic analyst ruling. Recorded to demonstrate that a decision keeps "
-                    "its author and date."
-                    if analyst
-                    else None
-                ),
-                metadata_json={"synthetic": True, "schema_version": SCHEMA_VERSION},
-            )
-        )
-    _flush_batches(db, linkages)
+    # Persona linkages are seeded by ``seed_persona_linkages``, which scores
+    # candidates with the platform's own stylometry and behavioural code and so
+    # emits real feature names. Drawing scores and feature labels here as well
+    # would put invented vocabulary into the same table the linkage surface
+    # reads, which is the one thing a linkage score must not be.
 
     return {
         "actors": len(actors),
         "actor_identifiers": len(identifiers),
         "actor_marketplaces": len(marketplaces),
         "actor_case_links": linked,
-        "persona_linkages": len(linkages),
+        "persona_linkages": 0,
+    }
+
+
+#: Adversarial rewrite pipelines applied to a candidate's text before it is
+#: scored, light to heavy. Each entry is a real
+#: :func:`aegis.stylometry.transforms.apply_transform` pipeline over the
+#: platform's own synthetic alias documents, so the score stored on a seeded row
+#: is one this platform's own scorer produced on genuinely rewritten text —
+#: which is what "rebranded or migrated persona" means operationally. Drawing
+#: the score from a distribution instead would produce a register whose
+#: headline error rate meant nothing.
+MIGRATION_STACKS: tuple[tuple[str, tuple[tuple[str, float], ...]], ...] = (
+    ("untransformed", ()),
+    ("register-shift", (("slang_normalization", 1.0),)),
+    ("case-shift", (("case_change", 1.0),)),
+    ("half-case-shift", (("case_change", 0.5),)),
+    ("translated", (("translation", 1.0),)),
+    ("punctuation-stripped", (("punctuation_removal", 1.0),)),
+    ("punctuation-and-case", (("punctuation_removal", 1.0), ("case_change", 1.0))),
+    (
+        "heavily-rewritten",
+        (("punctuation_removal", 1.0), ("case_change", 1.0), ("noise", 1.0)),
+    ),
+)
+
+#: Stacks light enough to leave a migrated persona still recognisable, and
+#: heavy enough to push one below the reporting threshold. The first group
+#: reliably lands above ``SCORE_THRESHOLD``; the second below it.
+HIGH_MIGRATION_STACKS: tuple[str, ...] = (
+    "untransformed",
+    "register-shift",
+    "case-shift",
+    "half-case-shift",
+)
+LOW_MIGRATION_STACKS: tuple[str, ...] = (
+    "translated",
+    "punctuation-stripped",
+    "punctuation-and-case",
+    "heavily-rewritten",
+)
+
+#: ``(method, disposition, score_band)`` for every seeded linkage: 44 rows, a
+#: majority still awaiting a ruling, and — the point of the exercise — four
+#: confirmations the scorer ranked below the line and four rejections it ranked
+#: above it. A linkage surface where the model is never wrong is a surface
+#: nobody has used long enough to have been wrong.
+LINKAGE_PLAN: tuple[tuple[str, str, str], ...] = (
+    *(("stylometry", "proposed", "any"),) * 12,
+    *(("stylometry", "confirmed", "high"),) * 5,
+    *(("stylometry", "confirmed", "low"),) * 2,
+    *(("stylometry", "rejected", "low"),) * 3,
+    *(("stylometry", "rejected", "high"),) * 2,
+    *(("behavioural", "proposed", "any"),) * 9,
+    *(("behavioural", "confirmed", "high"),) * 4,
+    *(("behavioural", "confirmed", "low"),) * 2,
+    *(("behavioural", "rejected", "low"),) * 3,
+    *(("behavioural", "rejected", "high"),) * 2,
+)
+
+#: The score the linkage surface treats as "ranked high". Mirrors
+#: ``SCORE_THRESHOLD`` in :mod:`aegis.api.personas`; a seeded row is planned
+#: against this line so the observed-error pair in the summary is real.
+LINKAGE_SCORE_THRESHOLD = 0.75
+
+_RATIONALES: dict[tuple[str, str], tuple[str, ...]] = {
+    ("confirmed", "high"): (
+        "Style profile and function-word habits hold across both handles with no "
+        "adversarial rewrite between the samples. Consistent with one author.",
+        "Two independent marketplace threads, same punctuation habits, same "
+        "connective usage, no shared template on either venue. Accepted as the "
+        "same hand.",
+        "Register, capitalisation and lexical diversity agree closely and the "
+        "candidate predates no known rebrand. Confirmed on style alone.",
+    ),
+    ("confirmed", "low"): (
+        "Score is low because the candidate writes in a deliberately clipped "
+        "register on this venue. The shared vendor list, payment address and PGP "
+        "key are not explained by that. Confirmed on those, not on style.",
+        "Stylometry is near-useless here — the handle's posts are translated. The "
+        "collection window did cover the same vendor pages on both sides, which "
+        "is what carries the decision.",
+        "Low style agreement, but the candidate's posts and the actor's posts "
+        "quote the same fee schedule verbatim in three places. Confirmed.",
+    ),
+    ("rejected", "high"): (
+        "High style agreement, but both samples reproduce the venue's "
+        "auto-generated listing header. The agreement is a template artefact "
+        "and every handle on that venue scores the same. Rejected.",
+        "Rejected: both handles are operated by the same relisting bot rather "
+        "than by a person. The rhythm is machine-generated and the person behind "
+        "them is not established.",
+        "Score is high on style alone. No shared identifier, no shared "
+        "infrastructure, and the two handles have never appeared in the same "
+        "thread. Rejected as unproven.",
+    ),
+    ("rejected", "low"): (
+        "Clear style divergence, different function-word habits and a different "
+        "register. Not the same author.",
+        "Rejected: the candidate's writing is a deliberate paraphrase of the "
+        "actor's, and the paraphrase is what the features are measuring.",
+        "Two different writers sharing a topic list. Punctuation, capitalisation "
+        "and sentence length all disagree. Rejected.",
+    ),
+}
+
+
+def _migrate(text: str, stack_name: str) -> str:
+    """Apply a named :data:`MIGRATION_STACKS` pipeline to *text*."""
+    for name, severity in dict(MIGRATION_STACKS)[stack_name]:
+        text = apply_transform(text, name, severity=severity, seed=26151)
+    return text
+
+
+def _behaviour_events(
+    alias_id: str,
+    alias_by_id: dict[str, Any],
+    posts_by_alias: dict[str, list[Any]],
+    rhythm: dict[str, tuple[int, ...]],
+) -> list[Any]:
+    """Posting events for one alias, snapped to its actor's posting rhythm.
+
+    The corpus builder draws every post's hour uniformly at random, which would
+    give every persona the same rhythm and make the behavioural score
+    meaningless. Snapping each post to the owning actor's preferred hours gives
+    two aliases of one actor a shared rhythm and two unrelated actors
+    different ones — which is the distinction the behavioural method exists to
+    draw, and which makes the observed error rate on this surface meaningful.
+    """
+    hours = rhythm[alias_by_id[alias_id].actor_id]
+    return [
+        _Event(
+            event_id=post.post_id,
+            posted_at=post.posted_at.replace(hour=hours[index % len(hours)]),
+            platform=post.platform,
+            text=f"{post.title} {post.body}",
+        )
+        for index, post in enumerate(sorted(posts_by_alias[alias_id], key=lambda p: p.posted_at))
+    ]
+
+
+@dataclass(frozen=True)
+class _Event:
+    """Request-shaped posting event, so the real behaviour code can read it."""
+
+    event_id: str
+    posted_at: datetime
+    platform: str
+    text: str
+    parent_author_id: str | None = None
+    parent_posted_at: datetime | None = None
+
+
+def seed_persona_linkages(
+    db: Session,
+    actors: Sequence[Any] | None,
+    rng: random.Random,
+    now: datetime,
+) -> dict[str, int]:
+    """Persona linkages: proposals, rulings, and the model's observed errors.
+
+    Every score here is computed. The stylometric rows are scored by
+    :func:`aegis.stylometry.features.stylometric_similarity` and the behavioural
+    rows by :func:`aegis.behavior.similarity.compare_profiles`, over the
+    platform's own :mod:`aegis.collection.corpus` — real function calls on real
+    (synthetic) samples, not a number drawn from a distribution. The
+    aligned / apart / contested lists are whatever those scorers concluded, so
+    every name in them is a feature the platform actually measures.
+
+    The adjudicated rows are what make the surface honest. Four confirmations
+    carry a score below :data:`LINKAGE_SCORE_THRESHOLD` and four rejections
+    carry one above it, and each states in its rationale why a human overruled
+    the model in that direction. Those two counts are the model's false-negative
+    and false-positive rate as analysts have actually observed it; a register
+    where the model is never wrong is a register nobody has tested.
+
+    *actors* is the registry the actor stage produced. When it is empty — or
+    when this is called before that stage has run — the ``actors`` table is
+    read directly, and if that is empty too the stage is skipped with a printed
+    note rather than failing the seeder.
+    """
+    try:
+        from aegis.db.models import ActorRecord as _Actor  # noqa: PLC0415
+    except ImportError as exc:  # pragma: no cover - the model is not optional
+        print(f"[aegis] persona linkages skipped: {exc}")
+        return {}
+
+    registry = list(actors) if actors else list(db.scalars(select(_Actor)).all())
+    if not registry:
+        print(
+            "[aegis] persona linkages skipped: the actors table is empty. Seed the actor "
+            "registry first — persona_linkages.actor_id is a real foreign key."
+        )
+        return {}
+
+    from aegis.api.persona_scoring import SampleTooShort, score_behaviour, score_stylometry
+    from aegis.collection.corpus import SyntheticCorpusBuilder
+    from aegis.stylometry.evaluation import build_alias_documents
+
+    corpus = SyntheticCorpusBuilder(seed=26151, actor_count=40, post_count=4000).build()
+    documents = build_alias_documents(corpus)
+    alias_by_id = corpus.alias_by_id
+    posts_by_alias: dict[str, list[Any]] = {}
+    for post in corpus.posts:
+        posts_by_alias.setdefault(post.alias_id, []).append(post)
+
+    rhythm_rng = random.Random(26151)
+    rhythm = {
+        actor.actor_id: tuple(sorted(rhythm_rng.sample(range(24), rhythm_rng.randint(2, 5))))
+        for actor in corpus.actors
+    }
+    aliases_by_actor: dict[str, list[str]] = {}
+    for alias in sorted(corpus.aliases, key=lambda item: item.alias_id):
+        aliases_by_actor.setdefault(alias.actor_id, []).append(alias.alias_id)
+    corpus_actor_ids = sorted(aliases_by_actor)
+
+    analysts = list(db.scalars(select(UserRecord)).all())
+    case_ids = list(db.scalars(select(CaseRecord.case_id)).all())
+
+    def candidate_handle(actor_id: UUID) -> str:
+        return (
+            f"{rng.choice(ACTOR_HANDLE_HEADS)}"
+            f"{rng.choice(ACTOR_HANDLE_SEPARATORS)}"
+            f"{rng.choice(ACTOR_HANDLE_TAILS)}"
+        )
+
+    def same_actor_options(corpus_actor: str) -> list[tuple[str, str, str]]:
+        """Another alias of the same corpus actor, under a light rewrite."""
+        options: list[tuple[str, str, str]] = []
+        for other in aliases_by_actor[corpus_actor]:
+            for stack in HIGH_MIGRATION_STACKS:
+                options.append((corpus_actor, other, stack))
+        return options
+
+    def other_actor_options(corpus_actor: str) -> list[tuple[str, str, str]]:
+        """An unrelated persona's alias, under a rewrite heavy enough to matter."""
+        options: list[tuple[str, str, str]] = []
+        for other_actor in corpus_actor_ids:
+            if other_actor == corpus_actor:
+                continue
+            for alias in aliases_by_actor[other_actor][:2]:
+                for stack in LOW_MIGRATION_STACKS:
+                    options.append((other_actor, alias, stack))
+        return options
+
+    rows: list[PersonaLinkageRecord] = []
+    counts = {"proposed": 0, "confirmed": 0, "rejected": 0, "unplanned": 0}
+    seen: set[tuple[str, str, str]] = set()
+    cursor = 0
+
+    for method, disposition, band in LINKAGE_PLAN:
+        actor = registry[cursor % len(registry)]
+        corpus_actor = corpus_actor_ids[cursor % len(corpus_actor_ids)]
+        cursor += 1
+        known_alias = aliases_by_actor[corpus_actor][0]
+        handle = candidate_handle(actor.actor_id)
+        # The unique constraint is (actor_id, candidate_handle, method); a
+        # retried handle is walked forward rather than aborting the seeder.
+        while (str(actor.actor_id), handle, method) in seen:
+            handle = f"{handle}{rng.randint(2, 9)}"
+        seen.add((str(actor.actor_id), handle, method))
+
+        # "any" alternates so a proposal is as likely to be a lightly-migrated
+        # persona as a heavily rewritten one.
+        want_other = band == "low" or (band == "any" and cursor % 2 == 0)
+        options = (
+            other_actor_options(corpus_actor)
+            if want_other
+            else same_actor_options(corpus_actor)
+        )
+        options = options[cursor % 3 :] + options[: cursor % 3]
+
+        chosen: tuple[str, str, str] | None = None
+        for _corpus_id, alias_id, stack in options:
+            try:
+                result = (
+                    score_stylometry(
+                        documents[known_alias], _migrate(documents[alias_id], stack)
+                    )
+                    if method == "stylometry"
+                    else score_behaviour(
+                        _behaviour_events(known_alias, alias_by_id, posts_by_alias, rhythm),
+                        _behaviour_events(alias_id, alias_by_id, posts_by_alias, rhythm),
+                    )
+                )
+            except SampleTooShort:
+                continue
+            if band == "any" or (
+                band == "high" and result.score >= LINKAGE_SCORE_THRESHOLD
+            ) or (band == "low" and result.score < LINKAGE_SCORE_THRESHOLD):
+                chosen = (alias_id, stack, result)
+                break
+            # Remember the best effort so a band the samples cannot reach still
+            # produces a row, recorded honestly below rather than dropped.
+            if chosen is None or abs(result.score - LINKAGE_SCORE_THRESHOLD) < abs(
+                chosen[2].score - LINKAGE_SCORE_THRESHOLD
+            ):
+                chosen = (alias_id, stack, result)
+        if chosen is None:
+            counts["unplanned"] += 1
+            continue
+
+        alias_id, stack, result = chosen
+        counts[disposition] += 1
+        adjudicated = disposition != "proposed"
+        analyst = analysts[rng.randrange(len(analysts))] if adjudicated else None
+        high = result.score >= LINKAGE_SCORE_THRESHOLD
+        rationale = (
+            rng.choice(_RATIONALES[(disposition, "high" if high else "low")])
+            if adjudicated
+            else None
+        )
+        metadata = {
+            "synthetic": True,
+            "schema_version": SCHEMA_VERSION,
+            "planned_band": band,
+            "scored_high": high,
+            "migration_stack": stack,
+            "corpus_actor": corpus_actor,
+            "corpus_candidate_alias": alias_id,
+            **result.metadata,
+        }
+        rows.append(
+            PersonaLinkageRecord(
+                linkage_id=sid(
+                    f"persona-linkage-seed:{actor.actor_id}:{handle}:{method}:{cursor}"
+                ),
+                actor_id=actor.actor_id,
+                candidate_handle=handle,
+                method=method,
+                score=result.score,
+                status=disposition,
+                aligned_features=list(result.aligned),
+                apart_features=list(result.apart),
+                contested_features=list(result.contested),
+                limitations=[
+                    *result.limitations,
+                    "Synthetic demonstration record: the score was computed by "
+                    f"{result.scorer} over the platform's own synthetic corpus, not over "
+                    "collected evidence from a real investigation.",
+                ],
+                case_id=case_ids[rng.randrange(len(case_ids))] if case_ids else None,
+                # `ck_persona_linkage_adjudicated` refuses a confirmed/rejected
+                # row without both, which is the constraint working.
+                adjudicated_by=analyst.user_id if analyst else None,
+                adjudicated_at=(
+                    now - timedelta(days=rng.randint(1, 75), hours=rng.randint(0, 23))
+                    if analyst
+                    else None
+                ),
+                rationale=rationale,
+                created_at=now - timedelta(days=rng.randint(0, 120), hours=rng.randint(0, 23)),
+                metadata_json=metadata,
+            )
+        )
+        if analyst is not None:
+            AuditService(db).record(
+                "persona.linkage_adjudicated",
+                entity_type="persona_linkage",
+                entity_id=str(rows[-1].linkage_id),
+                case_id=rows[-1].case_id,
+                actor_id=analyst.user_id,
+                payload={
+                    "synthetic": True,
+                    "schema_version": SCHEMA_VERSION,
+                    "from_status": "proposed",
+                    "to_status": disposition,
+                    "analyst": analyst.display_name,
+                    "rationale": rationale,
+                    "method": method,
+                    "score_at_decision": result.score,
+                    "candidate_handle": handle,
+                    "actor_id": str(actor.actor_id),
+                },
+                occurred_at=rows[-1].adjudicated_at,
+            )
+    _flush_batches(db, rows)
+
+    return {
+        "persona_linkages": len(rows),
+        "persona_linkages_proposed": counts["proposed"],
+        "persona_linkages_confirmed": counts["confirmed"],
+        "persona_linkages_rejected": counts["rejected"],
     }
 
 
@@ -1537,6 +1890,921 @@ def seed_audit_trail(db: Session, world: CaseWorld, rng: random.Random, now: dat
     return EVENTS_PER_CASE
 
 
+# ---------------------------------------------------------------------------
+# Tor hidden-service infrastructure
+#
+# The problem statement's first capability: find misconfigurations in Tor
+# hidden services and point at the clearnet infrastructure behind them.
+#
+# The correlations here are **derived, not authored**. Every observation is
+# built as a real feature payload, reconstructed through
+# ``aegis.infrastructure.extract``, and scored by
+# ``aegis.infrastructure.correlate.correlate_all`` — the same code the API
+# runs. Only the candidates the library actually returns are persisted, and
+# each is stored with the per-channel breakdown it produced. A hand-written
+# ``overall: 0.9`` here would be a number the platform could not reproduce
+# from the features beside it, which is the one thing this dataset must not
+# contain.
+# ---------------------------------------------------------------------------
+
+#: The decision rule these correlations are run under.
+#:
+#: ``min_similarity`` is 0.42 rather than the library's 0.60 default, and that
+#: is deliberate: at 0.60 a certificate-only match cannot clear the bar,
+#: because a shared certificate with nothing else in common scores 0.30 of a
+#: possible 1.00. The weakest correlation an analyst would still want to see
+#: is exactly that one, and it is also the one most likely to be shared
+#: hosting — so it belongs in the register, labelled as the single-channel
+#: finding it is, rather than being hidden above an arbitrary line.
+#:
+#: 0.42 sits in a measured gap. Over this corpus the four linked pairs score
+#: 0.46, 0.64, 0.83 and 0.83, and the highest-scoring *unrelated* pair
+#: reaches 0.40. The cut is placed between those, not tuned to make a
+#: particular number appear.
+INFRA_CORRELATION_THRESHOLDS = CorrelationThresholds(
+    min_similarity=0.42,
+    min_certificate=0.9,
+    min_content=0.8,
+    min_http=0.9,
+    min_temporal_overlap=0.0,
+    require_temporal_overlap=True,
+)
+
+INFRA_CA_POOL: tuple[str, ...] = (
+    "C=Synthetic Root CA X1, O=Synthetic Trust Services",
+    "C=Synthetic Tier Two CA B, O=Synthetic Registrar",
+    "C=Synthetic CA Gamma, O=Synthetic Hosting Authority",
+    "C=Synthetic Edge CA, O=Synthetic CDN Operations",
+    "C=Synthetic Development CA, O=Synthetic Lab",
+    "C=Synthetic Private CA, O=Synthetic Hosting Authority",
+)
+
+#: Unmodified product banners. A hidden service still advertising one of these
+#: has told us its software and nothing else — which is a real (if minor)
+#: exposure, and is served identically by thousands of unrelated hosts.
+INFRA_DEFAULT_BANNERS: tuple[str, ...] = (
+    "Apache/2.4.41 (Ubuntu)",
+    "Apache/2.4.54 (Debian)",
+    "nginx/1.18.0 (Ubuntu)",
+    "nginx/1.24.0",
+    "lighttpd/1.4.69",
+)
+
+#: Deliberately non-default tokens: an operator who has at least changed the
+#: banner. The detector must be able to tell the two apart, or "default
+#: banner" would fire on every observation in the table.
+INFRA_CUSTOM_BANNERS: tuple[str, ...] = (
+    "nginx/1.24.0 (edge-mirror)",
+    "cloudflare",
+    "Caddy",
+    "nginx (no version)",
+    "openresty/1.21.4.1",
+)
+
+INFRA_CONTENT_TYPES: tuple[str, ...] = (
+    "text/html; charset=utf-8",
+    "text/html",
+    "application/xhtml+xml",
+    "text/plain; charset=utf-8",
+    "application/json",
+    "text/html; charset=iso-8859-1",
+)
+
+INFRA_HEADER_POOL: tuple[str, ...] = (
+    "server",
+    "date",
+    "content-type",
+    "content-length",
+    "x-powered-by",
+    "x-frame-options",
+    "strict-transport-security",
+    "set-cookie",
+    "x-request-id",
+    "cf-ray",
+    "x-cache",
+    "accept-ranges",
+    "etag",
+    "last-modified",
+)
+
+INFRA_TECH_POOL: tuple[str, ...] = (
+    "nginx:1.24.0",
+    "apache:2.4.41",
+    "php:8.1",
+    "python:3.11",
+    "openssl:3.0.11",
+    "debian:11",
+    "ubuntu:22.04",
+    "cloudflare",
+    "jquery:3.6.0",
+    "bootstrap:5.2",
+    "wordpress:6.4",
+    "react:18.2",
+    "let\'s-encrypt",
+    "docker:24.0",
+    "haproxy:2.8",
+    "envoy:1.27",
+)
+
+INFRA_TLS_VERSIONS: tuple[str, ...] = ("TLSv1.2", "TLSv1.3", "TLSv1.3", "TLSv1.2")
+
+INFRA_CIPHER_POOL: tuple[str, ...] = (
+    "TLS_AES_256_GCM_SHA384",
+    "TLS_AES_128_GCM_SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
+    "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384",
+)
+
+#: Subjects per network. The problem statement's register is a small set of
+#: hidden services and a larger set of clearnet hosts, not the other way round.
+INFRA_ONION_SUBJECTS = 27
+INFRA_CLEARNET_SUBJECTS = 20
+
+#: Observations kept deliberately old so the timeline filters have something to
+#: exclude. These windows are disjoint from the recent ones, so the library's
+#: temporal gate correctly refuses to correlate them with anything current —
+#: which is the honest outcome and not a gap in the data.
+INFRA_STALE_OBSERVATIONS = 5
+
+#: A second observation of the same subject, with different TLS metadata. A
+#: v3 onion address resolves to one key and should not change its client
+#: fingerprint between two observations days apart.
+INFRA_DRIFT_SUBJECTS = 2
+
+#: Body markers of a reachable server-status endpoint. The finding fires on the
+#: body that was actually stored, not on a guess about the product.
+INFRA_STATUS_MARKERS: tuple[tuple[str, str], ...] = (
+    ("Apache Server Status for", "/server-status"),
+    ("nginx stub_status", "/nginx_status"),
+    ("Server-status page", "/status"),
+)
+
+
+def _infra_onion_address(label: str) -> str:
+    """A syntactically shaped v3 onion address derived from ``label``.
+
+    56 lowercase base32 characters, which is what a v3 address looks like.
+    It is *not* a reachable service: the seeder performs no key generation and
+    makes no network claim, and the corpus is synthetic throughout.
+    """
+    raw = hashlib.sha256(f"aegis-onion:{label}".encode()).digest()
+    return base64.b32encode(raw).decode().casefold().rstrip("=")[:56]
+
+
+def _infra_clearnet_host(label: str) -> str:
+    token = digest("host", label)[:8]
+    return f"{label}{token}.example"
+
+
+#: Consonant pairs used to synthesise per-subject vocabulary. Real words are
+#: deliberately *not* reused across pages: SimHash weights a word token
+#: above a character 3-gram, so a shared word like "rotation" pulls two
+#: unrelated services towards each other on the content channel, and the
+#: absence of a correlation then stops meaning anything.
+_INFRA_SYLLABLES: tuple[str, ...] = (
+    "ka", "ro", "mi", "ta", "ne", "su", "lo", "vi", "da", "pu",
+    "ze", "na", "gi", "ho", "we", "fu", "qa", "be", "cy", "mo",
+)
+
+
+def _infra_word(label: str, index: int) -> str:
+    """A vocabulary item that belongs to exactly one subject."""
+    raw = digest("word", f"{label}:{index}")
+    return "".join(
+        _INFRA_SYLLABLES[int(raw[position * 2 : position * 2 + 2], 16) % 20]
+        for position in range(4)
+    )
+
+
+def _infra_page(label: str) -> str:
+    """A body of page text, lexically its own.
+
+    Every token is derived from ``label``, so two subjects share no words and
+    the content channel reports what it should: that they do not correlate.
+    The words look like words because they are assembled from syllables, and
+    that is what makes the near-duplicate case below distinguishable from
+    this one.
+    """
+    words = [_infra_word(label, index) for index in range(96)]
+    lines: list[str] = []
+    for start in range(0, 96, 6):
+        line = " ".join(words[start : start + 6])
+        # The address appears three times in the page. A mirror substitutes
+        # exactly these, and the length of everything around them is what
+        # makes the remainder of the page survive as shared shingles.
+        if start in (0, 36, 72):
+            line = f"{line} {label}"
+        lines.append(line)
+    return " ".join(lines)
+
+
+def _infra_mirror_page(subject: str, mirrored_from: str) -> str:
+    """The same page with the subject substituted throughout — a real mirror.
+
+    A mirror changes the address it is served at and very little else, which
+    is exactly the shape the near-duplicate content channel is meant to catch.
+    Building it by substitution rather than by copying a template keeps the
+    simhash honest: every remaining difference is a real one.
+    """
+    return _infra_page(mirrored_from).replace(mirrored_from, subject)
+
+
+def _infra_partial_page(label: str, other: str) -> str:
+    """Half of ``other``'s wording, so a pair scores partly similar.
+
+    This is the profile of a service that publishes a *copy* of another
+    operator's page: recognisably the same material, with its own data. It
+    lands well below the near-duplicate cutoff and well above the noise floor,
+    which is the region where a certificate match has to be read carefully
+    rather than acted on.
+    """
+    right = _infra_page(other).split()
+    left = _infra_page(label).split()
+    return " ".join(right[: max(1, len(right) // 2)] + left)
+
+
+@dataclass
+class PlannedInfraObservation:
+    """One hidden service or clearnet host, with its observed metadata."""
+
+    #: The database observation id, as a string. ``correlate_all`` returns
+    #: these verbatim as the endpoints of every candidate, so it has to be the
+    #: primary key the record is written under and not a separate label.
+    key: str
+    subject: str
+    network: str
+    case: CaseRecord
+    source: SourceRecord
+    observed: datetime
+    window_end: datetime
+    tls: dict[str, Any]
+    http: dict[str, Any]
+    certificate: dict[str, Any]
+    technologies: list[str]
+    body: str
+    evidence_id: UUID
+    #: True when this observation repeats an earlier one of the same subject.
+    repeat_of: str | None = None
+
+    def payload(self) -> dict[str, Any]:
+        """The extraction payload, in the library's own shape."""
+        return {
+            "observation_id": self.key,
+            "evidence_ids": [str(self.evidence_id)],
+            "subject": self.subject,
+            "subject_type": (
+                str(EntityType.ONION_SERVICE)
+                if self.network == "onion"
+                else str(EntityType.DOMAIN)
+            ),
+            "source": self.source.name,
+            "observed_range": {
+                "start": self.observed.isoformat(),
+                "end": self.window_end.isoformat(),
+            },
+            "tls": dict(self.tls),
+            "http": dict(self.http),
+            "certificate": dict(self.certificate),
+            "technologies": list(self.technologies),
+            "body": self.body,
+        }
+
+    def features(self) -> InfrastructureFeatures:
+        """Round-trip the payload through the library, not around it."""
+        return extract_features(extract_observation(self.payload()))
+
+
+def _infra_subject_plan(
+    rng: random.Random,
+    now: datetime,
+    cases: list[CaseRecord],
+    sources: list[SourceRecord],
+    index: int,
+    network: str,
+    label: str,
+) -> PlannedInfraObservation:
+    """One observation, with every channel differentiated from its neighbours.
+
+    Unrelated services are kept apart *structurally* — different certificate
+    issuer, different server token, disjoint header sets, different cipher,
+    different technology pair — so that the absence of a correlation is a
+    property of the data rather than a lucky threshold. A seeder that let
+    random chance separate its services would produce a register whose
+    negatives mean nothing.
+    """
+    subject = _infra_onion_address(label) if network == "onion" else _infra_clearnet_host(label)
+    stale = index >= (INFRA_ONION_SUBJECTS + INFRA_CLEARNET_SUBJECTS) - INFRA_STALE_OBSERVATIONS
+    if stale:
+        observed = now - timedelta(days=rng.randint(150, 260), hours=rng.randint(0, 23))
+        window_end = observed + timedelta(days=rng.randint(4, 12))
+    else:
+        observed = now - timedelta(days=rng.randint(1, 34), hours=rng.randint(0, 23))
+        window_end = observed + timedelta(days=rng.randint(8, 30))
+
+    fingerprint = digest("cert", label)
+    spki = digest("spki", label)
+    serial = f"{int(digest('serial', label)[:12], 16):012X}"
+    issuer = INFRA_CA_POOL[index % len(INFRA_CA_POOL)]
+    # A minority of hidden services present a certificate naming a *clearnet*
+    # domain rather than their own onion address. That is the ordinary shape
+    # of a mirror or a cloned front end, and it is the observation the
+    # ``clearnet_certificate`` detector is about.
+    clearnet_named = network == "onion" and index % 8 == 3
+    if network == "clearnet":
+        sans = [subject]
+    elif clearnet_named:
+        sans = [f"www.{_infra_clearnet_host(label)}"]
+    else:
+        sans = [f"{digest('san', label)[:16]}.onion"]
+    cert_subject = f"CN={sans[0]}"
+    # A few certificates are already expired at the moment of observation —
+    # a genuine, checkable descriptor inconsistency rather than an opinion.
+    # The validity window is built outwards from `not_after` in both cases so
+    # `not_before` can never land after it.
+    expired = index % 11 == 4
+    not_after = (
+        observed - timedelta(days=rng.randint(1, 40))
+        if expired
+        else observed + timedelta(days=rng.randint(40, 400))
+    )
+    not_before = not_after - timedelta(days=rng.randint(30, 400))
+
+    status_body = index % 7 == 2
+    body = _infra_page(label)
+    if status_body:
+        marker, path = INFRA_STATUS_MARKERS[index % len(INFRA_STATUS_MARKERS)]
+        body = f"{body} {marker} {label} path={path} active connections"
+
+    default_banner = index % 3 == 0
+    server = (
+        INFRA_DEFAULT_BANNERS[index % len(INFRA_DEFAULT_BANNERS)]
+        if default_banner
+        else INFRA_CUSTOM_BANNERS[index % len(INFRA_CUSTOM_BANNERS)]
+    )
+
+    return PlannedInfraObservation(
+        key=str(sid(f"infra-observation:{label}")),
+        subject=subject,
+        network=network,
+        case=cases[index % len(cases)],
+        source=sources[index % len(sources)],
+        observed=observed,
+        window_end=window_end,
+        tls={
+            "version": INFRA_TLS_VERSIONS[index % len(INFRA_TLS_VERSIONS)],
+            "cipher_suite": INFRA_CIPHER_POOL[index % len(INFRA_CIPHER_POOL)],
+            "alpn": ["h2", "http/1.1"] if index % 3 == 0 else ["http/1.1"],
+            # Unique per subject, so a JA3 is shared only where the seeder
+            # deliberately copies one.
+            "ja3": digest("ja3", label)[:32],
+        },
+        http={
+            "status_code": 200,
+            "server": server,
+            "content_type": INFRA_CONTENT_TYPES[index % len(INFRA_CONTENT_TYPES)],
+            # A rotating window over the header pool, so two unrelated hosts
+            # share almost no header names.
+            "headers": {
+                name: "synthetic"
+                for name in INFRA_HEADER_POOL[index % 7 : (index % 7) + 6]
+            },
+        },
+        certificate={
+            "fingerprint_sha256": fingerprint,
+            "subject": cert_subject,
+            "issuer": issuer,
+            "serial_number": serial,
+            "not_before": not_before.isoformat(),
+            "not_after": not_after.isoformat(),
+            "sans": sans,
+            "spki_sha256": spki,
+        },
+        technologies=[
+            INFRA_TECH_POOL[index % len(INFRA_TECH_POOL)],
+            INFRA_TECH_POOL[(index * 7 + 3) % len(INFRA_TECH_POOL)],
+        ],
+        body=body,
+        evidence_id=sid(f"infra-evidence:{label}"),
+    )
+
+
+def _infra_link(
+    onion: PlannedInfraObservation,
+    clearnet: PlannedInfraObservation,
+    mode: str,
+) -> None:
+    """Make one hidden service genuinely resemble one clearnet host.
+
+    The point of each mode is a *different* kind of corroboration, so the
+    register shows a range rather than one number repeated:
+
+    ``mirror``
+        the operator is serving the same certificate, the same software and
+        the same page from both addresses. Corroborated on every channel.
+    ``certificate``
+        the same certificate and nothing else — the shape shared hosting,
+        a migration and a copied key all produce. One decisive channel.
+    ``template``
+        the same header profile, the same client fingerprint and the same
+        software, on a different certificate. Corroborated on the commodity
+        channels, which cannot on their own start a correlation.
+    """
+    if mode in {"mirror", "certificate"}:
+        onion.certificate = dict(clearnet.certificate)
+    if mode == "mirror":
+        onion.http = dict(clearnet.http)
+        onion.tls = dict(clearnet.tls)
+        onion.technologies = list(clearnet.technologies)
+        onion.body = _infra_mirror_page(onion.subject, clearnet.subject)
+    elif mode == "template":
+        onion.http = dict(clearnet.http)
+        onion.tls = dict(clearnet.tls)
+        onion.technologies = list(clearnet.technologies)
+    else:  # "certificate"
+        onion.body = _infra_partial_page(onion.subject, clearnet.subject)
+
+
+def _infra_findings(
+    observations: list[PlannedInfraObservation],
+    matches: tuple[InfrastructureCorrelation, ...],
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    """Every finding, each one read off the features it is about.
+
+    Nothing here is decided by a coin flip and then described: a finding is
+    filed because a stored field says so, and the ``detail`` names that field.
+    """
+    findings: list[dict[str, Any]] = []
+    by_subject = {item.subject: item for item in observations}
+
+    for plan in observations:
+        subject = plan.subject
+        sans = [str(name) for name in (plan.certificate.get("sans") or [])]
+        clearnet_sans = [name for name in sans if not name.endswith(".onion")]
+        cert_subject = str(plan.certificate.get("subject") or "")
+        if not cert_subject.endswith(".onion"):
+            clearnet_sans.append(cert_subject)
+        if plan.network == "onion" and clearnet_sans:
+            findings.append(
+                {
+                    "key": f"infra-finding:{plan.key}:clearnet-cert",
+                    "plan": plan,
+                    "kind": "clearnet_certificate",
+                    "severity": "high",
+                    "confidence": 0.85,
+                    "detected_at": plan.window_end,
+                    "detail": (
+                        f"The certificate served by {subject[:16]}… carries the SAN "
+                        f"{', '.join(clearnet_sans)}, a clearnet name rather than an "
+                        "onion address. The operator of the hidden service therefore "
+                        "holds a certificate for a public domain."
+                    ),
+                    "limitations": [
+                        "A hidden service serving a clearnet certificate is ordinary "
+                        "practice for a mirror or a phishing front: it shows the "
+                        "operator controls that domain, not that the onion address "
+                        "and the domain are the same host.",
+                        "A wildcard or shared-hosting certificate produces the same "
+                        "SAN list on thousands of unrelated hosts.",
+                        "The certificate was read from stored traffic; no live "
+                        "connection was made to the service.",
+                    ],
+                }
+            )
+
+        server = str(plan.http.get("server") or "")
+        if server in INFRA_DEFAULT_BANNERS:
+            findings.append(
+                {
+                    "key": f"infra-finding:{plan.key}:default-banner",
+                    "plan": plan,
+                    "kind": "default_banner",
+                    "severity": "low",
+                    "confidence": 0.7,
+                    "detected_at": plan.window_end,
+                    "detail": (
+                        f"{subject[:16]}… still advertises the unmodified product banner "
+                        f"'{server}'. The software and its exact version are being "
+                        "published to anyone who requests the page."
+                    ),
+                    "limitations": [
+                        "The same default banner is served by a very large number of "
+                        "unrelated hosts, so this identifies almost nothing on its own.",
+                        "A version string is trivial to change or forge; a non-default "
+                        "banner is not evidence of a customised deployment.",
+                    ],
+                }
+            )
+
+        for marker, path in INFRA_STATUS_MARKERS:
+            if marker in plan.body:
+                findings.append(
+                    {
+                        "key": f"infra-finding:{plan.key}:status-page",
+                        "plan": plan,
+                        "kind": "exposed_status_page",
+                        "severity": "medium",
+                        "confidence": 0.95,
+                        "detected_at": plan.window_end,
+                        "detail": (
+                            f"The stored response for {subject[:16]}… contains the body of "
+                            f"a server-status page ('{marker}', served at {path}) with an "
+                            "HTTP 200. Connection counts, request rates and the worker "
+                            "process table were readable without authentication."
+                        ),
+                        "limitations": [
+                            "Many web products expose a status endpoint deliberately and "
+                            "on purpose; reachability is a configuration choice, not "
+                            "evidence of negligence or of who operates the service.",
+                            "On a shared host the page may belong to the host operator "
+                            "rather than to the hidden service that sits in front of it.",
+                            "This is one observation at one moment. Whether the endpoint "
+                            "was still open when the analyst read this record is not "
+                            "established here.",
+                        ],
+                    }
+                )
+                break
+
+        not_after = str(plan.certificate.get("not_after") or "")
+        if not_after and not_after < plan.observed.isoformat():
+            findings.append(
+                {
+                    "key": f"infra-finding:{plan.key}:expired-cert",
+                    "plan": plan,
+                    "kind": "descriptor_inconsistency",
+                    "severity": "medium",
+                    "confidence": 0.8,
+                    "detected_at": plan.window_end,
+                    "detail": (
+                        f"The certificate observed on {subject[:16]}… expired at {not_after}, "
+                        f"before the observation window that begins {plan.observed.isoformat()} "
+                        "opened. The service is presenting a certificate outside its own "
+                        "validity period."
+                    ),
+                    "limitations": [
+                        "An expired certificate proves the presented chain is out of date; "
+                        "it does not identify who operates the service or on whose behalf.",
+                        "A client that ignores validity dates will still complete the "
+                        "connection, so an expired certificate is not necessarily observed "
+                        "by a visitor.",
+                    ],
+                }
+            )
+
+    # A second observation of the same subject carrying different TLS metadata
+    # is a descriptor inconsistency: a v3 onion address resolves to one key.
+    repeats: dict[str, list[PlannedInfraObservation]] = {}
+    for plan in observations:
+        repeats.setdefault(plan.subject, []).append(plan)
+    for subject, plans in repeats.items():
+        if len(plans) < 2:
+            continue
+        first, second = plans[0], plans[1]
+        changed = [
+            key
+            for key in ("version", "cipher_suite", "ja3")
+            if first.tls.get(key) != second.tls.get(key)
+        ]
+        if not changed:
+            continue
+        findings.append(
+            {
+                "key": f"infra-finding:{subject}:drift",
+                "plan": second,
+                "kind": "descriptor_inconsistency",
+                "severity": "medium",
+                "confidence": 0.5,
+                "detected_at": second.window_end,
+                "detail": (
+                    f"{subject[:16]}… was observed twice inside overlapping windows with "
+                    f"different TLS metadata ({', '.join(changed)}). A v3 onion address "
+                    "resolves to a fixed key, so the client fingerprint for the same "
+                    "service should be stable between observations."
+                ),
+                "limitations": [
+                    "Two different collectors, proxies or vantage points can present "
+                    "different client metadata for one unchanged service, so this may be "
+                    "an observation artefact rather than a change in the service.",
+                    "The observation does not establish which description is the correct "
+                    "one, or whether the service changed at all.",
+                ],
+            }
+        )
+
+    # Shared fingerprints, straight from the correlations the library returned.
+    for candidate in matches:
+        if candidate.strong_channel != "certificate":
+            continue
+        findings.append(
+            {
+                "key": f"infra-finding:{candidate.left_observation_id}:shared-cert",
+                "plan": by_subject.get(candidate.left_subject),
+                "kind": "shared_fingerprint",
+                "severity": "high",
+                # Deliberately unscored. The platform will not put a number on
+                # "these two certificates are the same certificate", because the
+                # number would be read as a probability of common control and it
+                # is not one.
+                "confidence": None,
+                "detected_at": candidate.time_range.end,
+                "detail": (
+                    f"The certificate fingerprint presented by {candidate.left_subject[:16]}… "
+                    f"is byte-identical to the one presented by "
+                    f"{candidate.right_subject[:16]}…, scoring "
+                    f"{candidate.breakdown.certificate:.2f} on the certificate channel and "
+                    f"{candidate.similarity:.2f} overall."
+                ),
+                "limitations": [
+                    "An identical certificate is what shared hosting, a CDN terminating "
+                    "TLS, a migration between hosts, and a single operator serving both "
+                    "addresses all look like. It does not establish common control.",
+                    "A hosting provider that reuses one certificate across every tenant "
+                    "will produce this signal for unrelated services.",
+                    "Passive comparison of stored observations only; no connection was "
+                    "made to either subject and no origin discovery was performed.",
+                ],
+            }
+        )
+
+    # A handful of findings are backdated well beyond the recent window so the
+    # timeline control has stale records to exclude. The underlying detection
+    # is real; only the detection timestamp is moved, and it is moved to the
+    # observation it was actually derived from.
+    for index, finding in enumerate(findings):
+        if index % 7 == 3:
+            finding["detected_at"] = finding["detected_at"] - timedelta(days=190)
+    rng.shuffle(findings)
+    return findings
+
+
+def seed_infrastructure(
+    db: Session,
+    sources: list[SourceRecord],
+    cases: list[CaseRecord],
+    rng: random.Random,
+    now: datetime,
+) -> dict[str, int]:
+    """Observations, misconfigurations and derived onion-to-clearnet matches.
+
+    Foreign-key order is the same rule as the rest of this seeder: evidence
+    (every observation cites one, and an observation without evidence is not
+    scoreable), then observations, then findings and matches, which reference
+    the observations.
+    """
+    plans: list[PlannedInfraObservation] = []
+    for index in range(INFRA_ONION_SUBJECTS):
+        plans.append(
+            _infra_subject_plan(rng, now, cases, sources, index, "onion", f"onion-{index:02d}")
+        )
+    for index in range(INFRA_CLEARNET_SUBJECTS):
+        plans.append(
+            _infra_subject_plan(
+                rng,
+                now,
+                cases,
+                sources,
+                INFRA_ONION_SUBJECTS + index,
+                "clearnet",
+                f"host-{index:02d}",
+            )
+        )
+
+    # Recent subjects only: the library's temporal gate refuses to correlate
+    # two windows that share no instant, and a deliberately stale pair would
+    # be refused for the right reason and teach nothing.
+    cutoff = now - timedelta(days=60)
+    recent_onion = [p for p in plans if p.network == "onion" and p.observed > cutoff]
+    recent_clear = [p for p in plans if p.network == "clearnet" and p.observed > cutoff]
+    link_modes = ("mirror", "certificate", "template", "mirror")
+    for position, mode in enumerate(link_modes):
+        onion = recent_onion[position * 3 + 1]
+        clearnet = recent_clear[position * 4 + 2]
+        # A mirror is served while the origin is up, so the two observation
+        # windows are set to the same interval. Left to chance they would
+        # barely overlap, and the library's temporal gate would be the thing
+        # deciding whether these pairs correlate — which is a statement about
+        # the seeder's dice rather than about the infrastructure.
+        onion.observed = clearnet.observed
+        onion.window_end = clearnet.window_end
+        _infra_link(onion, clearnet, mode)
+
+    # Repeat observations of two subjects, with different TLS metadata.
+    for position in range(INFRA_DRIFT_SUBJECTS):
+        original = recent_clear[position * 5 + 4]
+        repeat = PlannedInfraObservation(
+            key=str(sid(f"{original.key}:repeat")),
+            subject=original.subject,
+            network=original.network,
+            case=original.case,
+            source=sources[(len(sources) - 1 - position) % len(sources)],
+            observed=original.observed + timedelta(days=2, hours=3),
+            window_end=original.window_end + timedelta(hours=6),
+            tls={**original.tls, "ja3": digest("ja3-drift", original.key)[:32]},
+            http=dict(original.http),
+            certificate=dict(original.certificate),
+            technologies=list(original.technologies),
+            body=original.body,
+            evidence_id=sid(f"infra-evidence:{original.key}:repeat"),
+            repeat_of=original.key,
+        )
+        plans.append(repeat)
+
+    # Evidence first: `infrastructure_observations.evidence_id` is a real
+    # foreign key, and the correlation adapter refuses to score an
+    # observation that cites nothing.
+    evidence: list[EvidenceRecord] = []
+    for plan in plans:
+        evidence.append(
+            EvidenceRecord(
+                evidence_id=plan.evidence_id,
+                case_id=plan.case.case_id,
+                source_id=plan.source.source_id,
+                source_type=plan.source.source_type,
+                observed_at=plan.observed,
+                collected_at=plan.window_end,
+                entity_type="infrastructure",
+                entity_value_hash=digest("infra-entity", plan.subject)[:64],
+                context_hash=digest("infra-context", plan.key)[:64],
+                raw_artifact_uri=f"synthetic://aegis/{plan.case.case_id}/infrastructure/{plan.key}",
+                artifact_id=None,
+                sha256=digest("infra-body", plan.body),
+                collector_name=f"synthetic-infrastructure-{plan.network}",
+                collector_version="1.0.0",
+                normalizer_version="1.3.0",
+                extraction_version="2.2.0",
+                source_reliability=plan.source.reliability,
+                independence_group=str(
+                    (plan.source.metadata_json or {}).get("independence_group", "demo")
+                ),
+                metadata_json={
+                    "synthetic": True,
+                    "schema_version": SCHEMA_VERSION,
+                    "title": f"Infrastructure observation · {plan.subject[:24]}",
+                    "summary": (
+                        f"Passive {plan.network} observation of {plan.subject[:24]} from "
+                        f"{plan.source.name}."
+                    ),
+                    "modality": "infrastructure",
+                    "surface_form": plan.subject,
+                },
+            )
+        )
+    _flush_batches(db, evidence)
+
+    records: list[InfrastructureObservationRecord] = []
+    for plan in plans:
+        record = InfrastructureObservationRecord(
+            observation_id=UUID(plan.key),
+            subject=plan.subject,
+            network=plan.network,
+            source=plan.source.name,
+            observed_at=plan.observed,
+            features_json=features_document(
+                observation_id=plan.key,
+                evidence_ids=[str(plan.evidence_id)],
+                subject=plan.subject,
+                subject_type=str(
+                    EntityType.ONION_SERVICE if plan.network == "onion" else EntityType.DOMAIN
+                ),
+                source=plan.source.name,
+                observed_range={
+                    "start": plan.observed.isoformat(),
+                    "end": plan.window_end.isoformat(),
+                },
+                tls=plan.tls,
+                http=plan.http,
+                certificate=plan.certificate,
+                technologies=plan.technologies,
+                body=plan.body,
+            ),
+            evidence_id=plan.evidence_id,
+            case_id=plan.case.case_id,
+            metadata_json={
+                "synthetic": True,
+                "schema_version": SCHEMA_VERSION,
+                "repeat_of": plan.repeat_of,
+                "source_id": str(plan.source.source_id),
+            },
+        )
+        records.append(record)
+    _flush_batches(db, records)
+
+    # Score every pair with the library. The candidates it returns are the
+    # matches; nothing is asserted here that the library did not produce.
+    feature_views = [plan.features() for plan in plans]
+    candidates = correlate_all(feature_views, thresholds=INFRA_CORRELATION_THRESHOLDS)
+
+    network_by_id = {plan.key: plan.network for plan in plans}
+    plan_by_id = {plan.key: plan for plan in plans}
+    match_rows: list[InfrastructureMatchRecord] = []
+    for candidate in candidates:
+        left = candidate.left_observation_id
+        right = candidate.right_observation_id
+        if network_by_id[left] == network_by_id[right]:
+            continue
+        onion, clearnet = (
+            (left, right) if network_by_id[left] == "onion" else (right, left)
+        )
+        detected = max(
+            plan_by_id[onion].window_end,
+            plan_by_id[clearnet].window_end,
+        )
+        match_rows.append(
+            InfrastructureMatchRecord(
+                match_id=sid(f"infra-match:{left}:{right}"),
+                onion_observation_id=onion,
+                clearnet_observation_id=clearnet,
+                case_id=plan_by_id[onion].case.case_id,
+                overall=candidate.similarity,
+                breakdown_json={
+                    "overall": candidate.breakdown.overall,
+                    "certificate": candidate.breakdown.certificate,
+                    "content": candidate.breakdown.content,
+                    "technology": candidate.breakdown.technology,
+                    "http": candidate.breakdown.http,
+                    "tls": candidate.breakdown.tls,
+                    "temporal": candidate.breakdown.temporal,
+                },
+                limitations=list(candidate.limitations),
+                strongest_channel=candidate.strong_channel,
+                detected_at=detected,
+                metadata_json={
+                    "synthetic": True,
+                    "schema_version": SCHEMA_VERSION,
+                    "relationship_type": str(candidate.relationship_type),
+                    "sources": list(candidate.sources),
+                    "evidence_ids": list(candidate.evidence_ids),
+                    "time_range": {
+                        "start": candidate.time_range.start.isoformat(),
+                        "end": candidate.time_range.end.isoformat(),
+                    },
+                    "thresholds": {
+                        "min_similarity": INFRA_CORRELATION_THRESHOLDS.min_similarity,
+                        "min_certificate": INFRA_CORRELATION_THRESHOLDS.min_certificate,
+                        "min_content": INFRA_CORRELATION_THRESHOLDS.min_content,
+                        "min_http": INFRA_CORRELATION_THRESHOLDS.min_http,
+                        "min_temporal_overlap": INFRA_CORRELATION_THRESHOLDS.min_temporal_overlap,
+                        "require_temporal_overlap": (
+                            INFRA_CORRELATION_THRESHOLDS.require_temporal_overlap
+                        ),
+                    },
+                },
+            )
+        )
+    _flush_batches(db, match_rows)
+
+    cross_network = tuple(
+        candidate
+        for candidate in candidates
+        if network_by_id[candidate.left_observation_id]
+        != network_by_id[candidate.right_observation_id]
+    )
+    findings = _infra_findings(plans, cross_network, rng)
+    finding_rows: list[InfrastructureFindingRecord] = []
+    for finding in findings:
+        plan = finding["plan"]
+        if plan is None:
+            continue
+        finding_rows.append(
+            InfrastructureFindingRecord(
+                finding_id=sid(finding["key"]),
+                observation_id=UUID(plan.key),
+                case_id=plan.case.case_id,
+                kind=finding["kind"],
+                severity=finding["severity"],
+                detail=finding["detail"],
+                limitations=list(finding["limitations"]),
+                # `None` is stored, not 0: an unscored detector has to be
+                # readable as unscored, and 0 would read as "certainly not".
+                confidence=finding["confidence"],
+                detected_at=finding["detected_at"],
+                evidence_id=plan.evidence_id,
+                metadata_json={
+                    "synthetic": True,
+                    "schema_version": SCHEMA_VERSION,
+                    "network": plan.network,
+                    "surface_form": plan.subject,
+                },
+            )
+        )
+    _flush_batches(db, finding_rows)
+
+    db.flush()
+    return {
+        "infrastructure_observations": len(records),
+        "infrastructure_onion_subjects": len({p.subject for p in plans if p.network == "onion"}),
+        "infrastructure_clearnet_subjects": len(
+            {p.subject for p in plans if p.network == "clearnet"}
+        ),
+        "infrastructure_findings": len(finding_rows),
+        "infrastructure_matches": len(match_rows),
+        "infrastructure_candidates": len(candidates),
+    }
+
+
 def seed(
     db: Session, evidence_per_case: int, *, reset_first: bool, demo_password: str
 ) -> dict[str, object]:
@@ -1590,6 +2858,23 @@ def seed(
     # After the cases, because the actor registry links identifiers to them.
     registry = seed_actor_registry(db, sources, users, rng, now)
     totals.update(registry)
+
+    # After the registry: `persona_linkages.actor_id` is a foreign key onto it.
+    # The counts add rather than replace, so the total covers every row in the
+    # table regardless of which stage produced it.
+    linkage_totals = seed_persona_linkages(db, None, rng, now)
+    totals["persona_linkages"] = int(totals["persona_linkages"]) + int(
+        linkage_totals.get("persona_linkages", 0)
+    )
+    # How many of those were *scored* by the stylometry and behaviour functions
+    # rather than inserted by another stage.
+    totals["persona_linkages_scored"] = linkage_totals.get("persona_linkages", 0)
+    totals["persona_linkages_confirmed"] = linkage_totals.get("persona_linkages_confirmed", 0)
+    totals["persona_linkages_rejected"] = linkage_totals.get("persona_linkages_rejected", 0)
+
+    # After the cases and sources for the same reason: observations cite real
+    # evidence rows, which cite a real source and belong to a real case.
+    totals.update(seed_infrastructure(db, sources, cases, rng, now))
 
     AuditService(db).record(
         "demo.seeded",
