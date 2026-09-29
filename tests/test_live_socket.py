@@ -146,13 +146,23 @@ def test_socket_sends_a_heartbeat_when_nothing_changed(live_url: str) -> None:
         async with _connect(live_url, ["aegis", token]) as socket:
             first = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
             assert first["type"] == "snapshot"
-            # The audit tail has not moved, so the next frame must be a
-            # heartbeat rather than a full re-serialisation of the same
-            # snapshot. Without this the socket pushes a few hundred kilobytes
-            # every two seconds for an idle platform.
-            second = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
-            assert second["type"] == "heartbeat"
-            assert "server_time" in second
+            # Loop rather than assert the *next* frame is a heartbeat.
+            #
+            # The server re-sends a full snapshot whenever the audit tail has
+            # moved, and under a full-suite run something else in the same
+            # database frequently writes one inside the two-second poll
+            # window. Asserting the immediate next frame therefore made this
+            # test fail for a reason that had nothing to do with the code
+            # under test. What matters is that an unchanged tail produces a
+            # heartbeat instead of re-serialising the same snapshot forever,
+            # so wait for a heartbeat across a few poll cycles.
+            for _ in range(4):
+                frame = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
+                if frame["type"] == "heartbeat":
+                    assert "server_time" in frame
+                    return
+                assert frame["type"] == "snapshot", frame
+            raise AssertionError("no heartbeat within four poll cycles")
 
     asyncio.run(run())
 
