@@ -61,15 +61,6 @@ function destinationFor(hit: SearchHit): string | null {
   }
 }
 
-function matches(hit: SearchHit, term: string): boolean {
-  const needle = term.toLowerCase();
-  return (
-    hit.label.toLowerCase().includes(needle) ||
-    (hit.detail?.toLowerCase().includes(needle) ?? false) ||
-    (hit.case_name?.toLowerCase().includes(needle) ?? false)
-  );
-}
-
 export function GlobalSearch() {
   const navigate = useNavigate();
   const listId = useId();
@@ -122,18 +113,16 @@ export function GlobalSearch() {
   }, [open]);
 
   /**
-   * Narrow on the client as well as the server.
+   * No client-side re-filtering.
    *
-   * The server already filtered; this exists because a hit can match on
-   * `case_name` or `detail` even when its own label does not contain the
-   * term, and those read as irrelevant hits. The response is capped at a few
-   * dozen rows, so filtering it is free.
+   * An earlier version narrowed the response on a three-field guess (label,
+   * detail, case name). That is strictly worse than the server: the backend
+   * also matches tags, summaries and normalised forms, so a case matched on
+   * its tags came back as a legitimate hit and was then hidden by the client
+   * — the box silently dropped results it had correctly found. The server
+   * ranks; the client renders what it is given.
    */
-  const visible = useMemo(() => {
-    const hits = response?.hits ?? [];
-    const narrowed = searchable ? hits.filter((hit) => matches(hit, trimmed)) : [];
-    return narrowed.slice(0, 24);
-  }, [response, trimmed, searchable]);
+  const visible = useMemo(() => (response?.hits ?? []).slice(0, 40), [response]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<SearchKind, SearchHit[]>();
@@ -240,6 +229,7 @@ export function GlobalSearch() {
                         {group.hits.length}
                         {total > group.hits.length ? ` of ${total}` : ''}{' '}
                         {KIND_PLURAL[group.kind]}
+                        {response?.truncated?.[group.kind] ? ' · truncated' : ''}
                       </span>
                     </p>
                     {group.hits.map((hit) => {
