@@ -45,6 +45,22 @@ Set in the dashboard:
 `startCommand` runs `alembic upgrade head` on every boot, so the schema is
 migrated on deploy and no manual step is needed.
 
+**The build installs default dependencies only.** `torch`, `xgboost` and
+`scikit-learn` are an optional `ml` extra, and Render does not install it. They
+were default dependencies until this was changed, which made the image ~2GB —
+and on a free-tier host the *build* is what fails: not enough disk, or a build
+that outlives the timeout.
+
+They are not needed. Every import of them in the source is deliberately lazy,
+inside the function that uses it, and the whole API plus analytics surface
+imports with `torch` and `sklearn` absent. Their only consumers are
+`POST /api/v1/analysis/synthetic` and the resolution/attribution baselines.
+Anything that needs them and cannot find them reports the adapter as
+unavailable rather than failing the request.
+
+If you later want the baselines in production, add `--extra ml` to
+`buildCommand` and expect a much larger image and a slower cold start.
+
 **Then seed it once**, from your machine against the hosted database:
 
 ```bash
