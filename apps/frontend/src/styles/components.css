@@ -1176,3 +1176,164 @@
     width: 100%;
   }
 }
+
+/* ==========================================================================
+   Five-space information architecture
+   ========================================================================== */
+
+/* Second nav group heading (System). `.nav-label` itself lives in base.css
+   with no bottom margin, so the group needs its own leading space. */
+.nav-label--spaced {
+  margin-top: 22px;
+}
+
+/* The agent's grounding line: which investigation and which view it was
+   invoked from. Sits directly under the panel heading. */
+.agent-scope {
+  font-size: 9px;
+  color: var(--faint);
+  margin: -12px 0 16px;
+  letter-spacing: 0.02em;
+}
+
+.agent-suggestions button:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+/* Settings: label/value rows probed against the live API. */
+.settings-list {
+  border-top: 1px solid var(--line);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 2px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.setting-row__label strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.setting-row__label code {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--faint);
+  margin-top: 4px;
+}
+
+.setting-row__state {
+  flex-shrink: 0;
+}
+
+/* Health states reuse the pill primitive from base.css with a status tint. */
+.pill--ok {
+  color: var(--green);
+  border-color: rgba(131, 212, 170, 0.24);
+  background: rgba(131, 212, 170, 0.06);
+}
+
+.pill--critical {
+  color: var(--red);
+  border-color: rgba(237, 141, 136, 0.28);
+  background: rgba(237, 141, 136, 0.05);
+}
+
+.settings-notes {
+  margin: 0;
+  padding-left: 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.settings-notes li {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.settings-notes code {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+@media (max-width: 700px) {
+  .setting-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* ==========================================================================
+   Error boundary
+   ========================================================================== */
+
+.boundary {
+  border: 1px solid rgba(237, 141, 136, 0.28);
+  background: rgba(237, 141, 136, 0.04);
+  border-radius: var(--radius);
+  padding: 22px;
+  max-width: 720px;
+}
+
+.boundary__head {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+}
+
+.boundary__mark {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(237, 141, 136, 0.4);
+  color: var(--red);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.boundary__head strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.boundary__head p {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.boundary__detail {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #e6aaa5;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  padding: 10px;
+  margin: 16px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.boundary__actions {
+  display: flex;
+  gap: 8px;
+}

@@ -32,14 +32,19 @@ import { GraphView } from '../components/GraphView';
 import type { GraphEdge, GraphNode } from '../components/GraphView';
 import { Panel } from '../components/Panel';
 import { ScoreBars } from '../components/ScoreBars';
+import { AssessmentPanel } from '../components/workspace/AssessmentPanel';
+import { ScoreRing } from '../components/workspace/ScoreRing';
+import { TimelinePanel } from '../components/workspace/TimelinePanel';
+import { metaTitle } from '../components/workspace/workspaceFormat';
 
-type Tab = 'overview' | 'evidence' | 'network' | 'hypotheses' | 'notes';
+type Tab = 'overview' | 'evidence' | 'network' | 'timeline' | 'assessment' | 'notes';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'evidence', label: 'Evidence' },
   { id: 'network', label: 'Network' },
-  { id: 'hypotheses', label: 'Hypotheses' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'assessment', label: 'Assessment' },
   { id: 'notes', label: 'Notes' },
 ];
 
@@ -69,31 +74,6 @@ const SEVERITY_TONE: Record<CaseSeverity, Tone> = {
 /** GraphView lays nodes on one ring; beyond this it stops being readable. */
 const GRAPH_NODE_LIMIT = 20;
 const GRAPH_EDGE_LIMIT = 48;
-
-function ScoreRing({ value }: { value: number }) {
-  const radius = 38;
-  const circumference = 2 * Math.PI * radius;
-  const clamped = Math.max(0, Math.min(1, value));
-  const dash = clamped * circumference;
-  return (
-    <div className="score-ring">
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle className="score-ring__track" cx="50" cy="50" r={radius} />
-        <circle
-          className="score-ring__value"
-          cx="50"
-          cy="50"
-          r={radius}
-          strokeDasharray={`${dash} ${circumference - dash}`}
-        />
-      </svg>
-      <div>
-        <b>{Math.round(clamped * 100)}%</b>
-        <small>confidence</small>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Inline triage controls. Every edit is a single-key PATCH so an omitted
@@ -373,98 +353,16 @@ function NotesTab({ caseId }: { caseId: string }) {
   );
 }
 
-function HypothesesTab({ caseId }: { caseId: string }) {
-  const resource = useApi<CaseHypothesis[]>(
-    `/api/v1/cases/${encodeURIComponent(caseId)}/hypotheses`,
-  );
-  const rows = resource.data ?? [];
-
-  const columns: ReadonlyArray<Column<CaseHypothesis>> = [
-    {
-      key: 'hypothesis',
-      header: 'Hypothesis',
-      render: (row) => (
-        <>
-          <b>{row.kind}</b>
-          <small className="table-sub">
-            {shortId(row.subject_entity_id, 8)} → {shortId(row.object_entity_id, 8)}
-          </small>
-        </>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (row) => <Badge tone={row.status === 'accepted' ? 'ok' : 'neutral'}>{row.status}</Badge>,
-    },
-    {
-      key: 'confidence',
-      header: 'Confidence',
-      align: 'end',
-      render: (row) =>
-        row.calibrated_confidence === null ? (
-          <span className="hint">unscored</span>
-        ) : (
-          <span className={`bar bar--inline`}>
-            <span
-              className={`bar__fill bar__fill--${scoreTone(row.calibrated_confidence)}`}
-              style={{ width: `${Math.round(row.calibrated_confidence * 100)}%` }}
-            />
-            {formatPercent(row.calibrated_confidence)}
-          </span>
-        ),
-    },
-    {
-      key: 'missing',
-      header: 'Missing evidence',
-      render: (row) =>
-        row.missing_evidence.length === 0 ? (
-          <span className="hint">none</span>
-        ) : (
-          <span className="text-warn">{row.missing_evidence.length} gaps</span>
-        ),
-    },
-    {
-      key: 'updated',
-      header: 'Updated',
-      align: 'end',
-      render: (row) => formatDateTime(row.updated_at ?? row.created_at),
-    },
-  ];
-
-  return (
-    <Panel
-      title="Attribution hypotheses"
-      description="Scoped to this investigation only."
-      actions={<span className="surface-meta">{rows.length} hypotheses</span>}
-    >
-      {resource.loading && <LoadingState label="Loading hypotheses…" />}
-      {resource.error !== null && <ErrorState message={resource.error} onRetry={resource.reload} />}
-      {!resource.loading && resource.error === null && (
-        <DataTable
-          caption="Attribution hypotheses raised in this investigation"
-          columns={columns}
-          rows={rows}
-          rowKey={(row) => row.hypothesis_id}
-          empty={
-            <EmptyState
-              title="No hypotheses"
-              message="No attribution hypotheses have been raised for this investigation."
-              endpoint="GET /api/v1/cases/{id}/hypotheses"
-            />
-          }
-        />
-      )}
-    </Panel>
-  );
-}
-
-
 export function CaseWorkspacePage() {
   const { caseId = '' } = useParams();
   const { snapshot } = useLive();
   const resource = useApi<CaseWorkspace>(
     caseId === '' ? null : `/api/v1/cases/${encodeURIComponent(caseId)}/workspace`,
+  );
+  // Hoisted out of the Assessment tab so switching to it costs no round trip:
+  // the workspace is the main screen, so its hypotheses load with it.
+  const hypotheses = useApi<CaseHypothesis[]>(
+    caseId === '' ? null : `/api/v1/cases/${encodeURIComponent(caseId)}/hypotheses`,
   );
   const [tab, setTab] = useState<Tab>('overview');
   const [openEvidence, setOpenEvidence] = useState<string | null>(null);
@@ -534,7 +432,7 @@ export function CaseWorkspacePage() {
         <>
           <b>{row.source_type}</b>
           <small className="table-sub">
-            {row.metadata.title !== undefined ? String(row.metadata.title) : shortId(row.evidence_id, 12)}
+            {metaTitle(row.metadata) ?? shortId(row.evidence_id, 12)}
           </small>
         </>
       ),
@@ -893,7 +791,20 @@ export function CaseWorkspacePage() {
         </Panel>
       )}
 
-      {tab === 'hypotheses' && <HypothesesTab caseId={caseId} />}
+      {tab === 'timeline' && (
+        <TimelinePanel workspace={data} onRefresh={refresh} />
+      )}
+
+      {tab === 'assessment' && (
+        <AssessmentPanel
+          workspace={data}
+          hypotheses={hypotheses}
+          onSelectEvidence={(evidenceId) => {
+            setOpenEvidence(evidenceId);
+            setTab('evidence');
+          }}
+        />
+      )}
 
       {tab === 'notes' && <NotesTab caseId={caseId} />}
     </div>

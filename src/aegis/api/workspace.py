@@ -23,6 +23,7 @@ from aegis.db.models import (
     RelationshipRecord,
 )
 from aegis.schemas.evidence import CaseNote, CaseNoteCreate
+from aegis.schemas.workspace import WorkspaceResponse
 
 router = APIRouter(prefix="/api/v1/cases", tags=["workspace"])
 
@@ -44,7 +45,7 @@ def _note_schema(record: CaseNoteRecord) -> CaseNote:
     )
 
 
-@router.get("/{case_id}/workspace")
+@router.get("/{case_id}/workspace", response_model=WorkspaceResponse)
 def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
     case = _case_or_404(db, case_id)
     evidence = db.scalars(select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)).all()
@@ -89,9 +90,16 @@ def workspace(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[st
                 "evidence_id": str(row.evidence_id),
                 "source_id": str(row.source_id),
                 "source_type": row.source_type,
+                "observed_at": row.observed_at.isoformat() if row.observed_at else None,
                 "collected_at": row.collected_at.isoformat(),
+                "entity_type": row.entity_type,
                 "reliability": row.source_reliability,
+                # Independence is what later stages use to discount corroborating
+                # "sources" that are the same source; the workspace needs it
+                # alongside reliability or a confidence reading is uninterpretable.
+                "independence_group": row.independence_group,
                 "sha256": row.sha256,
+                "metadata": row.metadata_json,
             }
             for row in sorted(evidence, key=lambda item: item.collected_at)
         ],
