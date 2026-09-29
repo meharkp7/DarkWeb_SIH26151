@@ -165,6 +165,12 @@
 /* Overlay scrollbars are invisible until you scroll, which is useless on a
    table where the hidden columns are the point. */
 .table-wrap {
+  /* Grid and flex items default to `min-width: auto`, which means they refuse
+     to shrink below their content's intrinsic width. Inside `.insp-shell` that
+     let a wide register push the whole page into horizontal scroll — the
+     scroll container was present the whole time and simply never engaged
+     because its parent track had already grown to fit the table. */
+  min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
 }

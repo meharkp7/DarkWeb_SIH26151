@@ -77,8 +77,10 @@ test.describe('dense tables at 1280', () => {
 
       // Half one: a container that can scroll. A table wider than its shell with
       // `overflow-x: visible` is the original defect wearing a different class.
+      // `none` stands in for "no scrolling ancestor at all", which is what the
+      // probe reports when the walk reaches the body.
       expect(
-        mine.containerOverflowX,
+        mine.containerOverflowX ?? 'none',
         `${register.path}: no ancestor of ${mine.name} has overflow-x auto/scroll — the table cannot be scrolled to`,
       ).toMatch(/auto|scroll/);
 

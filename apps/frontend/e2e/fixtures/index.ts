@@ -1,13 +1,12 @@
 import { expect, test as base } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { ANALYST_EMAIL, ANALYST_PASSWORD } from './environment';
-
 export { ANALYST_EMAIL, ANALYST_PASSWORD, API_ORIGIN } from './environment';
 export { collectPageProblems, OVERFLOW_TOLERANCE_PX } from './problems';
 export type { OverflowReport, PageProblems } from './problems';
 export { trackSockets, LIVE_PATH } from './live';
 export type { SocketProbe, TrackedSocket } from './live';
-export { TOP_LEVEL_ROUTES, WORKSPACE_TABS, workspaceRoutes } from './routes';
+export { TOP_LEVEL_ROUTES, WORKSPACE_TABS, workspacePath } from './routes';
 export type { RouteUnderTest, WorkspaceTab } from './routes';
 
 /** Where the sign-in form lives; every unauthenticated route renders it. */
@@ -70,14 +69,23 @@ export function liveChip(page: Page): Locator {
   return page.locator('.sidebar-live');
 }
 
+/** The global search input in the sidebar. */
+export function searchInput(page: Page): Locator {
+  return page.locator('.gsearch input');
+}
+
 type Fixtures = {
   /** A page already through the sign-in form and holding a live session. */
   signedInPage: Page;
 };
 
 export const test = base.extend<Fixtures>({
+  // `use` is Playwright's fixture teardown callback, not a React hook. The rule
+  // reads the bare name and assumes a component, so the suppression has to sit
+  // on the call itself rather than on the fixture declaration.
   signedInPage: async ({ page }, use) => {
     await signIn(page);
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

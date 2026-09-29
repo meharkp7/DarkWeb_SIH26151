@@ -2,41 +2,42 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
+# Fork PRs get exactly this: read the repo, nothing else. No job below reads a
+# secret, so nothing here needs write access or a token a fork cannot obtain.
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint:
-    name: Lint
+  backend:
+    name: Backend — lint, typecheck, tests
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          python-version: "3.12"
+      # ruff, mypy and pytest live in the `dev` *optional extra*, not a uv
+      # dependency-group, so a bare `uv sync` would not install any of them.
       - run: uv sync --extra dev
       - name: Ruff
-        run: uv run ruff check --output-format=github .
-      - name: Ruff format check
-        run: uv run ruff format --check src tests scripts
+        run: uv run ruff check src scripts tests
+      - name: Mypy
+        run: uv run mypy src
+      - name: Pytest
+        run: PYTHONPATH=src uv run pytest -q
 
-  typecheck:
-    name: Typecheck
+  migrations:
+    name: Migrations — empty database to head
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - run: uv sync --extra dev
-      - run: uv run mypy src
-
-  test:
-    name: Unit + integration tests
-    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17
@@ -50,81 +51,76 @@ jobs:
           --health-cmd "pg_isready -U aegis -d aegis"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
+    env:
+      AEGIS_DATABASE_URL: postgresql+psycopg://aegis:aegis@localhost:5432/aegis
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          python-version: "3.12"
       - run: uv sync --extra dev
-      - name: Alembic migrations (schema comes only from alembic)
+      # The service container is empty, so this exercises every migration from
+      # base. A migration that only applies to a database which already has the
+      # object it alters fails here rather than against a developer's box.
+      - name: Alembic upgrade head
         run: uv run alembic upgrade head
-      - name: "Pytest (Postgres service up: integration tests run, never skip)"
+      # `upgrade head` exiting 0 only proves nothing raised; a migration that
+      # never stamps alembic_version also exits clean. Compare the stamp.
+      - name: Assert the database is stamped at head
+        run: uv run python scripts/ci_check_alembic_head.py
+
+  integration:
+    name: Integration — app against a real PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: aegis
+          POSTGRES_PASSWORD: aegis
+          POSTGRES_DB: aegis
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aegis -d aegis"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AEGIS_DATABASE_URL: postgresql+psycopg://aegis:aegis@localhost:5432/aegis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Alembic upgrade head
+        run: uv run alembic upgrade head
+      # Without seed data the search and actor-register tests fail on
+      # "the seeded dataset must produce at least one hit", so an unseeded
+      # integration run measures nothing useful.
+      - name: Seed the demonstration dataset
+        run: PYTHONPATH=src uv run python scripts/seed_demo_data.py --reset --evidence-per-case 620
+      # AEGIS_REQUIRE_DB=1 turns "PostgreSQL unreachable" from a skip into a
+      # failure, so a wiring mistake cannot quietly reduce this run to nothing.
+      - name: Pytest
         run: PYTHONPATH=src uv run pytest -q --junitxml=reports/pytest.xml
         env:
           AEGIS_REQUIRE_DB: "1"
-          # torch/xgboost segfault under BLAS thread oversubscription on some
-          # runners. Pinned to 1 thread, matching docs/local-operations.md.
-          OMP_NUM_THREADS: "1"
-          OPENBLAS_NUM_THREADS: "1"
-          MKL_NUM_THREADS: "1"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pytest-results
+          name: pytest-junit
           path: reports/pytest.xml
 
-  schema-validation:
-    name: Schema validation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - run: uv sync --extra dev
-      - name: Canonical schema + ontology validation
-        run: PYTHONPATH=src uv run python scripts/validate_schemas.py
-      - name: Alembic migration head check
-        run: uv run alembic history | head -5
-
-  security:
-    name: Security checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - run: uv sync --extra dev
-      - name: Dependency vulnerability scan
-        run: uv run python scripts/security_scan.py --deps
-      - name: Secret scan
-        run: uv run python scripts/security_scan.py --secrets
-      - name: Security unit tests
-        run: PYTHONPATH=src uv run pytest tests -q -k "security or injection or traversal"
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - run: uv sync --extra dev
-      - run: uv build
-      - name: Verify wheel imports
-        run: |
-          uv run --with dist/*.whl python -c "import aegis; print(aegis.__name__)"
-
   frontend:
-    name: Frontend build
+    name: Frontend — typecheck, lint, test, build
     runs-on: ubuntu-latest
-    # Guard: the frontend is landing separately; skip (never fail) until
-    # apps/frontend/package.json exists. The job stays in the workflow so
-    # it runs the moment the package lands.
-    if: ${{ hashFiles('apps/frontend/package.json') != '' }}
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: apps/frontend
@@ -136,8 +132,68 @@ jobs:
           cache: npm
           cache-dependency-path: apps/frontend/package-lock.json
       - run: npm ci
-      - run: npm run lint
       - run: npm run typecheck
-      - name: Unit tests
-        run: npm run test
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
+
+  deploy-config:
+    name: Deploy config parses
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      # Neither file is executed anywhere, so a syntax error in either would
+      # otherwise only surface at deploy time on Render/Vercel.
+      - name: render.yaml and vercel.json must parse
+        run: uv run python scripts/ci_check_deploy_config.py
+
+  schemas:
+    name: Schema validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Canonical schema + ontology validation
+        run: PYTHONPATH=src uv run python scripts/validate_schemas.py
+
+  build:
+    name: Package build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv build
+      - name: Verify the built wheel imports
+        run: uv run --with dist/*.whl python -c "import aegis; print('imported', aegis.__name__)"
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - name: Dependency vulnerability scan
+        run: uv run python scripts/security_scan.py --deps
+      - name: Secret scan
+        run: uv run python scripts/security_scan.py --secrets

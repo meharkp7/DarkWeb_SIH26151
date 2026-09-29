@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- the output of this spec is its console output. */
 import { expect, signIn, test, trackSockets } from './fixtures';
 
 /**
@@ -59,9 +60,13 @@ test('survey every route', async ({ page }) => {
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }));
+    // Deduplicated: a React key warning repeats per render and would otherwise
+    // bury everything else in the route's error list.
+    const unique = [...new Set(consoleErrors.map((text) => text.split('\n')[0] ?? ''))];
     console.log(
       `ROUTE ${route} :: h1=${JSON.stringify(heading)} overflow=${JSON.stringify(overflow)}\n` +
-        `  consoleErrors=${JSON.stringify(consoleErrors)}\n  failedRequests=${JSON.stringify(failedRequests)}`,
+        `  consoleErrors(${unique.length} distinct of ${consoleErrors.length})=${JSON.stringify(unique)}\n` +
+        `  failedRequests=${JSON.stringify([...new Set(failedRequests)])}`,
     );
   }
 

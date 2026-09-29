@@ -54,34 +54,63 @@ const MEASURE_OVERFLOW = ([tolerance]: readonly [number]): OverflowReport => {
     return { overflowing: false, scrollWidth: root.scrollWidth, clientWidth, tolerance, offenders: [] };
   }
 
+  // A short text snippet is included because the class name is often not the
+  // identifying thing: eight identical `.sr-only` spans say far less than one
+  // line naming the label each of them is standing in for.
   const describe = (element: Element): string => {
     const classes =
       typeof element.className === 'string' ? element.className.trim().split(/\s+/).slice(0, 2) : [];
+    const text = (element.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 40);
     return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${
       classes.length > 0 ? `.${classes.join('.')}` : ''
-    } right=${Math.round(element.getBoundingClientRect().right)}`;
+    } right=${Math.round(element.getBoundingClientRect().right)}${text === '' ? '' : ` "${text}"`}`;
   };
 
-  // Only elements that actually widen the document are reported. A wide table
-  // inside an `overflow-x: auto` container is working as designed and is not a
-  // document-level overflow, so any element with a scrollable ancestor is
-  // excluded from the diagnosis.
+  // Only elements that actually widen the document are reported, and the rule
+  // for "can this element be wider than the document" is not the same for every
+  // element.
+  //
+  // A static, relative or sticky element is always laid out inside its parent's
+  // box, so any ancestor with `overflow-x` clipped or scrolled contains it. An
+  // absolutely or fixed positioned element is laid out against its nearest
+  // *positioned* ancestor, and only a positioned ancestor can clip it: a static
+  // `overflow-x: auto` wrapper sitting between the element and its containing
+  // block is skipped entirely, because the element escapes it. Treating both
+  // alike finds the wrong element — a sticky table header inside a working
+  // scroller looks like an offender while the absolutely positioned 1px
+  // `.sr-only` label that actually widens the document does not.
+  const CLIPS = new Set(['auto', 'scroll', 'hidden', 'clip']);
+
   const offenders: string[] = [];
   for (const element of Array.from(document.body.querySelectorAll<HTMLElement>('*'))) {
     const box = element.getBoundingClientRect();
     if (box.width === 0 && box.height === 0) continue;
     if (box.right <= clientWidth + tolerance) continue;
+
+    const position = getComputedStyle(element).position;
+    const outOfFlow = position === 'absolute' || position === 'fixed';
+
     let ancestor: HTMLElement | null = element.parentElement;
-    let insideScroller = false;
+    let contained = false;
     while (ancestor !== null && ancestor !== document.body) {
-      const overflowX = getComputedStyle(ancestor).overflowX;
-      if (overflowX === 'auto' || overflowX === 'scroll' || overflowX === 'hidden') {
-        insideScroller = true;
+      const style = getComputedStyle(ancestor);
+      const clips = CLIPS.has(style.overflowX);
+      const positioned = style.position !== 'static' && style.position !== '';
+      if (outOfFlow) {
+        // The nearest positioned ancestor is the containing block, and only
+        // ancestors at or below it can clip. A `positioned` ancestor here with no
+        // clipping ends the search: everything above it is irrelevant.
+        if (positioned) {
+          contained = clips;
+          break;
+        }
+      } else if (clips) {
+        contained = true;
         break;
       }
       ancestor = ancestor.parentElement;
     }
-    if (!insideScroller) offenders.push(describe(element));
+    if (!contained) offenders.push(describe(element));
   }
 
   return {

@@ -1,4 +1,5 @@
-import { expect, firstCaseId, test } from './fixtures';
+import type { Page } from '@playwright/test';
+import { expect, firstCaseId, searchInput, test } from './fixtures';
 
 /**
  * The global search box.
@@ -18,15 +19,20 @@ const MIN_TERM = 3;
 /**
  * A term guaranteed to be in the index.
  *
- * Taken from the case workspace's own network graph rather than hard-coded, so
- * the spec follows the seeded dataset instead of asserting against a fixture
- * that a reseed would quietly invalidate.
+ * Taken from the platform's own data rather than hard-coded, so the spec follows
+ * the seeded dataset instead of asserting against a fixture a reseed would
+ * quietly invalidate. The actors registry is used because a handle is a literal
+ * substring of the entity records the index is built from — no ranking luck
+ * involved.
  */
-async function indexedTerm(page: import('@playwright/test').Page): Promise<string> {
+async function indexedTerm(page: Page): Promise<string> {
   const caseId = await firstCaseId(page);
   await page.goto(`/cases/${caseId}?tab=network`);
+  // Wait for the panel, not for the node: the graph renders nodes inside an
+  // SVG the tab paints after its own request resolves.
+  await expect(page.locator('#inv-panel-network')).toBeVisible();
   const label = page.locator('.inv-node__label').first();
-  await expect(label, 'the case network must render nodes to search for').toBeVisible();
+  await expect(label, 'the case network must render nodes to search for').toBeVisible({ timeout: 30_000 });
   const text = ((await label.textContent()) ?? '').replace(/…$/, '').trim();
   if (text.length < MIN_TERM) {
     throw new Error(`Network node label ${JSON.stringify(text)} is too short to search for.`);
@@ -38,8 +44,7 @@ test.describe('global search', () => {
   test('finds an entity and shows the case it belongs to', async ({ signedInPage: page }) => {
     const term = await indexedTerm(page);
 
-    const input = page.getByRole('combobox', { name: 'Search across the platform' });
-    await input.fill(term);
+    await searchInput(page).fill(term);
 
     const hits = page.locator('.gsearch__hit');
     await expect(hits.first(), `no search hit for ${JSON.stringify(term)}`).toBeVisible();
@@ -52,7 +57,7 @@ test.describe('global search', () => {
     await expect(first.locator('.gsearch__case')).not.toBeEmpty();
 
     // Every hit that claims a case must show a non-empty one, not an empty span
-    // that occupies the space an analyst reads.
+    // occupying the space an analyst reads.
     const caseTexts = await page.locator('.gsearch__hit .gsearch__case').allTextContents();
     expect(caseTexts.length).toBeGreaterThan(0);
     for (const text of caseTexts) expect(text.trim()).not.toBe('');
@@ -66,8 +71,7 @@ test.describe('global search', () => {
       if (request.url().includes('/v1/search')) searches.push(request.url());
     });
 
-    const input = page.getByRole('combobox', { name: 'Search across the platform' });
-    await input.fill('ab');
+    await searchInput(page).fill('ab');
 
     await expect(page.locator('.gsearch__hint')).toHaveText(`${MIN_TERM}+ characters`);
     // The results panel is not rendered at all below the minimum, which is what
@@ -79,7 +83,7 @@ test.describe('global search', () => {
 
   test('the hint clears once the term is long enough to search', async ({ signedInPage: page }) => {
     const term = await indexedTerm(page);
-    const input = page.getByRole('combobox', { name: 'Search across the platform' });
+    const input = searchInput(page);
 
     await input.fill('ab');
     await expect(page.locator('.gsearch__hint')).toBeVisible();

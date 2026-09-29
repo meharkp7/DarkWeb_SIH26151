@@ -98,6 +98,10 @@
 
 .act-register {
   width: 100%;
+  /* Ten columns including the trend sparkline. Without a floor the table
+     grows past the viewport and the page scrolls sideways instead of the
+     wrapper scrolling the table. */
+  min-width: 1120px;
   border-collapse: collapse;
   font-size: 0.83rem;
 }

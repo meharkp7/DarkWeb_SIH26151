@@ -1,41 +1,27 @@
 /**
  * Every route the suite treats as a destination.
  *
- * Held here rather than inside `navigation.spec.ts` because the register, the
- * case workspace and the export specs need the same case-workspace tab list, and
- * a tab list duplicated across two files drifts the moment a tab is added.
+ * Held here rather than inside `navigation.spec.ts` so the route list, the tab
+ * list and the case-workspace path builder cannot drift apart. A duplicated tab
+ * list is the kind of thing that stays correct for a week and then quietly stops
+ * covering the tab that was added last.
  */
 
-import type { Page } from '@playwright/test';
-import { firstCaseId } from './index';
-
-/** The six tabs of a case workspace, in the order the tabs are declared. */
-export const WORKSPACE_TABS = [
-  'overview',
-  'evidence',
-  'network',
-  'timeline',
-  'assessment',
-  'notes',
-] as const;
-
-export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
-
-export interface RouteUnderTest {
+export type RouteUnderTest = {
   /** Path relative to the base URL. */
   readonly path: string;
-  /** The `<h1>` the route must render, exactly as the DOM reports it. */
+  /** The `<h1>` the route must render, as the DOM reports it. */
   readonly heading: RegExp;
   /** Short label used in the test name. */
   readonly label: string;
-}
+};
 
 /**
  * Top-level destinations.
  *
  * Headings are matched rather than compared for equality because several pages
  * compose their `<h1>` from markup — `Threat <i>Watch.</i>` — and the command
- * centre greets the analyst by name and time of day. The patterns pin the
+ * centre greets the analyst by name and by time of day. The patterns pin the
  * identifying part of the heading, which is what a regression would change.
  */
 export const TOP_LEVEL_ROUTES: readonly RouteUnderTest[] = [
@@ -49,18 +35,25 @@ export const TOP_LEVEL_ROUTES: readonly RouteUnderTest[] = [
   { path: '/admin', heading: /^Administration$/, label: 'administration' },
 ];
 
+/** The case workspace's six tabs, in the order they are declared. */
+export const WORKSPACE_TABS = [
+  'overview',
+  'evidence',
+  'network',
+  'timeline',
+  'assessment',
+  'notes',
+] as const;
+
+export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
+
 /**
- * The case workspace, once per tab.
+ * The path for one tab of one case.
  *
- * The heading is the case name, so it cannot be known until a case is resolved
- * from the register; the pattern therefore matches "some non-empty name" and the
- * tab itself is asserted separately by the spec through the tabpanel's id.
+ * `overview` is the default view and takes no query parameter, which is what
+ * makes a missing `?tab=overview` load rather than fall through to a tab that
+ * does not exist.
  */
-export async function workspaceRoutes(page: Page, caseId?: string): Promise<readonly RouteUnderTest[]> {
-  const id = caseId ?? (await firstCaseId(page));
-  return WORKSPACE_TABS.map((tab) => ({
-    path: tab === 'overview' ? `/cases/${id}` : `/cases/${id}?tab=${tab}`,
-    heading: /\S/,
-    label: `case workspace · ${tab}`,
-  }));
+export function workspacePath(caseId: string, tab: WorkspaceTab): string {
+  return tab === 'overview' ? `/cases/${caseId}` : `/cases/${caseId}?tab=${tab}`;
 }

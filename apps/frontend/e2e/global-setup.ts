@@ -71,5 +71,6 @@ export default async function globalSetup(): Promise<void> {
   }
   // Printed once so a failing auth spec can be read against the identity that
   // was actually used.
+  // eslint-disable-next-line no-console
   console.log(`[e2e] API ${API_ORIGIN} · analyst ${ANALYST_EMAIL}`);
 }

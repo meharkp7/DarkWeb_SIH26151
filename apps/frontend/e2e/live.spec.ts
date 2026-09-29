@@ -29,13 +29,17 @@ test.describe('live feed', () => {
     await signIn(page);
 
     const chip = liveChip(page);
-    // Asserted against the anchored pattern rather than a substring so a chip
-    // that has fallen back to another transient state cannot pass on a loose
-    // match — "Reconnecting" is the state that must never satisfy this.
-    await expect(chip, 'live chip never left its connecting state').toHaveText(/^Live\b/, {
+    // Anchored, and tolerant of the leading whitespace JSX leaves in the chip's
+    // text content. A loose substring would be satisfied by nothing at all here
+    // — "Reconnecting" is the state that must never pass, and a substring
+    // match is exactly the kind of check that lets a stale label through.
+    await expect(chip, 'live chip never left its connecting state').toHaveText(/^\s*Live\b/, {
       timeout: LIVE_TIMEOUT_MS,
     });
-    await expect(chip).toHaveClass(/live--on/);
+    // The dot is the state, the label is its text. Asserting the dot class as
+    // well catches a chip whose label and indicator disagree, which is exactly
+    // the shape a partial reconnection leaves behind.
+    await expect(chip.locator('.live-dot')).toHaveClass(/live-dot--on/);
 
     // The chip is derived from `connected`, which is only set in the `connect`
     // handler, so reaching "Live" already implies a socket opened. The socket is
@@ -97,7 +101,7 @@ test.describe('live feed', () => {
     await signIn(page);
 
     const chip = liveChip(page);
-    await expect(chip).toHaveText(/^Live\b/, { timeout: LIVE_TIMEOUT_MS });
+    await expect(chip).toHaveText(/^\s*Live\b/, { timeout: LIVE_TIMEOUT_MS });
     // `—` is the placeholder for "no snapshot yet". A chip that reads "Live"
     // followed by a dash is claiming a connection it has received no data from,
     // which is the shape bug 1 produced.

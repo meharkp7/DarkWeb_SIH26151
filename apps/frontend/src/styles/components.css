@@ -338,6 +338,16 @@
 
 .table-wrap {
   width: 100%;
+  /* Grid and flex items default to `min-width: auto`, so they refuse to shrink
+     below their content's intrinsic width. Inside a grid track that let a wide
+     register push the whole *page* into horizontal scroll — the scroll
+     container was present the whole time and simply never engaged, because
+     its parent had already grown to fit the table.
+
+     This lives on the shared primitive rather than on a page's stylesheet:
+     the same rule was duplicated into one page's CSS, and every page that
+     imported only the shared sheet kept the bug. */
+  min-width: 0;
   overflow-x: auto;
   border-top: 1px solid var(--line);
 }

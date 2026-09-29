@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 
 /**
@@ -32,7 +33,7 @@ const EXPORT_PATTERN = (url: URL) => url.pathname.endsWith('/reports/export');
  * UI decision. A refused response is the same event from the component's point
  * of view, and it is the only way to reach this path without a defect.
  */
-function refuseExport(page: import('@playwright/test').Page): void {
+function refuseExport(page: Page): void {
   page.route(EXPORT_PATTERN, (route) =>
     route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"export service unavailable"}' }),
   );
@@ -96,7 +97,7 @@ test.describe('export popover', () => {
     await expect(page.locator('.exp-popover')).toBeVisible();
 
     refuseExport(page);
-    await page.locator('.exp-go').click();
+    await page.locator('.exp-action').click();
 
     // Open, with a visible reason. Both halves matter: a menu that closes on
     // failure looks identical to a menu that was dismissed, and a menu that
@@ -107,9 +108,12 @@ test.describe('export popover', () => {
     await expect(error).toBeVisible();
     await expect(error).toContainText('503');
 
-    // Focus stays inside the open menu, on the control that failed, so a retry
-    // is one keystroke away rather than a hunt through the header.
-    await expect(page.locator('.exp-go')).toBeFocused();
+    // Focus must still be inside the open popover. It is not: the action button
+    // is `disabled` for the duration of the request, and disabling a focused
+    // element drops focus to `<body>`. Nothing puts it back when the request
+    // fails, so the analyst is left outside the dialog they are still looking
+    // at, and the next Tab key escapes the popover through the skip link.
+    await expect(page.locator('.exp-action')).toBeFocused();
   });
 
   test('a failed export can be retried from the same open popover', async ({ signedInPage: page }) => {
@@ -122,14 +126,14 @@ test.describe('export popover', () => {
     await expect(page.locator('.exp-popover')).toBeVisible();
 
     refuseExport(page);
-    await page.locator('.exp-go').click();
+    await page.locator('.exp-action').click();
     await expect(page.locator('.exp-error')).toBeVisible();
 
     // With the route unblocked, a second attempt from the still-open menu has
     // to work — the format choice survived the failure.
     await page.unroute(EXPORT_PATTERN);
     const download = page.waitForEvent('download');
-    await page.locator('.exp-go').click();
+    await page.locator('.exp-action').click();
     await download;
 
     await expect(page.locator('.exp-popover')).toHaveCount(0);
