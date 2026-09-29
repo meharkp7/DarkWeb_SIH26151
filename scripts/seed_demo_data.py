@@ -52,6 +52,9 @@ from sqlalchemy.orm import Session
 from aegis.api.security import hash_password
 from aegis.db.audit import AuditService
 from aegis.db.models import (
+    ActorIdentifierRecord,
+    ActorMarketplaceRecord,
+    ActorRecord,
     ArtifactRecord,
     AssessmentRecord,
     CaseRecord,
@@ -59,6 +62,7 @@ from aegis.db.models import (
     EvidenceRecord,
     HypothesisLinkRecord,
     HypothesisRecord,
+    PersonaLinkageRecord,
     RelationshipRecord,
     RoleRecord,
     SourceRecord,
@@ -78,8 +82,19 @@ SCHEMA_VERSION = "aegis-demo/3"
 BATCH = 400
 
 #: Tables owned by this seeder, child-first so ``TRUNCATE`` never has to lean
-#: on ``CASCADE`` to satisfy a foreign key.
+#: on ``CASCADE`` to satisfy a foreign key. The actor registry, the Tor
+#: infrastructure tables and persona linkages are truncated here because the
+#: registry shares its ``sources`` and ``cases`` foreign keys with the rest of
+#: the dataset: leaving them behind would leave actors pointing at sources a
+#: reset has already removed.
 DEMO_TABLES: tuple[str, ...] = (
+    "persona_linkages",
+    "infrastructure_matches",
+    "infrastructure_findings",
+    "infrastructure_observations",
+    "actor_marketplaces",
+    "actor_identifiers",
+    "actors",
     "hypothesis_links",
     "assessments",
     "hypotheses",
@@ -432,6 +447,413 @@ CONFIDENCE_ENVELOPES: tuple[tuple[float, float], ...] = (
 #: Audit events written per case. Enough to fill a 45-day window several
 #: times over, so the timeline and Threat Watch are not near-empty.
 EVENTS_PER_CASE = 72
+
+# --------------------------------------------------------------------------
+# Actor registry
+#
+# The problem statement's central deliverable. The categories are the ones it
+# names; the handles, keys, wallets and onion addresses are synthetic values in
+# reserved or example namespaces and resolve to nobody.
+# --------------------------------------------------------------------------
+
+#: Categories from the problem statement, in the order it lists them.
+ACTOR_CATEGORIES: tuple[str, ...] = (
+    "drugs",
+    "arms",
+    "stolen data",
+    "hacking services",
+    "money laundering",
+    "terror financing",
+    "extortion",
+    "fraud",
+)
+
+#: Weighted rather than uniform: an active registry is mostly active actors, and
+#: a flat draw would show a third of the world as retired, which is not a
+#: plausible shape for a working register.
+ACTOR_STATUS_WEIGHTS: tuple[tuple[str, float], ...] = (
+    ("active", 0.44),
+    ("dormant", 0.20),
+    ("rebranded", 0.15),
+    ("retired", 0.13),
+    ("unknown", 0.08),
+)
+
+#: Identifier kinds. Every actor carries a `handle` plus a sample of the rest,
+#: so the kind glyphs in the register row are never a single repeated letter.
+ACTOR_IDENTIFIER_KINDS: tuple[str, ...] = (
+    "handle",
+    "pgp",
+    "wallet",
+    "onion",
+    "clearnet",
+    "jabber",
+)
+
+ACTOR_HANDLE_HEADS: tuple[str, ...] = (
+    "nightjar",
+    "quietpine",
+    "redkite",
+    "hollowbay",
+    "sablefox",
+    "ironmoss",
+    "duskraven",
+    "paleot",
+    "glasscoil",
+    "thornfield",
+    "ashvane",
+    "bramble",
+    "cinderwolf",
+    "vellumark",
+    "saltmarsh",
+    "greythistle",
+    "coldharbor",
+    "amberlight",
+    "foxglove",
+    "winterknot",
+)
+
+ACTOR_HANDLE_TAILS: tuple[str, ...] = (
+    "unit",
+    "collective",
+    "shop",
+    "desk",
+    "supply",
+    "network",
+    "guild",
+    "exchange",
+    "works",
+    "cell",
+    "depot",
+    "service",
+)
+
+ACTOR_HANDLE_SEPARATORS: tuple[str, ...] = ("", "", "", "_", "-", ".", "1", "7", "99")
+
+#: Synthetic venues. `.example` is IANA-reserved for documentation, so none of
+#: these names can resolve to a real marketplace.
+ACTOR_MARKETPLACES: tuple[str, ...] = (
+    "silkweave.market.example",
+    "nightcart.market.example",
+    "greenledger.market.example",
+    "coldharbor.market.example",
+    "quietbazaar.market.example",
+    "ironforge.market.example",
+    "vialmarket.market.example",
+    "lowtide.market.example",
+)
+
+#: Roles a persona holds on a venue, weighted towards vendor.
+ACTOR_MARKETPLACE_ROLES: tuple[tuple[str, float], ...] = (
+    ("vendor", 0.52),
+    ("broker", 0.22),
+    ("buyer", 0.14),
+    ("operator", 0.08),
+    ("escrow", 0.04),
+)
+
+#: Alphabets for the synthetic identifier values. Onion addresses are v3 base32
+#: (56 characters), the wallets are base58 / hex, and a PGP body is base64 —
+#: getting these right is what makes the demo registry look like a registry
+#: rather than like random strings in the right column.
+_ONION_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
+_BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_HEX_ALPHABET = "0123456789abcdef"
+_BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+#: Registries per identifier stage, so a re-seed reproduces the same registry.
+ACTOR_MIN = 40
+ACTOR_MAX = 60
+
+
+def _weighted(rng: random.Random, weights: tuple[tuple[str, float], ...]) -> str:
+    """Pick one label from a cumulative-weight table."""
+    draw = rng.random()
+    cumulative = 0.0
+    for label, weight in weights:
+        cumulative += weight
+        if draw <= cumulative:
+            return label
+    return weights[-1][0]
+
+
+def _onion(rng: random.Random) -> str:
+    return "".join(rng.choice(_ONION_ALPHABET) for _ in range(56))
+
+
+def _wallet(rng: random.Random) -> str:
+    """A base58 UTXO-style address or a hex account, in the shape each uses."""
+    if rng.random() < 0.6:
+        prefix = rng.choice(("1", "3"))
+        return prefix + "".join(rng.choice(_BASE58_ALPHABET) for _ in range(33))
+    return "0x" + "".join(rng.choice(_HEX_ALPHABET) for _ in range(40))
+
+
+def _pgp_body(rng: random.Random) -> str:
+    """An ASCII-armoured-looking PGP body: four 64-character base64 lines.
+
+    The real armour carries a CRC and a header; what matters here is the shape
+    — long, wrapped, base64 — because a registry that renders a PGP identifier
+    as a 20-character token is not demonstrating the thing it claims to.
+    """
+    return "\n".join("".join(rng.choice(_BASE64_ALPHABET) for _ in range(64)) for _ in range(4))
+
+
+def _clearnet(rng: random.Random) -> str:
+    return f"{rng.choice(DOMAINS)}{rng.randint(10, 99)}.example"
+
+
+def _jabber(rng: random.Random, handle: str) -> str:
+    return f"{handle}@conference.{rng.choice(PLATFORMS)}.example"
+
+
+def _identifier_value(rng: random.Random, kind: str, handle: str) -> str:
+    if kind == "pgp":
+        return _pgp_body(rng)
+    if kind == "onion":
+        return _onion(rng)
+    if kind == "wallet":
+        return _wallet(rng)
+    if kind == "clearnet":
+        return _clearnet(rng)
+    if kind == "jabber":
+        return _jabber(rng, handle)
+    return f"{handle}@{rng.choice(PLATFORMS)}"
+
+
+def _scan_time(rng: random.Random, now: datetime) -> datetime | None:
+    """When the actor was last re-scanned — and some that were never scanned.
+
+    Three bands rather than one uniform draw: a registry in which every actor
+    was scanned last week hides exactly the operational failure the problem
+    statement asks about, which is actors going stale without anybody noticing.
+    """
+    roll = rng.random()
+    if roll < 0.12:
+        return None
+    if roll < 0.34:
+        return now - timedelta(days=rng.randint(45, 200), hours=rng.randint(0, 23))
+    return now - timedelta(days=rng.randint(0, 21), hours=rng.randint(0, 23))
+
+
+def seed_actor_registry(
+    db: Session,
+    sources: list[SourceRecord],
+    users: dict[str, UserRecord],
+    rng: random.Random,
+    now: datetime,
+) -> dict[str, int]:
+    """The cross-case actor registry: actors, their identifiers and their venues.
+
+    Inserted in strict foreign-key order — actors, flush, identifiers, flush,
+    marketplaces, flush, linkages, flush — because `actor_identifiers.actor_id`
+    and `actor_marketplaces.actor_id` are real constraints and a stage that
+    fails halfway would leave a database that is neither the old dataset nor
+    the new one.
+
+    The registry is deliberately *not* derived from the per-case `entities`
+    rows. Those belong to one investigation; an actor here is tracked across all
+    of them, and conflating the two would make "this actor appears in four
+    cases" a restatement of "this case has four entities". A handful of
+    identifiers do carry a `case_id`, which is the honest link between the two:
+    this specific identifier was observed in this specific investigation.
+    """
+    target = rng.randint(ACTOR_MIN, ACTOR_MAX)
+    case_ids = list(db.scalars(select(CaseRecord.case_id)).all())
+    analysts = [users[role] for role in sorted(users)]
+
+    handles: set[str] = set()
+    plans: list[dict[str, object]] = []
+    while len(plans) < target:
+        handle = (
+            f"{rng.choice(ACTOR_HANDLE_HEADS)}"
+            f"{rng.choice(ACTOR_HANDLE_SEPARATORS)}"
+            f"{rng.choice(ACTOR_HANDLE_TAILS)}"
+        )
+        if handle in handles:
+            continue
+        handles.add(handle)
+        kind_count = rng.randint(2, len(ACTOR_IDENTIFIER_KINDS))
+        others = [kind for kind in ACTOR_IDENTIFIER_KINDS if kind != "handle"]
+        rng.shuffle(others)
+        first_seen = now - timedelta(days=rng.randint(60, 400), hours=rng.randint(0, 23))
+        plans.append(
+            {
+                "handle": handle,
+                "category": rng.choice(ACTOR_CATEGORIES),
+                "status": _weighted(rng, ACTOR_STATUS_WEIGHTS),
+                # ~18% carry no attribution score at all. "Not assessed" and
+                # "assessed at zero" are different facts, and the registry only
+                # demonstrates that distinction if some rows genuinely have no
+                # score.
+                "confidence": None if rng.random() < 0.18 else round(rng.uniform(0.25, 0.97), 3),
+                "first_seen": first_seen,
+                "last_seen": now - timedelta(days=rng.randint(0, 120), hours=rng.randint(0, 23)),
+                "last_scan_at": _scan_time(rng, now),
+                "source": sources[rng.randrange(len(sources))],
+                "kinds": ["handle", *others[: kind_count - 1]],
+                "marketplaces": rng.sample(ACTOR_MARKETPLACES, rng.randint(1, 4)),
+            }
+        )
+
+    actors: list[ActorRecord] = [
+        ActorRecord(
+            actor_id=sid(f"actor:{plan['handle']}"),
+            handle=str(plan["handle"]),
+            category=str(plan["category"]),
+            status=str(plan["status"]),
+            confidence=plan["confidence"],  # type: ignore[arg-type]
+            first_seen=plan["first_seen"],  # type: ignore[arg-type]
+            last_seen=plan["last_seen"],  # type: ignore[arg-type]
+            last_scan_at=plan["last_scan_at"],  # type: ignore[arg-type]
+            source_id=plan["source"].source_id,  # type: ignore[union-attr]
+            notes=(
+                None
+                if rng.random() < 0.55
+                else f"Synthetic registry record for {plan['category']}. Not a real-world actor."
+            ),
+            metadata_json={
+                "synthetic": True,
+                "schema_version": SCHEMA_VERSION,
+                "category": plan["category"],
+            },
+        )
+        for plan in plans
+    ]
+    _flush_batches(db, actors)
+
+    identifiers: list[ActorIdentifierRecord] = []
+    marketplaces: list[ActorMarketplaceRecord] = []
+    for actor, plan in zip(actors, plans, strict=True):
+        handle = actor.handle
+        for offset, kind in enumerate(plan["kinds"]):  # type: ignore[arg-type]
+            value = _identifier_value(rng, str(kind), handle)
+            # Two identifiers of one kind on one actor are frequently the same
+            # observation seen twice. Giving a subset of them an independence
+            # group is what lets the registry show that discount rather than
+            # just asserting it in a comment.
+            grouped = rng.random() < 0.3
+            identifiers.append(
+                ActorIdentifierRecord(
+                    identifier_id=sid(f"actor-identifier:{actor.actor_id}:{kind}:{offset}"),
+                    actor_id=actor.actor_id,
+                    kind=str(kind),
+                    value=value,
+                    independence_group=(
+                        f"{handle}-{rng.choice(ACTOR_HANDLE_TAILS)}" if grouped else None
+                    ),
+                    confidence=(None if rng.random() < 0.15 else round(rng.uniform(0.4, 0.99), 3)),
+                    first_seen=actor.first_seen,
+                    last_seen=actor.last_seen,
+                    source_id=plan["source"].source_id,  # type: ignore[union-attr]
+                    metadata_json={
+                        "synthetic": True,
+                        "schema_version": SCHEMA_VERSION,
+                        "synthetic_value": True,
+                    },
+                )
+            )
+
+        window_start = actor.first_seen or (now - timedelta(days=200))
+        for venue in plan["marketplaces"]:  # type: ignore[arg-type]
+            venue_start = window_start + timedelta(days=rng.randint(0, 120))
+            venue_end = venue_start + timedelta(days=rng.randint(20, 300))
+            marketplaces.append(
+                ActorMarketplaceRecord(
+                    presence_id=sid(f"actor-marketplace:{actor.actor_id}:{venue}"),
+                    actor_id=actor.actor_id,
+                    marketplace=str(venue),
+                    role=_weighted(rng, ACTOR_MARKETPLACE_ROLES),
+                    first_seen=venue_start,
+                    # A truncated window, not a clamped one: a venue abandoned
+                    # two years ago must not read as one the persona is still on.
+                    last_seen=min(venue_end, now - timedelta(days=rng.randint(0, 200))),
+                    listing_count=rng.randint(0, 240),
+                    source_id=plan["source"].source_id,  # type: ignore[union-attr]
+                    metadata_json={
+                        "synthetic": True,
+                        "schema_version": SCHEMA_VERSION,
+                        "synthetic_venue": True,
+                    },
+                )
+            )
+    _flush_batches(db, identifiers)
+    _flush_batches(db, marketplaces)
+
+    # A few identifiers carry a `case_id`: this specific identifier was observed
+    # in this specific investigation. That is the honest bridge between a
+    # cross-case actor and a case-scoped evidence graph, and it is what makes
+    # the register's LINKS column mean something.
+    linked = 0
+    if case_ids and identifiers:
+        for actor, _plan in list(zip(actors, plans, strict=True))[::7]:
+            own = [
+                row
+                for row in identifiers
+                if row.actor_id == actor.actor_id and row.kind in {"onion", "pgp", "wallet"}
+            ]
+            for row in own[: rng.randint(1, 2)]:
+                row.case_id = case_ids[rng.randrange(len(case_ids))]
+                row.metadata_json = {**(row.metadata_json or {}), "case_linked": True}
+                linked += 1
+    db.flush()
+
+    # Persona linkages: a handful of proposals, most still awaiting a ruling.
+    # `ck_persona_linkage_adjudicated` requires an adjudicator and a timestamp
+    # on any row that is not `proposed`, so the adjudicated ones name a real
+    # seeded analyst — which is why this stage takes `users` at all.
+    linkages: list[PersonaLinkageRecord] = []
+    for actor, _plan in list(zip(actors, plans, strict=True))[::5]:
+        method = rng.choice(("stylometry", "behavioural", "infrastructure", "attribution"))
+        roll = rng.random()
+        status = "proposed" if roll < 0.62 else ("confirmed" if roll < 0.86 else "rejected")
+        aligned = rng.sample(
+            ("posting_cadence", "pivot vocabulary", "payment cadence", "burst pattern"),
+            rng.randint(1, 3),
+        )
+        apart = rng.sample(("topic shift", "lexical drift", "timezone mismatch"), rng.randint(0, 2))
+        contested = (
+            rng.sample(("sentence length", "emoji use", "vendor spelling"), 1)
+            if rng.random() < 0.4
+            else []
+        )
+        analyst = analysts[rng.randrange(len(analysts))] if status != "proposed" else None
+        linkages.append(
+            PersonaLinkageRecord(
+                linkage_id=sid(f"persona-linkage:{actor.actor_id}:{method}"),
+                actor_id=actor.actor_id,
+                candidate_handle=f"{rng.choice(ACTOR_HANDLE_HEADS)}{rng.randint(10, 99)}",
+                method=method,
+                score=round(rng.uniform(0.18, 0.94), 3),
+                status=status,
+                aligned_features=aligned,
+                apart_features=apart,
+                contested_features=contested,
+                limitations=[
+                    "Synthetic record. Stylometric similarity is not identity.",
+                    "Single corpus; no independent replication on file.",
+                ],
+                case_id=case_ids[rng.randrange(len(case_ids))] if case_ids else None,
+                adjudicated_by=analyst.user_id if analyst else None,
+                adjudicated_at=(now - timedelta(days=rng.randint(1, 60))) if analyst else None,
+                rationale=(
+                    "Synthetic analyst ruling. Recorded to demonstrate that a decision keeps "
+                    "its author and date."
+                    if analyst
+                    else None
+                ),
+                metadata_json={"synthetic": True, "schema_version": SCHEMA_VERSION},
+            )
+        )
+    _flush_batches(db, linkages)
+
+    return {
+        "actors": len(actors),
+        "actor_identifiers": len(identifiers),
+        "actor_marketplaces": len(marketplaces),
+        "actor_case_links": linked,
+        "persona_linkages": len(linkages),
+    }
 
 
 def sid(label: str) -> UUID:
@@ -899,8 +1321,16 @@ def seed_relationships(
         if key in seen:
             continue
         seen.add(key)
-        first_seen = now - timedelta(days=rng.randint(5, 200), hours=rng.randint(0, 23))
-        last_seen = now - timedelta(hours=rng.randint(1, 24 * 40))
+        # The window must not invert: `last_seen` is drawn first and
+        # `first_seen` is placed before it, rather than the two being drawn
+        # independently. Drawing them independently produced a relationship
+        # last seen before it was first seen in about 8% of rows, which the
+        # canonical `Relationship` schema correctly rejects — so the whole
+        # graph build died on one bad row.
+        age_hours = rng.randint(1, 24 * 200)
+        last_seen = now - timedelta(hours=age_hours)
+        span_hours = rng.randint(1, max(1, age_hours))
+        first_seen = last_seen - timedelta(hours=span_hours)
         support = evidence[(index * 5) % len(evidence)]
         rows.append(
             RelationshipRecord(
@@ -1135,6 +1565,11 @@ def seed(
         "hypotheses": 0,
         "assessments": 0,
         "audit_events": 0,
+        "actors": 0,
+        "actor_identifiers": 0,
+        "actor_marketplaces": 0,
+        "actor_case_links": 0,
+        "persona_linkages": 0,
     }
 
     for blueprint, case in zip(CASE_BLUEPRINTS, cases, strict=True):
@@ -1152,6 +1587,10 @@ def seed(
         totals["hypotheses"] = int(totals["hypotheses"]) + hypothesis_count
         totals["assessments"] = int(totals["assessments"]) + hypothesis_count
 
+    # After the cases, because the actor registry links identifiers to them.
+    registry = seed_actor_registry(db, sources, users, rng, now)
+    totals.update(registry)
+
     AuditService(db).record(
         "demo.seeded",
         entity_type="platform",
@@ -1161,6 +1600,7 @@ def seed(
             "schema_version": SCHEMA_VERSION,
             "cases": totals["cases"],
             "evidence": totals["evidence"],
+            "actors": totals["actors"],
         },
         occurred_at=now,
     )
