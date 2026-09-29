@@ -7,9 +7,10 @@ import json
 import time
 from typing import Final
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from aegis.api.login_throttle import client_address, login_throttle
 from aegis.settings import settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -86,15 +87,42 @@ def validate_access_token(token: str) -> Identity | None:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest) -> LoginResponse:
+def login(payload: LoginRequest, request: Request) -> LoginResponse:
+    """Exchange credentials for a session token.
+
+    Throttled on (email, client address) because this is the only endpoint
+    reachable without a credential. The key includes the email deliberately:
+    keying on address alone would let an attacker lock a colleague out by
+    failing on their behalf, and keying on email alone would let a shared NAT
+    throttle everyone behind it.
+
+    The locked response is 429 with `Retry-After`, and the credential check
+    is unchanged: a wrong email and a wrong password produce the same 401,
+    so the endpoint does not confirm which accounts exist.
+    """
     email = payload.email.strip().lower()
+    client = client_address(request)
+    retry_after = login_throttle.check(email, client)
+    if retry_after:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Too many failed sign-in attempts. Try again shortly, or "
+                "contact your administrator."
+            ),
+            headers={"Retry-After": str(retry_after)},
+        )
+
     expected = settings.auth_email.strip().lower()
     if not hmac.compare_digest(email, expected) or not hmac.compare_digest(
         payload.password, settings.auth_password
     ):
+        login_throttle.record_failure(email, client)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid corporate credentials"
         )
+
+    login_throttle.record_success(email, client)
     token, expires_at = issue_access_token()
     return LoginResponse(access_token=token, expires_at=expires_at, identity=_identity())
 
