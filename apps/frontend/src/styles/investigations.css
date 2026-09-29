@@ -152,8 +152,34 @@
 
 .inv-register {
   width: 100%;
+  /* A dense register has eleven columns. With the inspector rail open at a
+     laptop width there is not room for all of them, and letting the table
+     shrink instead pushed the attribution figure off the edge with no
+     indication it was there. A minimum keeps every column legible and moves
+     the overflow to a scroll the analyst can see and control. */
+  min-width: 940px;
   border-collapse: collapse;
   font-size: 11px;
+}
+
+/* Overlay scrollbars are invisible until you scroll, which is useless on a
+   table where the hidden columns are the point. */
+.table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
 }
 
 .inv-register th,
