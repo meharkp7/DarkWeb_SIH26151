@@ -118,9 +118,7 @@ def _row_schema(
         case_id=record.case_id,
         case_name=(cases.get(record.case_id) if record.case_id else None),
         adjudicated_by=record.adjudicated_by,
-        adjudicated_by_name=(
-            users.get(record.adjudicated_by) if record.adjudicated_by else None
-        ),
+        adjudicated_by_name=(users.get(record.adjudicated_by) if record.adjudicated_by else None),
         adjudicated_at=record.adjudicated_at,
         rationale=record.rationale,
         created_at=record.created_at,
@@ -128,22 +126,17 @@ def _row_schema(
         # True only once a human ruled. This is the flag the register uses to
         # stop calling a score a finding, so it is derived from the presence of
         # an adjudicator rather than from the status string alone.
-        analyst_recorded=record.adjudicated_by is not None
-        and record.adjudicated_at is not None,
+        analyst_recorded=record.adjudicated_by is not None and record.adjudicated_at is not None,
     )
 
 
-def _schema_many(
-    db: Session, records: Sequence[PersonaLinkageRecord]
-) -> list[PersonaLinkage]:
+def _schema_many(db: Session, records: Sequence[PersonaLinkageRecord]) -> list[PersonaLinkage]:
     handles = _handles(db, {row.actor_id for row in records})
     cases = _case_names(db, {row.case_id for row in records if row.case_id is not None})
     users = _user_names(
         db, {row.adjudicated_by for row in records if row.adjudicated_by is not None}
     )
-    return [
-        _row_schema(row, handles=handles, cases=cases, users=users) for row in records
-    ]
+    return [_row_schema(row, handles=handles, cases=cases, users=users) for row in records]
 
 
 # --------------------------------------------------------------------------

@@ -230,7 +230,11 @@ class XgboostBaseline(ResolutionBaseline):
 
         features = np.asarray([pair.features.as_vector() for pair in pairs], dtype=np.float64)
         labels = np.asarray([pair.label for pair in pairs], dtype=np.float32)
-        dtrain = DMatrix(features, label=labels)
+        # nthread=1 on DMatrix as well as in params: params only throttles the
+        # booster, whereas DMatrix's own OpenMP team (SparsePage::Push) is
+        # sized separately and is what crashes when another native library in
+        # the process ships its own copy of libomp.
+        dtrain = DMatrix(features, label=labels, nthread=1)
         params: dict[str, object] = {
             "max_depth": self.max_depth,
             "eta": self.learning_rate,
@@ -252,7 +256,7 @@ class XgboostBaseline(ResolutionBaseline):
         from xgboost import DMatrix  # noqa: PLC0415
 
         features = np.asarray([pair.features.as_vector()], dtype=np.float64)
-        probabilities = self._model.predict(DMatrix(features))
+        probabilities = self._model.predict(DMatrix(features, nthread=1))
         return float(probabilities[0])
 
 

@@ -8,8 +8,11 @@ import { Badge } from '../components/Badge';
 import type { Tone } from '../components/Badge';
 import { DataBlock } from '../components/DataBlock';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { SourceReliabilityStrip } from '../components/quality/SourceReliabilityStrip';
+import { TimeRangeNotice } from '../components/TimeRangeControl';
 import { useApi } from '../hooks/useApi';
 import { useLive } from '../hooks/useLive';
+import { filterByTimeRange, useTimeRange } from '../store/TimeRange';
 import { apiUrl } from '../api/client';
 import type {
   CaseQueueEntry,
@@ -495,6 +498,7 @@ function PlatformStrip({ snapshot }: { readonly snapshot: DashboardSnapshot | nu
 export function CommandCenterPage() {
   const { snapshot, connected, degradedReason, refresh } = useLive();
   const { identity } = useAuth();
+  const { from, to, label: windowLabel, isActive } = useTimeRange();
   /**
    * The socket is the fast path, not the only one. If it is refused the
    * console still has to load — and to be able to say *why* it is empty — so
@@ -511,6 +515,22 @@ export function CommandCenterPage() {
     [data],
   );
 
+  /**
+   * The window over the two things on this console that happened at a moment.
+   *
+   * The operating picture arrives over a websocket, so there is no query to
+   * bound here and the narrowing is done in the browser over the frame already
+   * in hand — which is exactly why both blocks below say so. The queue is
+   * measured by *last activity*: an investigation opened last month and worked
+   * on this morning is something the analyst learned about this morning. The
+   * ledger is measured by when the write happened, which is the one date it
+   * carries.
+   */
+  const queueInWindow = useMemo(
+    () => filterByTimeRange(queue, (row) => row.last_activity, from, to),
+    [queue, from, to],
+  );
+
   const posture = block(data, 'command_posture');
   // The register total is the posture block's own count. Falling back to the
   // number of rows on screen would present a truncated queue as the whole
@@ -519,25 +539,43 @@ export function CommandCenterPage() {
   const velocity = block(data, 'evidence_velocity') ?? [];
   const pressure = block(data, 'investigation_pressure') ?? [];
   const attribution = block(data, 'attribution_posture') ?? [];
-  const activity = block(data, 'activity') ?? [];
+  // Held: the window below keys on the ledger, and a fresh array every render
+  // would re-narrow the feed on every frame the socket delivers.
+  const activity = useMemo(() => block(data, 'activity') ?? [], [data]);
+  const ledger = useMemo(
+    () => filterByTimeRange(activity, (event) => event.occurred_at, from, to),
+    [activity, from, to],
+  );
 
   const headline = useMemo(() => {
     if (posture === null) {
       return 'Awaiting the live operating picture from the AEGIS API.';
     }
-    if ((posture.critical === 0 && posture.sla_at_risk === 0 && posture.unresolved_links === 0) && queue.length === 0) {
+    const ranked = queueInWindow.rows;
+    /*
+     * An empty window is not an all-clear. "Nothing requires intervention"
+     * would be a claim about the whole register, and the window says nothing
+     * about the investigations it left out.
+     */
+    if (ranked.length === 0 && queue.length > 0) {
+      return `${windowLabel}: no investigation was worked on inside that window, out of ${number(
+        queue.length,
+      )} in the register. That is a fact about the window, not a statement that nothing needs attention.`;
+    }
+    if ((posture.critical === 0 && posture.sla_at_risk === 0 && posture.unresolved_links === 0) && ranked.length === 0) {
       return 'Nothing requires intervention: no investigations are registered.';
     }
-    if ((posture.critical === 0 && posture.sla_at_risk === 0) && queue.length === 0) {
+    if ((posture.critical === 0 && posture.sla_at_risk === 0) && ranked.length === 0) {
       return 'Nothing requires intervention right now: no investigation is critical and no deadline is at risk.';
     }
-    const top = queue[0];
+    const top = ranked[0];
     const alerts = data?.critical_alerts ?? 0;
     if (top === undefined) return 'No investigations are registered, so there is no queue to rank.';
+    const windowed = isActive ? ` within ${windowLabel}` : '';
     return alerts > 0
-      ? `${number(alerts)} critical alert${alerts === 1 ? '' : 's'} open. ${top.name} heads the queue at ${number(top.queue_score)} of 100.`
-      : `${top.name} heads the queue at ${number(top.queue_score)} of 100.`;
-  }, [data, posture, queue]);
+      ? `${number(alerts)} critical alert${alerts === 1 ? '' : 's'} open. ${top.name} heads the queue${windowed} at ${number(top.queue_score)} of 100.`
+      : `${top.name} heads the queue${windowed} at ${number(top.queue_score)} of 100.`;
+  }, [data, posture, queue, queueInWindow.rows, isActive, windowLabel]);
 
   const isDegraded = degradedReason !== null;
   const isStale = data !== null && !connected && !isDegraded;
@@ -588,16 +626,50 @@ export function CommandCenterPage() {
             dense
             className="db--plain"
           >
+            {/*
+              The tiles are platform-wide counters with no date on them, and
+              the one below them is labelled all-time. A window cannot narrow
+              them, and a queue that is bounded beside an unbounded set of
+              tiles is a comparison an analyst will make anyway — so it is
+              refused in words rather than left to be inferred.
+            */}
+            {isActive && (
+              <p className="tr-notice">
+                {`${windowLabel} — these tiles are not bounded by this window. They count the whole register, every day, because a count of investigations still needing attention does not stop mattering when it is old. The window applies to the priority queue and the activity ledger below.`}
+              </p>
+            )}
             <PostureTiles posture={posture} total={total} />
           </DataBlock>
+
+          {/* Directly under the posture tiles: which sources the posture is
+              built on, and how many of them are one voice. A command picture
+              that shows case counts without showing where the evidence came
+              from cannot be weighed. */}
+          <SourceReliabilityStrip />
 
           <DataBlock
             title="Priority queue"
             eyebrow="Derived, and auditable line by line"
             lead={leadFor('priority.queue', { total })}
-            actions={<span className="surface-meta">{formatCount(queue.length, 'investigation')}</span>}
+            actions={
+              <span className="surface-meta">
+                {formatCount(
+                  isActive ? queueInWindow.rows.length : queue.length,
+                  'investigation',
+                )}
+              </span>
+            }
           >
-            <PriorityQueue rows={queue} />
+            <TimeRangeNotice
+              window={windowLabel}
+              shown={queueInWindow.rows.length}
+              total={queue.length}
+              basis={`in the browser over the ${queue.length} ${
+                queue.length === 1 ? 'row' : 'rows'
+              } in this live frame, by last activity — the summary endpoint takes no time bound`}
+              undated={queueInWindow.undated}
+            />
+            <PriorityQueue rows={queueInWindow.rows} />
           </DataBlock>
 
           <div className="cc2-split">
@@ -670,7 +742,16 @@ export function CommandCenterPage() {
                 </Link>
               }
             >
-              <ActivityLedger rows={activity} />
+              <TimeRangeNotice
+                window={windowLabel}
+                shown={ledger.rows.length}
+                total={activity.length}
+                basis={`in the browser over the ${activity.length} ${
+                  activity.length === 1 ? 'entry' : 'entries'
+                } in this live frame, by when each write happened — the summary endpoint takes no time bound`}
+                undated={ledger.undated}
+              />
+              <ActivityLedger rows={ledger.rows} />
             </DataBlock>
 
             <DataBlock
@@ -678,6 +759,11 @@ export function CommandCenterPage() {
               eyebrow="All-time totals, nothing filtered"
               lead={leadFor('platform.counts')}
             >
+              {isActive && (
+                <p className="tr-notice">
+                  {`${windowLabel} — not bounded by this window. These are the store's all-time totals, and the critical-alert figure counts every audit entry recorded as critical since collection began. Set the window to all time to read the console as one view.`}
+                </p>
+              )}
               <PlatformStrip snapshot={data} />
               {posture !== null && (
                 <dl className="kv kv--tight cc2-posture__facts">

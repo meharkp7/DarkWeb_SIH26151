@@ -27,13 +27,13 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import ColumnElement, func, nullslast, or_, select
+from sqlalchemy import ColumnElement, case, func, inspect, nullslast, or_, select
 from sqlalchemy.orm import Session
 
 from aegis.api.deps import get_db
@@ -44,6 +44,7 @@ from aegis.db.models import (
     CaseRecord,
     PersonaLinkageRecord,
     SourceRecord,
+    TemporalObservationRecord,
 )
 
 router = APIRouter(prefix="/api/v1/actors", tags=["actors"])
@@ -69,10 +70,38 @@ DEFAULT_STALE_DAYS = 30
 #: result set, not an unbounded dump that would stall the request.
 EXPORT_LIMIT = 5_000
 
+#: Weeks of per-actor evidence history every registry row carries. A quarter:
+#: shorter is inside one collection cadence, so a genuine change has nowhere to
+#: show, and longer stops being a trend and becomes a volume.
+TREND_WEEKS = 12
+
 
 # --------------------------------------------------------------------------
 # Schemas
 # --------------------------------------------------------------------------
+
+
+class ActorActivitySeries(BaseModel):
+    """One actor's recorded sighting volume, week by week.
+
+    **These are sightings, not evidence records.** ``temporal_observations``
+    holds one row per sighting of a subject; a row cites an evidence record
+    only when one was filed behind it, and ``cited`` counts how many did. The
+    distinction travels with the series rather than being left for a reader to
+    assume, because "34 records about this actor" and "34 times this actor was
+    sighted" are different claims and only the first one is evidence.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: Sightings per week, oldest first, zero-filled across the window.
+    weekly: list[int]
+    #: Monday (UTC) the first bucket covers, so the period is named rather than
+    #: assumed by the client.
+    start: date
+    #: Sightings in the window that cite an evidence record. Zero is a real
+    #: answer and is not the same as "no series".
+    cited: int
 
 
 class ActorRegistryRow(BaseModel):
@@ -110,6 +139,13 @@ class ActorRegistryRow(BaseModel):
     #: for the kind glyphs in the register row.
     identifier_kinds: dict[str, int] = Field(default_factory=dict)
     notes: str | None = None
+    #: Per-actor sighting volume for the last :data:`TREND_WEEKS` weeks, or
+    #: ``None`` when the platform has recorded nothing to plot for this actor.
+    #: ``None`` is deliberately not an empty list and not a run of zeros: a
+    #: client that drew either would be drawing a series the store does not
+    #: hold, and a flat line over a missing measurement is the most misleading
+    #: thing a register can contain.
+    activity: ActorActivitySeries | None = None
 
 
 class ActorIdentifier(BaseModel):
@@ -392,6 +428,76 @@ def _identifier_kinds(db: Session, actor_ids: list[UUID]) -> dict[UUID, dict[str
     return kinds
 
 
+def _week_floor(moment: datetime) -> datetime:
+    """The Monday 00:00 UTC that opens the week containing ``moment``.
+
+    Bucketing is done here rather than trusted to ``date_trunc('week', …)``: the
+    SQL function follows the session's ``TimeZone`` and PostgreSQL's ISO week
+    starts on Monday, so a server running in any other zone would silently
+    return buckets this function's arithmetic cannot line up with.
+    """
+    start = moment.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start - timedelta(days=start.weekday())
+
+
+def _observation_stream_exists(db: Session) -> bool:
+    """Whether the sighting stream this trend reads has been migrated.
+
+    A deployment whose alembic head is behind this build must still be able to
+    open the registry. Reading a missing table as "no trend recorded" is the
+    honest degradation; failing the whole result set because one optional column
+    has nowhere to read from is not.
+    """
+    return inspect(db.get_bind()).has_table(TemporalObservationRecord.__tablename__)
+
+
+def _activity_series(
+    db: Session, actor_ids: list[UUID], *, now: datetime
+) -> dict[UUID, ActorActivitySeries]:
+    """Weekly sighting volume for every actor on the page, in one query.
+
+    Counts every stored sighting of the actor in the :data:`TREND_WEEKS` weeks
+    ending with the current one, on every channel, and separately counts how
+    many of them cite a ledger record. An actor with nothing in the window is
+    absent from the result rather than present with twelve zeros: "we watched
+    and saw nothing" and "we have no series" are different facts, and only the
+    first is a statement about the actor.
+    """
+    if not actor_ids or not _observation_stream_exists(db):
+        return {}
+    first = _week_floor(now) - timedelta(weeks=TREND_WEEKS - 1)
+    week = func.date_trunc("week", TemporalObservationRecord.observed_at)
+    cited = func.sum(case((TemporalObservationRecord.evidence_id.isnot(None), 1), else_=0))
+    # `date_trunc` and the conditional aggregate are generic SQL expressions,
+    # so the row tuple comes back typed as `object`; the annotation is what
+    # tells the checker what it is. Same shape as the grouped reads elsewhere.
+    bucketed: list[tuple[UUID, datetime, int, int | None]] = list(
+        db.execute(
+            select(TemporalObservationRecord.actor_id, week, func.count(), cited)
+            .where(
+                TemporalObservationRecord.actor_id.in_(actor_ids),
+                TemporalObservationRecord.observed_at >= first,
+            )
+            .group_by(TemporalObservationRecord.actor_id, week)
+        ).all()
+    )
+    starts = [first + timedelta(weeks=offset) for offset in range(TREND_WEEKS)]
+    counts: dict[UUID, dict[datetime, int]] = {}
+    ledgers: dict[UUID, int] = {}
+    for actor_id, week_start, total, week_cited in bucketed:
+        start = week_start if week_start.tzinfo is not None else week_start.replace(tzinfo=UTC)
+        counts.setdefault(actor_id, {})[_week_floor(start)] = int(total)
+        ledgers[actor_id] = ledgers.get(actor_id, 0) + int(week_cited or 0)
+    return {
+        actor_id: ActorActivitySeries(
+            weekly=[weeks.get(start, 0) for start in starts],
+            start=first.date(),
+            cited=ledgers.get(actor_id, 0),
+        )
+        for actor_id, weeks in counts.items()
+    }
+
+
 def _registry_rows(
     db: Session,
     *,
@@ -425,26 +531,32 @@ def _registry_rows(
     )
     records = db.execute(query).all()
     kinds = _identifier_kinds(db, [record.actor_id for record, *_ in records])
-    return [
-        ActorRegistryRow(
-            actor_id=record.actor_id,
-            handle=record.handle,
-            category=record.category,
-            status=record.status,
-            confidence=record.confidence,
-            first_seen=record.first_seen,
-            last_seen=record.last_seen,
-            last_scan_at=record.last_scan_at,
-            source_id=record.source_id,
-            source_name=source_name,
-            identifier_count=int(identifier_count),
-            marketplace_count=int(marketplace_count),
-            case_link_count=int(case_link_count),
-            identifier_kinds=kinds.get(record.actor_id, {}),
-            notes=record.notes,
+    activity = _activity_series(
+        db, [record.actor_id for record, *_ in records], now=datetime.now(UTC)
+    )
+    rows: list[ActorRegistryRow] = []
+    for record, source_name, identifier_count, marketplace_count, case_link_count in records:
+        rows.append(
+            ActorRegistryRow(
+                actor_id=record.actor_id,
+                handle=record.handle,
+                category=record.category,
+                status=record.status,
+                confidence=record.confidence,
+                first_seen=record.first_seen,
+                last_seen=record.last_seen,
+                last_scan_at=record.last_scan_at,
+                source_id=record.source_id,
+                source_name=source_name,
+                identifier_count=int(identifier_count),
+                marketplace_count=int(marketplace_count),
+                case_link_count=int(case_link_count),
+                identifier_kinds=kinds.get(record.actor_id, {}),
+                notes=record.notes,
+                activity=activity.get(record.actor_id),
+            )
         )
-        for record, source_name, identifier_count, marketplace_count, case_link_count in records
-    ], total
+    return rows, total
 
 
 def _registry_row(db: Session, actor_id: UUID) -> ActorRegistryRow:
@@ -469,6 +581,7 @@ def _registry_row(db: Session, actor_id: UUID) -> ActorRegistryRow:
         raise HTTPException(status_code=404, detail="Actor not found")
     actor, source_name, identifier_count, marketplace_count, case_link_count = record
     kinds = _identifier_kinds(db, [actor_id])
+    series = _activity_series(db, [actor_id], now=datetime.now(UTC)).get(actor_id)
     return ActorRegistryRow(
         actor_id=actor.actor_id,
         handle=actor.handle,
@@ -485,6 +598,7 @@ def _registry_row(db: Session, actor_id: UUID) -> ActorRegistryRow:
         case_link_count=int(case_link_count),
         identifier_kinds=kinds.get(actor_id, {}),
         notes=actor.notes,
+        activity=series,
     )
 
 

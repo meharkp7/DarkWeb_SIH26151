@@ -1,2 +1,8 @@
-:root{color-scheme:dark;--bg:#0b0c0d;--surface:#111315;--surface-2:#17191b;--surface-3:#1c1f21;--line:#2a2d30;--line-soft:#202326;--text:#f2f0ea;--muted:#969a98;--faint:#656a68;--white:#faf9f5;--accent:#c7c3b7;--accent-2:#aaa69b;--green:#83d4aa;--amber:#e4b86d;--red:#ed8d88;--shadow:0 24px 70px rgba(0,0,0,.34);--radius:14px;--radius-sm:9px;--sidebar:228px;--topbar:64px;--font:Inter,-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,monospace}
+/* --faint was #656a68: 3.56:1 on --bg, below the 4.5:1 that WCAG AA
+   requires for text under 18pt, and it carried 678 contrast failures
+   across the product. #8e9290 keeps the same neutral hue with the same
+   faint green cast and clears 4.5:1 on --surface-3, the worst surface it
+   sits on — not just on the page background. Every other token already
+   cleared comfortably. */
+:root{color-scheme:dark;--bg:#0b0c0d;--surface:#111315;--surface-2:#17191b;--surface-3:#1c1f21;--line:#2a2d30;--line-soft:#202326;--text:#f2f0ea;--muted:#969a98;--faint:#8e9290;--white:#faf9f5;--accent:#c7c3b7;--accent-2:#aaa69b;--green:#83d4aa;--amber:#e4b86d;--red:#ed8d88;--shadow:0 24px 70px rgba(0,0,0,.34);--radius:14px;--radius-sm:9px;--sidebar:228px;--topbar:64px;--font:Inter,-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,monospace}
 *{box-sizing:border-box}html,body,#root{margin:0;min-height:100%;background:var(--bg)}body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}button,input,select{font:inherit}button,a{color:inherit}a{text-decoration:none}button{cursor:pointer}.mono{font-family:var(--mono);font-size:.86em}

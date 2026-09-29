@@ -465,7 +465,7 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
               <svg
                 className="inv-network__canvas"
                 viewBox={`0 0 ${W} ${canvasHeight}`}
-                role="img"
+                role="group"
                 aria-label={`Entity relationship graph for ${caseName}: ${visible.nodes.length} entities and ${visible.edges.length} relationships`}
               >
                 <defs>

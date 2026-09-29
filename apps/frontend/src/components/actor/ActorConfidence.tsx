@@ -39,10 +39,11 @@ export function ActorConfidence({ confidence, compact = false }: ActorConfidence
       <span
         className="act-conf__track"
         role="meter"
+        aria-label="Attribution confidence"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(clamped * 100)}
-        aria-valuetext={`${percent}% ${RECORDED.label}`}
+        aria-valuetext={`${percent}%, ${RECORDED.label.toLowerCase()}`}
       >
         <i className={`act-conf__fill act-conf__fill--${tone}`} style={{ width: `${clamped * 100}%` }} />
       </span>

@@ -21,6 +21,10 @@ function actor(overrides: Partial<ActorRegistryRow> & Pick<ActorRegistryRow, 'ac
     case_link_count: 0,
     identifier_kinds: { handle: 1, onion: 1 },
     notes: null,
+    // The API returns `null` — not twelve zeros — when it has no series for an
+    // actor, and the register has to be able to tell that apart from a quiet
+    // one. The default fixture is deliberately the "not recorded" case.
+    activity: null,
     ...overrides,
   };
 }
@@ -304,5 +308,42 @@ describe('ActorsPage', () => {
     await waitFor(() => {
       expect(screen.queryAllByRole('row')).toHaveLength(0);
     });
+  });
+
+  it('plots a recorded series and says the API returned none for the rest', async () => {
+    installRegistryFetch([
+      actor({
+        actor_id: 'actor-4',
+        handle: 'redkite_exchange',
+        // A real weekly sighting series, as the API now returns it.
+        activity: {
+          weekly: [1, 1, 0, 2, 1, 0, 4, 5, 6, 7, 8, 9],
+          start: '2026-07-06',
+          cited: 4,
+        },
+      }),
+    ]);
+    renderPage();
+    await bodyRows();
+
+    // The cell names the period, the direction and the peak, so a screen reader
+    // learns the trend rather than announcing a graphic.
+    const chart = screen.getByRole('img');
+    expect(chart.getAttribute('aria-label')).toMatch(/12 weeks from 06 Jul 2026/);
+    expect(chart.getAttribute('aria-label')).toContain('rising');
+
+    // And the basis is on the page, above the table, not in a header tooltip.
+    expect(text()).toContain('These are sightings, not evidence records');
+  });
+
+  it('renders "no trend recorded" rather than a line for an actor with no series', async () => {
+    installRegistryFetch();
+    renderPage();
+    await bodyRows();
+
+    // Every fixture row has `activity: null`, and a flat line drawn over a
+    // measurement nobody made is worse than no line at all.
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getAllByText('No trend recorded')).toHaveLength(3);
   });
 });

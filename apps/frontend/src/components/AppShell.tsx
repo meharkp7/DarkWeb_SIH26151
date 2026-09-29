@@ -4,6 +4,7 @@ import { AgentButton } from './AgentButton';
 import { CommandPalette, openCommandPalette } from './CommandPalette';
 import { ErrorBoundary } from './ErrorBoundary';
 import { GlobalSearch } from './GlobalSearch';
+import { TimeRangeControl } from './TimeRangeControl';
 import { usePublishAgentContext } from './agent-context';
 import { useLive } from '../hooks/useLive';
 import { useAuth } from '../store/auth';
@@ -53,6 +54,13 @@ const SECTION_LABELS: Record<string, string> = {
   admin: 'Administration',
   settings: 'Administration',
 };
+
+/** The two screens that bound their own rows by date already. */
+const OWNS_TIMELINE = ['/infrastructure', '/personas'];
+
+function ownsTimeline(pathname: string): boolean {
+  return OWNS_TIMELINE.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
 
 function sectionLabel(pathname: string): string {
   const segment = pathname.split('/')[1];
@@ -197,6 +205,11 @@ export function AppShell() {
           <span>{section}</span>
         </div>
         <div className="top-actions">
+          {/* One timeline over the registers that had none. It is absent on
+              Infrastructure and Persona Linkage because those two own a
+              timeline already, bound to a different timestamp, and two
+              controls filtering one screen is one too many. */}
+          {!ownsTimeline(location.pathname) && <TimeRangeControl />}
           {/* The search box is a real, always-visible control rather than a
               button that opens something else. A shortcut-only search is
               invisible search: an analyst who does not know the binding has

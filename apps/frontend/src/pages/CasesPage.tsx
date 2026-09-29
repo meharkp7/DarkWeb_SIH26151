@@ -19,6 +19,8 @@ import type { Tone } from '../components/Badge';
 import { InspectorRail } from '../components/InspectorRail';
 import type { InspectorFact, InspectorStatus } from '../components/InspectorRail';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { TimeRangeNotice } from '../components/TimeRangeControl';
+import { filterByTimeRange, useTimeRange } from '../store/TimeRange';
 
 const PRIORITY_TONE: Record<CasePriority, Tone> = {
   low: 'neutral',
@@ -579,6 +581,7 @@ export function CasesPage() {
   const [params, setParams] = useSearchParams();
   const { data, reload, loading, error } = useApi<CaseQueueEntry[]>(apiUrl('/v1/dashboard/cases'));
   const [creating, setCreating] = useState(false);
+  const { from, to, label: windowLabel, isActive, setWindow } = useTimeRange();
 
   const query = params.get('q') ?? '';
   const status = isStatus(params.get('status')) ? (params.get('status') as CaseStatus) : 'all';
@@ -616,9 +619,23 @@ export function CasesPage() {
     return [...seen].sort();
   }, [data]);
 
+  /**
+   * The window, applied first and to the whole loaded set.
+   *
+   * The register endpoint takes no time bound, so this is a browser-side slice
+   * over the rows already fetched — which is why the notice under the heading
+   * says so. It is measured by *last activity* rather than by creation: the
+   * question the window answers is "what did I learn in the last week", and a
+   * case opened in March and worked on yesterday belongs to last week.
+   */
+  const inWindow = useMemo(
+    () => filterByTimeRange(data ?? [], (entry) => entry.last_activity, from, to),
+    [data, from, to],
+  );
+
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const filtered = (data ?? []).filter((entry) => {
+    const filtered = inWindow.rows.filter((entry) => {
       if (needle !== '') {
         const haystack = `${entry.name} ${entry.case_id} ${entry.tags.join(' ')}`.toLowerCase();
         if (!haystack.includes(needle)) return false;
@@ -633,9 +650,9 @@ export function CasesPage() {
       return true;
     });
     return sortRows(filtered, sort, dir);
-  }, [data, query, status, priority, severity, tag, sla, overdueOnly, unassignedOnly, sort, dir]);
+  }, [inWindow, query, status, priority, severity, tag, sla, overdueOnly, unassignedOnly, sort, dir]);
 
-  const total = (data ?? []).length;
+  const total = inWindow.total;
 
   // Looked up in the unfiltered list, so narrowing the register while a case is
   // under inspection does not silently empty the rail the analyst is reading.
@@ -720,7 +737,16 @@ export function CasesPage() {
           <h1>Investigations</h1>
           <p>
             Every investigation, its triage state and the evidence standing behind it. Filters live
-            in the address bar, so a view of the register can be linked, bookmarked or handed over.
+            in the address bar, so a view of the register can be linked, bookmarked or handed over.{' '}
+            <TimeRangeNotice
+              window={windowLabel}
+              shown={rows.length}
+              total={total}
+              basis={`in the browser over ${total} loaded ${
+                total === 1 ? 'record' : 'records'
+              }, by last activity — GET /v1/dashboard/cases takes no time bound`}
+              undated={inWindow.undated}
+            />
           </p>
         </div>
         <div className="inv-page__actions">
@@ -876,7 +902,13 @@ export function CasesPage() {
         <button
           type="button"
           className="btn btn--ghost btn--small inv-toolbar__clear"
-          onClick={() => setParams(new URLSearchParams(), { replace: true })}
+          // The window lives in the same query string, so a Reset that left it
+          // standing would re-apply itself a frame later and leave the analyst
+          // looking at a filtered register they believe they just cleared.
+          onClick={() => {
+            setParams(new URLSearchParams(), { replace: true });
+            setWindow('all');
+          }}
         >
           Reset
         </button>
@@ -941,7 +973,11 @@ export function CasesPage() {
                   <td colSpan={COLUMNS.length} className="data-table__empty">
                     <EmptyState
                       title="No matches"
-                      message="No investigation matches the current filters. Reset to see the full register."
+                      message={
+                        isActive
+                          ? `No investigation matches the current filters inside ${windowLabel}. An investigation with no recorded activity cannot be shown to fall in a window, so it is not listed. Reset the window, or widen it, to see more.`
+                          : 'No investigation matches the current filters. Reset to see the full register.'
+                      }
                     />
                   </td>
                 </tr>
@@ -1127,7 +1163,11 @@ export function CasesPage() {
       )}
 
       <p className="inv-foot">
-        <span>{`${rows.length} of ${total} shown · live from PostgreSQL`}</span>
+        <span>
+          {isActive
+            ? `${rows.length.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} in window · ${windowLabel}`
+            : `${rows.length} of ${total} shown · live from PostgreSQL`}
+        </span>
         <span>
           {filtersActive ? 'Filters applied from the address bar — Reset clears them.' : 'No filters applied.'}
         </span>

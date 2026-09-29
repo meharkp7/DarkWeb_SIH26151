@@ -148,6 +148,19 @@ RELIABILITY_BASIS: Final[str] = (
     "not change from one collection to the next."
 )
 
+#: Reliability bands, highest floor first, and the floor each one starts at.
+#:
+#: Declared server-side and returned as the ``band`` name rather than as a
+#: cut-off the browser re-applies: a console that banded the register with its
+#: own thresholds would report a different corpus from the one the API counted,
+#: and the two would disagree on the same page without either being wrong about
+#: its own arithmetic.
+RELIABILITY_BANDS: Final[tuple[tuple[str, float], ...]] = (
+    ("high", 0.7),
+    ("medium", 0.4),
+    ("low", 0.0),
+)
+
 #: Which registered source type each shipped collector can serve.
 #:
 #: The mapping is deliberately narrow. A source with no entry is not silently
@@ -211,6 +224,30 @@ class SourceQuality(BaseModel):
     independence_note: str | None
 
 
+class SourceReliabilityBand(BaseModel):
+    """One reliability band and what it has actually produced.
+
+    A band name on its own is a label on a weight. ``records`` is what a reader
+    actually wants next to it — a "high" band holding every record in the
+    corpus and a "high" band holding none are opposite facts about the same
+    label, and only one of them should be able to look reliable.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: ``high``, ``medium`` or ``low``. Named by the API, never re-derived.
+    band: str
+    #: The reliability at and above which a source falls in this band, so the
+    #: cut-off travels with the number rather than living in a reader's head.
+    min_reliability: float
+    #: Registered sources in the band.
+    sources: int
+    #: Those of them that have produced a record or a completed/partial run.
+    contributing_sources: int
+    #: Evidence rows stored against the band's sources, all-time.
+    records: int
+
+
 class CollectionJob(BaseModel):
     """One run of one source's collector, as recorded in ``collection_jobs``."""
 
@@ -272,9 +309,21 @@ class CollectionStatus(BaseModel):
     #: none has contributed. Null rather than 0.0, because a mean over an
     #: empty set is not a low score.
     mean_contributing_reliability: float | None
+    #: Mean reliability over *every* registered source, contributors included.
+    #: Returned beside the contributing mean because the difference between the
+    #: two is the point: a register whose average collapses once the sources
+    #: that never produced anything are included is not a register whose
+    #: evidence is weak, it is a register with a coverage gap.
+    mean_registered_reliability: float | None
     independence_groups: int
     dominant_independence_group: str | None
     dominant_independence_group_size: int
+    #: The same register, grouped by reliability band. ``records`` is the count
+    #: of evidence rows the band's sources have actually produced, which is the
+    #: only version of a reliability band that says how much weight is behind
+    #: it — a band of high-reliability sources that have never run is a claim,
+    #: not a foundation.
+    reliability_bands: list[SourceReliabilityBand]
     reliability_basis: str
     limitations: list[str]
 
@@ -752,6 +801,33 @@ def _collection_status(db: Session, *, now: datetime) -> CollectionStatus:
 
     healthy = sum(1 for source in sources if source.freshness == "healthy")
     never = sum(1 for source in sources if source.freshness == "never")
+
+    contributing_ids = {source.source_id for source in contributing}
+    bands: list[SourceReliabilityBand] = []
+    # First match wins: the bands are declared as floors, so a 0.85 source
+    # clears all three and must be counted once. Assigning it to each band it
+    # clears would make the band's source counts sum past the register total
+    # and quietly invent sources nobody registered.
+    assigned: set[UUID] = set()
+    for band, floor in RELIABILITY_BANDS:
+        members = [
+            source
+            for source in sources
+            if source.source_id not in assigned and source.reliability >= floor
+        ]
+        assigned.update(source.source_id for source in members)
+        bands.append(
+            SourceReliabilityBand(
+                band=band,
+                min_reliability=floor,
+                sources=len(members),
+                contributing_sources=sum(
+                    1 for source in members if source.source_id in contributing_ids
+                ),
+                records=sum(source.record_count for source in members),
+            )
+        )
+
     return CollectionStatus(
         generated_at=now,
         sources_total=len(sources),
@@ -768,13 +844,24 @@ def _collection_status(db: Session, *, now: datetime) -> CollectionStatus:
             if contributing
             else None
         ),
+        mean_registered_reliability=(
+            round(sum(source.reliability for source in sources) / len(sources), 4)
+            if sources
+            else None
+        ),
         independence_groups=len(group_sizes),
         dominant_independence_group=dominant_group or None,
         dominant_independence_group_size=dominant_size,
+        reliability_bands=bands,
         reliability_basis=RELIABILITY_BASIS,
-        limitations=_status_limitations(
-            healthy, len(sources), dominant_group or None, dominant_size
-        ),
+        limitations=[
+            *_status_limitations(healthy, len(sources), dominant_group or None, dominant_size),
+            "Band record counts are all-time totals for the sources in the band, not "
+            "counts from a window, and a band with no records has produced nothing to "
+            "weigh. Band edges are "
+            + ", ".join(f"{name} at {floor:g} and above" for name, floor in RELIABILITY_BANDS)
+            + ".",
+        ],
     )
 
 

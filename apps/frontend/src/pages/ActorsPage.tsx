@@ -9,10 +9,13 @@ import type { Tone } from '../components/Badge';
 import { DataBlock } from '../components/DataBlock';
 import { InspectorRail } from '../components/InspectorRail';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { TimeRangeNotice } from '../components/TimeRangeControl';
+import { filterByTimeRange, useTimeRange } from '../store/TimeRange';
 import { ActorConfidence } from '../components/actor/ActorConfidence';
 import { ActorIdentifierCell, actorRailProps } from '../components/actor/ActorPieces';
 import { ActorScanMark } from '../components/actor/ActorScanMark';
 import { ActorSummaryStrip } from '../components/actor/ActorSummaryStrip';
+import { ActorTrendCell } from '../components/actor/ActorTrendCell';
 import { useApi } from '../hooks/useApi';
 import { formatDateTime, shortId } from '../lib/format';
 import { leadFor } from '../lib/explain';
@@ -63,6 +66,10 @@ const COLUMNS: readonly Column[] = [
   { key: 'identifiers', label: 'Identifiers', sort: 'identifiers', end: true },
   { key: 'marketplaces', label: 'Venues', sort: null, end: true },
   { key: 'links', label: 'Links', sort: null, end: true },
+  // Deliberately unsorted: the series is 12 weeks long and its ordering is a
+  // statement about collection history, which a click-to-sort column would let
+  // an analyst mistake for a statement about the actor.
+  { key: 'trend', label: '12-week trend', sort: null },
   { key: 'last_seen', label: 'Last seen', sort: 'last_seen' },
   { key: 'last_scan', label: 'Last scan', sort: 'last_scan' },
   { key: 'source', label: 'Source', sort: null },
@@ -87,6 +94,7 @@ function isSortKey(value: string | null): value is SortKey {
  */
 export function ActorsPage() {
   const [params, setParams] = useSearchParams();
+  const { from, to, label: windowLabel, isActive, setWindow } = useTimeRange();
 
   const query = params.get('q') ?? '';
   const category = params.get('category') ?? 'all';
@@ -121,9 +129,24 @@ export function ActorsPage() {
   const summary = useApi<ActorSummary>(api.actorSummaryUrl());
   const categories = useApi<ActorCategoryCount[]>(api.actorCategoriesUrl());
 
+  /**
+   * The window, narrowed in the browser over the page the server returned.
+   *
+   * The registry endpoint takes no time bound, so this is honest only if it
+   * says so — hence the basis sentence under the heading. It is measured by
+   * *last seen*: an actor nobody has observed inside the window is not an
+   * actor the analyst learned about inside it, whatever else is on file. The
+   * registry total from the summary is the unfiltered denominator, which is
+   * the one number here that is not limited to the loaded page.
+   */
+  const inWindow = useMemo(
+    () => filterByTimeRange(list.data ?? [], (row) => row.last_seen, from, to),
+    [list.data, from, to],
+  );
+
   // Memoised so the selection lookup below does not see a new array identity
   // on every render and re-resolve the rail for an unchanged dataset.
-  const rows = useMemo(() => list.data ?? [], [list.data]);
+  const rows = useMemo(() => inWindow.rows, [inWindow.rows]);
   const staleDays = summary.data?.stale_days ?? null;
 
   /** Typing replaces, sorting and selection push: the back button must work. */
@@ -225,6 +248,20 @@ export function ActorsPage() {
         eyebrow="Result set"
         lead={leadFor('actor.registry', { total, shown: rows.length })}
       >
+        <TimeRangeNotice
+          window={windowLabel}
+          shown={rows.length}
+          total={total}
+          basis={`in the browser over the ${inWindow.total} loaded ${
+            inWindow.total === 1 ? 'row' : 'rows'
+          }, by last seen — GET /v1/actors takes no time bound`}
+          undated={inWindow.undated}
+          footnote={
+            total !== null && inWindow.total < total
+              ? `The registry holds ${total.toLocaleString('en-GB')} actors; this page loaded ${inWindow.total}, so records beyond the loaded page are not in the count above or out of it.`
+              : undefined
+          }
+        />
         <div className="act-toolbar" role="search" aria-label="Filter the actor registry">
           <div className="act-toolbar__search">
             <span aria-hidden="true">⌕</span>
@@ -316,11 +353,22 @@ export function ActorsPage() {
           <button
             type="button"
             className="btn btn--ghost btn--small inv-toolbar__clear"
-            onClick={() => setParams(new URLSearchParams(), { replace: true })}
+            // The window shares the query string, so leaving it standing would
+            // re-apply itself a frame after the reset and hand back a
+            // filtered registry the analyst believes they just cleared.
+            onClick={() => {
+              setParams(new URLSearchParams(), { replace: true });
+              setWindow('all');
+            }}
           >
             Reset
           </button>
         </div>
+
+        {/* The basis for the trend column, above the table rather than in a
+            tooltip on the header: a cell that cannot be explained from where
+            the reader is standing is a cell nobody trusts. */}
+        <p className="q-basis">{leadFor('actor.trend')}</p>
 
         {summary.error !== null && <ErrorState message={summary.error} onRetry={summary.reload} />}
         {list.error !== null && <ErrorState message={list.error} onRetry={list.reload} />}
@@ -330,9 +378,11 @@ export function ActorsPage() {
           <EmptyState
             title={filtersActive ? 'No actors match these filters' : 'No actors in the registry'}
             message={
-              filtersActive
-                ? 'No actor matches the current filters. Reset to see the whole registry.'
-                : 'The registry is empty. Actors are cross-case records, so they arrive from collection rather than from opening an investigation.'
+              isActive
+                ? `No loaded actor matches the current filters inside ${windowLabel}. An actor never observed cannot be shown to fall in a window, so it is not listed. Widen the window, or set it to all time, to see the whole registry.`
+                : filtersActive
+                  ? 'No actor matches the current filters. Reset to see the whole registry.'
+                  : 'The registry is empty. Actors are cross-case records, so they arrive from collection rather than from opening an investigation.'
             }
             endpoint="GET /api/v1/actors"
           />
@@ -422,6 +472,13 @@ export function ActorsPage() {
                         </td>
                         <td className="act-num">{actor.marketplace_count}</td>
                         <td className="act-num">{actor.case_link_count}</td>
+                        <td>
+                          <ActorTrendCell
+                            series={actor.activity}
+                            lastSeen={actor.last_seen}
+                            handle={actor.handle}
+                          />
+                        </td>
                         <td>{formatDateTime(actor.last_seen)}</td>
                         <td>
                           <ActorScanMark lastScanAt={actor.last_scan_at} staleDays={staleDays} />

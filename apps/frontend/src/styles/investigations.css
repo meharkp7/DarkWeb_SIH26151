@@ -1362,3 +1362,14 @@ th[aria-sort='descending'] .inv-sort__arrow::after {
     grid-template-columns: 1fr;
   }
 }
+
+/* The qualifier that used to be a bare <small> inside the wrapping div —
+   which a <dl> does not permit, so it was being dropped from the
+   description list's structure. It now lives inside its <dd>. */
+.inv-metric__sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 400;
+}

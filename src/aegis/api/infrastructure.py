@@ -556,9 +556,7 @@ class InfrastructureCorrelateRequest(BaseModel):
     case_id: UUID
     thresholds: CorrelationThresholdsInput
     observation_ids: list[UUID] | None = None
-    networks: list[Literal["onion", "clearnet"]] = Field(
-        default=["onion", "clearnet"]
-    )
+    networks: list[Literal["onion", "clearnet"]] = Field(default=["onion", "clearnet"])
     since: datetime | None = None
     until: datetime | None = None
     #: Cap on rows written, newest scores first. ``None`` writes every
@@ -804,13 +802,10 @@ def list_findings(
     true of a hidden service at a point in the investigation rather than only
     what is true of it now.
     """
-    statement = (
-        select(InfrastructureFindingRecord, InfrastructureObservationRecord)
-        .join(
-            InfrastructureObservationRecord,
-            InfrastructureFindingRecord.observation_id
-            == InfrastructureObservationRecord.observation_id,
-        )
+    statement = select(InfrastructureFindingRecord, InfrastructureObservationRecord).join(
+        InfrastructureObservationRecord,
+        InfrastructureFindingRecord.observation_id
+        == InfrastructureObservationRecord.observation_id,
     )
     if kind:
         statement = statement.where(InfrastructureFindingRecord.kind == kind)
@@ -841,9 +836,7 @@ def list_findings(
 
 
 @router.get("/findings/{finding_id}", response_model=InfrastructureFinding)
-def get_finding(
-    finding_id: UUID, db: Annotated[Session, Depends(get_db)]
-) -> InfrastructureFinding:
+def get_finding(finding_id: UUID, db: Annotated[Session, Depends(get_db)]) -> InfrastructureFinding:
     record = db.get(InfrastructureFindingRecord, finding_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Finding not found")
@@ -1043,9 +1036,7 @@ def infrastructure_summary(
         match_where.append(InfrastructureMatchRecord.detected_at <= until)
         observation_where.append(InfrastructureObservationRecord.observed_at <= until)
 
-    by_kind = {
-        kind: 0 for kind in FINDING_KINDS
-    }
+    by_kind = {kind: 0 for kind in FINDING_KINDS}
     for kind, total in db.execute(
         select(InfrastructureFindingRecord.kind, func.count())
         .where(*finding_where)
@@ -1087,7 +1078,9 @@ def infrastructure_summary(
             clearnet_hosts = int(distinct_subjects)
     observations_total = int(
         db.scalar(
-            select(func.count()).select_from(InfrastructureObservationRecord).where(*observation_where)
+            select(func.count())
+            .select_from(InfrastructureObservationRecord)
+            .where(*observation_where)
         )
         or 0
     )
@@ -1310,9 +1303,7 @@ def run_correlation(
             for record in reused
         ],
         skipped_observations=skipped,
-        limitations=_union_limitations(
-            [record.limitations for record in created_records + reused]
-        )
+        limitations=_union_limitations([record.limitations for record in created_records + reused])
         or _base_limitations(len(features), len(skipped)),
         correlated_at=now,
     )
@@ -1573,12 +1564,8 @@ def _observation_csv_row(row: InfrastructureObservation) -> dict[str, object]:
         "ja3": _csv_text(tls.get("ja3")),
         "http_server": _csv_text(http.get("server")),
         "http_status": _csv_text(http.get("status_code")),
-        "certificate_fingerprint_sha256": _csv_text(
-            certificate.get("fingerprint_sha256")
-        ),
-        "technologies": ";".join(
-            str(item) for item in technologies if isinstance(item, str)
-        )
+        "certificate_fingerprint_sha256": _csv_text(certificate.get("fingerprint_sha256")),
+        "technologies": ";".join(str(item) for item in technologies if isinstance(item, str))
         if isinstance(technologies, Sequence) and not isinstance(technologies, str | bytes)
         else "",
     }

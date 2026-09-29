@@ -273,7 +273,12 @@ export function HypothesisBoard({ hypotheses, onSelectEvidence }: HypothesisBoar
             </caption>
             <thead>
               <tr>
-                <th scope="col">Modality</th>
+                <th scope="col">
+                  Modality
+                  <small className="hint" style={{ display: 'block', fontWeight: 400 }}>
+                    signal strength by modality
+                  </small>
+                </th>
                 {ordered.map((hypothesis) => (
                   <th scope="col" key={hypothesis.hypothesis_id}>
                     {labels.get(hypothesis.hypothesis_id)}

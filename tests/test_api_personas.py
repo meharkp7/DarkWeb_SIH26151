@@ -188,9 +188,7 @@ def world() -> Iterator[_Fixture]:
         )
         db.execute(
             delete(ActorRecord).where(
-                ActorRecord.actor_id.in_(
-                    [actor.actor_id, other.actor_id, summary_actor.actor_id]
-                )
+                ActorRecord.actor_id.in_([actor.actor_id, other.actor_id, summary_actor.actor_id])
             )
         )
         db.commit()
@@ -220,9 +218,7 @@ def _row(handle: str) -> PersonaLinkageRecord:
     db = SessionLocal()
     try:
         row = db.scalar(
-            select(PersonaLinkageRecord).where(
-                PersonaLinkageRecord.candidate_handle == handle
-            )
+            select(PersonaLinkageRecord).where(PersonaLinkageRecord.candidate_handle == handle)
         )
         assert row is not None, f"no linkage row for {handle}"
         return row
@@ -259,9 +255,7 @@ def test_proposal_score_is_computed_server_side(client: TestClient, world: _Fixt
     assert body["adjudicated_by"] is None
 
 
-def test_caller_supplied_score_is_rejected_not_ignored(
-    client: TestClient, world: _Fixture
-) -> None:
+def test_caller_supplied_score_is_rejected_not_ignored(client: TestClient, world: _Fixture) -> None:
     """A body carrying ``score`` is refused, and nothing is written.
 
     Ignoring it silently would leave a caller believing they had set the score
@@ -282,9 +276,7 @@ def test_caller_supplied_score_is_rejected_not_ignored(
     try:
         assert (
             db.scalar(
-                select(PersonaLinkageRecord).where(
-                    PersonaLinkageRecord.candidate_handle == handle
-                )
+                select(PersonaLinkageRecord).where(PersonaLinkageRecord.candidate_handle == handle)
             )
             is None
         )
@@ -354,9 +346,7 @@ def test_too_short_sample_is_refused_rather_than_scored(
     try:
         assert (
             db.scalar(
-                select(PersonaLinkageRecord).where(
-                    PersonaLinkageRecord.candidate_handle == handle
-                )
+                select(PersonaLinkageRecord).where(PersonaLinkageRecord.candidate_handle == handle)
             )
             is None
         )
@@ -485,9 +475,7 @@ def test_readjudication_replaces_rather_than_accumulates(
     db = SessionLocal()
     try:
         rows = db.scalars(
-            select(PersonaLinkageRecord).where(
-                PersonaLinkageRecord.candidate_handle == handle
-            )
+            select(PersonaLinkageRecord).where(PersonaLinkageRecord.candidate_handle == handle)
         ).all()
         assert len(rows) == 1
         assert rows[0].status == "rejected"
@@ -605,9 +593,7 @@ def test_summary_error_pair_is_computed_from_rows(client: TestClient, world: _Fi
     db = SessionLocal()
     try:
         mine = db.scalars(
-            select(PersonaLinkageRecord).where(
-                PersonaLinkageRecord.candidate_handle.in_(handles)
-            )
+            select(PersonaLinkageRecord).where(PersonaLinkageRecord.candidate_handle.in_(handles))
         ).all()
         expected = _summarize(mine)
         assert {row.candidate_handle for row in mine} == {row["candidate_handle"] for row in listed}
@@ -681,13 +667,9 @@ def test_list_filters_and_resolves_names(client: TestClient, world: _Fixture) ->
     assert row["adjudicated_by_name"] is None
     assert row["limitations"], "every row must say what the analysis cannot see"
 
-    scored_out = client.get(
-        "/api/v1/personas/linkages", params={"min_score": 1.5, "limit": 5}
-    )
+    scored_out = client.get("/api/v1/personas/linkages", params={"min_score": 1.5, "limit": 5})
     assert scored_out.status_code == 422
-    empty = client.get(
-        "/api/v1/personas/linkages", params={"actor_id": str(world.other_actor_id)}
-    )
+    empty = client.get("/api/v1/personas/linkages", params={"actor_id": str(world.other_actor_id)})
     assert empty.status_code == 200
 
 

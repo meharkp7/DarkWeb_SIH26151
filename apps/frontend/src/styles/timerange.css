@@ -1,0 +1,273 @@
+/* ==========================================================================
+   The console timeline
+   --------------------------------------------------------------------------
+   Owned by `TimeRangeControl`. Everything is namespaced `tr-` so it can sit
+   beside the topbar rules in `base.css` without colliding, and every colour
+   is a token from `tokens.css` — no new literals.
+
+   Two rules from the product's accessibility layer are load-bearing here and
+   are restated rather than left implicit:
+
+   - **The selected segment is marked by a rule and a weight, not by a fill.**
+     `.tr-seg__mark` is the rule; `is-on` also changes the text colour. Colour
+     alone would leave a colourblind analyst, and anyone reading the page in
+     greyscale, unable to tell "Last 7 days" from "Last 30 days".
+   - **`:focus-visible` on every interactive part of it.** The shared ring in
+     `accessibility.css` already covers `button` and `input`; the segmented
+     control adds its own outline offset so the ring reads against the segment
+     fill rather than against its neighbour.
+   ========================================================================== */
+
+.tr {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.tr__label {
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* --------------------------------------------------------------------------
+   The segmented control
+   -------------------------------------------------------------------------- */
+
+.tr-seg {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.tr-seg__item {
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 7px 10px 8px;
+  cursor: pointer;
+  transition: color 0.16s ease, background-color 0.16s ease;
+}
+
+.tr-seg__item:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* Weight as well as colour: a hue is not the only thing separating the
+   selected segment from the rest. */
+.tr-seg__item.is-on {
+  color: var(--text);
+  background: var(--surface-3);
+  font-weight: 650;
+}
+
+.tr-seg__item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 0;
+}
+
+/* The rule under the selected segment. Present for `is-on` only, so the
+   selected state survives a greyscale print. */
+.tr-seg__mark {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.tr-seg__item.is-on .tr-seg__mark {
+  background: var(--accent);
+}
+
+.tr-toggle {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.tr-toggle:hover {
+  color: var(--text);
+  border-color: var(--accent-2);
+}
+
+/* --------------------------------------------------------------------------
+   The custom-range disclosure
+   -------------------------------------------------------------------------- */
+
+.tr-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  width: 340px;
+  /* Never wider than the viewport: a disclosure that has to be scrolled
+     sideways to read is a disclosure an analyst gives up on. */
+  max-width: calc(100vw - 24px);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: var(--shadow);
+  text-align: left;
+  line-height: 1.5;
+}
+
+.tr-panel__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.tr-field__label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tr-field input {
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  color-scheme: dark;
+}
+
+/* An invalid field is ringed *and* carries `aria-invalid`, so the state is
+   available to assistive technology rather than living in a colour. */
+.tr-field input[aria-invalid='true'] {
+  border-color: var(--red);
+}
+
+.tr-panel__hint {
+  margin: 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.tr-panel__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tr-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  padding: 7px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.tr-btn:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.tr-btn:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.tr-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 650;
+}
+
+.tr-panel__error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--red);
+  border-radius: 7px;
+  background: rgba(237, 141, 136, 0.08);
+  color: var(--red);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   The sentence a register states about the window
+   -------------------------------------------------------------------------- */
+
+.tr-notice {
+  display: block;
+  margin: 8px 0 0;
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* --------------------------------------------------------------------------
+   Narrow topbars
+
+   The control wraps rather than overflow: an analyst who cannot reach "All
+   time" cannot widen the window, and a hidden filter is the same as none.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1180px) {
+  /* The word is decoration — the group carries the name that says what the
+     window scopes — so it is the first thing to go when the topbar is tight. */
+  .tr__label {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .tr {
+    flex-wrap: wrap;
+  }
+
+  .tr-seg {
+    flex-wrap: wrap;
+  }
+}
+
+/* The shared layer in `accessibility.css` neutralises transitions globally;
+   stated here so this control is still honest if that file is ever unloaded. */
+@media (prefers-reduced-motion: reduce) {
+  .tr-seg__item,
+  .tr-toggle {
+    transition: none;
+  }
+}

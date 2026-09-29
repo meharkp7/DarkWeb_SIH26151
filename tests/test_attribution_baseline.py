@@ -79,6 +79,33 @@ def test_xgboost_requires_both_classes() -> None:
         model.fit([AttributionExample("only-negative", _signals(), 0)])
 
 
+def test_xgboost_dmatrix_constrains_its_own_openmp_team(monkeypatch: pytest.MonkeyPatch) -> None:
+    """See test_resolution.py for why this cannot be caught by an assertion.
+
+    torch and xgboost wheels each ship their own LLVM libomp under different
+    install names; an OpenMP team that DMatrix forks then reads a kmp_info
+    allocated by the other runtime and segfaults. params["nthread"] throttles
+    the booster only, so DMatrix needs its own nthread.
+    """
+    import xgboost
+
+    recorded: list[object] = []
+    real_dmatrix = xgboost.DMatrix
+
+    def _recording_dmatrix(*args: object, **kwargs: object) -> object:
+        recorded.append(kwargs.get("nthread"))
+        return real_dmatrix(*args, **kwargs)
+
+    monkeypatch.setattr(xgboost, "DMatrix", _recording_dmatrix)
+
+    model = XgboostAttributionBaseline(estimators=5)
+    model.fit(_training_set())
+    model.score(_training_set()[0])
+
+    assert recorded, "no DMatrix was constructed"
+    assert recorded == [1] * len(recorded)
+
+
 def test_invalid_training_example_is_rejected() -> None:
     with pytest.raises(ValueError, match="label must be 0 or 1"):
         AttributionExample("bad", ChannelSignals.zeros(), 2)

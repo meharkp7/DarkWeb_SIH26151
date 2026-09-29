@@ -142,9 +142,7 @@ def _purge(db: Any) -> None:
     """
     actor_ids = select(ActorRecord.actor_id).where(ActorRecord.handle.like(f"{PREFIX}%"))
     db.execute(
-        PersonaLinkageRecord.__table__.delete().where(
-            PersonaLinkageRecord.actor_id.in_(actor_ids)
-        )
+        PersonaLinkageRecord.__table__.delete().where(PersonaLinkageRecord.actor_id.in_(actor_ids))
     )
     db.execute(
         ActorIdentifierRecord.__table__.delete().where(
@@ -157,9 +155,7 @@ def _purge(db: Any) -> None:
         )
     )
     db.execute(ActorRecord.__table__.delete().where(ActorRecord.actor_id.in_(actor_ids)))
-    db.execute(
-        SourceRecord.__table__.delete().where(SourceRecord.name == f"{PREFIX}source")
-    )
+    db.execute(SourceRecord.__table__.delete().where(SourceRecord.name == f"{PREFIX}source"))
     db.commit()
 
 
@@ -325,9 +321,7 @@ def test_confidence_null_survives_the_round_trip(
     by_handle = {row["handle"]: row for row in _scoped(client, auth_headers)}
 
     unscored = by_handle[f"{_OWNED}unscored"]
-    assert unscored["confidence"] is None, (
-        "an unassessed actor must round-trip as null, not as 0.0"
-    )
+    assert unscored["confidence"] is None, "an unassessed actor must round-trip as null, not as 0.0"
 
     scored = by_handle[f"{_OWNED}scored"]
     assert scored["confidence"] == pytest.approx(0.82)
@@ -357,9 +351,7 @@ def test_search_matches_an_identifier_value(
     assert {row["handle"] for row in hits} == {f"{_OWNED}stale"}
 
     # The actor's own handle is searchable too.
-    by_handle = client.get(
-        "/api/v1/actors", params={"q": _OWNED}, headers=auth_headers
-    ).json()
+    by_handle = client.get("/api/v1/actors", params={"q": _OWNED}, headers=auth_headers).json()
     assert len(by_handle) == 4
 
 
@@ -507,8 +499,17 @@ def test_populated_registry_returns_real_counts(
     assert any(row["identifier_kinds"] for row in rows)
     # Every row carries the columns the problem statement names.
     for row in rows:
-        assert {"handle", "category", "status", "confidence", "identifier_count",
-                "marketplace_count", "last_scan_at", "source_name", "last_seen"} <= set(row)
+        assert {
+            "handle",
+            "category",
+            "status",
+            "confidence",
+            "identifier_count",
+            "marketplace_count",
+            "last_scan_at",
+            "source_name",
+            "last_seen",
+        } <= set(row)
 
 
 def test_csv_export_respects_the_active_filters(

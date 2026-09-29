@@ -997,3 +997,101 @@ class ActorLinkRecord(Base):
         ),
         Index("ix_actor_links_subject_kind", "subject_actor_id", "kind"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Observed timeline events
+#
+# `aegis.timeline` is a complete, tested change-detection library that no route
+# reached, because nothing in the database was a `TimelineEvent`. The registry
+# stored *windows* — `actor_marketplaces` holds a first-seen and a last-seen per
+# venue — and a window cannot support a state detector (which needs the new
+# value to persist across following events before it will believe a move) or a
+# numeric one (which needs a count per bucket). This table is the stream both
+# read. The windows stay: they are the summary, and the registry reads them.
+# ---------------------------------------------------------------------------
+
+
+class TemporalObservationRecord(Base):
+    """One sighting, on one channel, of one subject, at one time.
+
+    Rows are observations rather than derived state. A shift is *not* stored
+    here: the detectors in :mod:`aegis.timeline` derive it, so a seeded
+    "change point" row could only ever prove that the seeder wrote a number the
+    panel then read back.
+    """
+
+    __tablename__ = "temporal_observations"
+
+    observation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    #: Null for a cross-case persona. An actor is tracked across investigations,
+    #: so tying its history to whichever case happens to be open would make the
+    #: same behaviour look different in two places.
+    case_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("cases.case_id"), nullable=True
+    )
+    #: Exactly one of these two is set — see the CHECK constraint. A detector's
+    #: stream must belong to one subject or it rejects the input.
+    actor_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("actors.actor_id"), nullable=True
+    )
+    entity_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("entities.entity_id"), nullable=True
+    )
+    #: The detector's own ``subject_id``: the string form of whichever of the two
+    #: above is set. Denormalised because a detection run groups by it on every
+    #: request, and a UUID has to be stringified to key a dict either way.
+    subject_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    #: `handle`, `marketplace` or `activity` — the three detection channels the
+    #: temporal routes read. The library defines five; a constraint admitting
+    #: channels nothing writes is a promise the table does not keep.
+    channel: Mapped[str] = mapped_column(String(32), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The observed state: a handle string, a marketplace name, or a label for
+    #: the activity tick. Never blank — a state channel is compared for
+    #: equality, so an empty value is a transition to nothing.
+    value: Mapped[str] = mapped_column(String(256), nullable=False)
+    #: Numeric weight on the activity channel. ``build_activity_series`` counts
+    #: events per bucket and ignores this, so it is stored for charting rather
+    #: than for detection — and it is nullable because the two categorical
+    #: channels have no magnitude to record.
+    magnitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The ledger record this sighting was read from, when there is one. An
+    #: observation with no ledger row still cites itself by id rather than
+    #: inventing a citation, because the library refuses an event that cannot
+    #: name what it came from.
+    evidence_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("evidence.evidence_id"), nullable=True
+    )
+    source_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("sources.source_id"), nullable=True
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "channel IN ('handle', 'marketplace', 'activity')",
+            name="ck_temporal_observation_channel",
+        ),
+        CheckConstraint(
+            "subject_kind IN ('actor', 'entity')", name="ck_temporal_observation_subject_kind"
+        ),
+        CheckConstraint(
+            "(actor_id IS NOT NULL AND entity_id IS NULL)"
+            " OR (actor_id IS NULL AND entity_id IS NOT NULL)",
+            name="ck_temporal_observation_single_subject",
+        ),
+        CheckConstraint("btrim(value) <> ''", name="ck_temporal_observation_value"),
+        Index("ix_temporal_observations_actor_channel", "actor_id", "channel", "observed_at"),
+        Index("ix_temporal_observations_entity_channel", "entity_id", "channel", "observed_at"),
+        Index("ix_temporal_observations_subject_channel", "subject_id", "channel", "observed_at"),
+        Index("ix_temporal_observations_channel_observed_at", "channel", "observed_at"),
+    )

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { AuthProvider } from './store/auth';
+import { TimeRangeProvider } from './store/TimeRange';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/layout.css';
@@ -29,7 +30,12 @@ createRoot(container).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        {/* Outside the session gate on purpose: the window is a reading
+            preference, so it survives a sign-out and a sign-in rather than
+            resetting on every expired session. */}
+        <TimeRangeProvider>
+          <App />
+        </TimeRangeProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

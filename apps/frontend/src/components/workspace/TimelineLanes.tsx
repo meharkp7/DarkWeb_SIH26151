@@ -151,7 +151,7 @@ export function TimelineLanes({ timeline, onSelectEvidence }: TimelineLanesProps
             <svg
               className="inv-network__canvas"
               viewBox={`0 0 ${W} ${totalHeight}`}
-              role="img"
+              role="group"
               aria-label={`Timeline for this investigation: ${layerCounts
                 .map((count, index) => `${LAYER_LABEL[model.lanes[index]?.layer ?? 'event']} ${count}`)
                 .join(', ')}`}

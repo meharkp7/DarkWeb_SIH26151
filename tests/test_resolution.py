@@ -540,6 +540,36 @@ def test_xgboost_separates_and_is_deterministic() -> None:
     assert all(0.0 <= first.score(pair) <= 1.0 for pair in pairs)
 
 
+def test_xgboost_dmatrix_constrains_its_own_openmp_team(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the invariant that stops the full suite dying with SIGSEGV.
+
+    torch and xgboost wheels each ship their own LLVM libomp under different
+    install names, so dyld loads both and an OpenMP team xgboost forks reads a
+    kmp_info allocated by the other runtime. Setting ``params["nthread"]`` is
+    not enough on its own: it throttles the booster, while the crashing team
+    belongs to DMatrix's own SparsePage::Push. Asserting on the recorded kwarg
+    is the only way to guard this, because a regression segfaults the process
+    instead of failing an assertion.
+    """
+    import xgboost
+
+    recorded: list[object] = []
+    real_dmatrix = xgboost.DMatrix
+
+    def _recording_dmatrix(*args: object, **kwargs: object) -> object:
+        recorded.append(kwargs.get("nthread"))
+        return real_dmatrix(*args, **kwargs)
+
+    monkeypatch.setattr(xgboost, "DMatrix", _recording_dmatrix)
+
+    model = XgboostBaseline()
+    model.fit(_separable_pairs())
+    model.score(_pair(label=1, features=_features(handle_similarity=0.95, text_similarity=0.92)))
+
+    assert recorded, "no DMatrix was constructed"
+    assert recorded == [1] * len(recorded)
+
+
 # ---------------------------------------------------------- split + harness
 
 

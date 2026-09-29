@@ -540,6 +540,29 @@ export interface ActorRegistryRow {
   readonly case_link_count: number;
   readonly identifier_kinds: Readonly<Record<string, number>>;
   readonly notes: string | null;
+  /**
+   * Recorded sighting volume per week, or `null` when the platform has nothing
+   * to plot for this actor. `null` is deliberately not an empty list and not a
+   * run of zeros: a chart drawn from either would be a chart of nothing.
+   */
+  readonly activity: ActorActivitySeries | null;
+}
+
+/**
+ * What the register's trend cell plots.
+ *
+ * These are *sightings*, not evidence records: the store holds one row per time
+ * an actor was observed, and `cited` is how many of those were backed by a
+ * ledger record. "34 records about this actor" and "34 times this actor was
+ * seen" are different claims, and only the first is evidence — so the count of
+ * the second travels with the series rather than being left to be assumed.
+ */
+export interface ActorActivitySeries {
+  readonly weekly: readonly number[];
+  /** ISO date the first bucket covers, so the period is named, not assumed. */
+  readonly start: string;
+  /** Sightings in the window that cite an evidence record. */
+  readonly cited: number;
 }
 
 export interface ActorIdentifier {
@@ -1007,11 +1030,32 @@ export interface CollectionStatus {
   readonly records_last_24h: number;
   readonly contributing_sources: number;
   readonly mean_contributing_reliability: number | null;
+  /**
+   * Mean over *every* registered source. Returned beside the contributing mean
+   * because the gap between the two is the finding: a register whose average
+   * collapses once non-contributing sources are included has a coverage gap,
+   * not weak evidence.
+   */
+  readonly mean_registered_reliability: number | null;
   readonly independence_groups: number;
   readonly dominant_independence_group: string | null;
   readonly dominant_independence_group_size: number;
+  /** Grouped server-side; the band names and edges are the API's, not ours. */
+  readonly reliability_bands: readonly SourceReliabilityBand[];
   readonly reliability_basis: string;
   readonly limitations: readonly string[];
+}
+
+/** One reliability band and what it has actually produced. */
+export interface SourceReliabilityBand {
+  readonly band: string;
+  /** The weight at and above which a source falls in this band. */
+  readonly min_reliability: number;
+  readonly sources: number;
+  /** Those of them that produced a record or a completed/partial run. */
+  readonly contributing_sources: number;
+  /** Evidence rows stored against the band's sources, all-time. */
+  readonly records: number;
 }
 
 export interface CollectionRunRequest {
@@ -1045,4 +1089,198 @@ export interface CollectionRunResult {
   readonly audit_seq: number;
   readonly started_at: string;
   readonly finished_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Behavioural change detection
+//
+// The shapes `aegis.timeline`'s detectors produce, as the API renders them.
+// `sharpness` is always the detector's own score and never a probability;
+// `limitations` travels on every row rather than only on the envelope, because
+// a caveat that can be collapsed away from the finding it qualifies is the
+// caveat most likely to be missed.
+// ---------------------------------------------------------------------------
+
+export interface TemporalRefusal {
+  readonly subject_id: string;
+  readonly subject_kind: string;
+  readonly subject_label: string | null;
+  readonly channel: string;
+  readonly rule: string;
+  readonly reason: string;
+  readonly observed: number;
+  readonly required: number;
+  readonly unit: string;
+}
+
+export interface EvidenceWindow {
+  readonly label: string;
+  readonly from_at: string | null;
+  readonly to_at: string | null;
+  readonly event_count: number;
+  readonly values: readonly string[];
+  readonly buckets: number;
+  readonly mean_count: number | null;
+  readonly evidence_ids: readonly string[];
+}
+
+export interface ContextPoint {
+  readonly at: string;
+  readonly value: string;
+  /** Bucket count on the activity channel; null on a categorical one. */
+  readonly count: number | null;
+  readonly is_boundary: boolean;
+}
+
+export interface TemporalShift {
+  readonly change_id: string;
+  readonly case_id: UUID | null;
+  readonly subject_id: string;
+  readonly subject_kind: string;
+  readonly subject_label: string | null;
+  readonly channel: string;
+  readonly channel_label: string;
+  readonly detector: string;
+  readonly detector_label: string;
+  readonly changed_at: string;
+  /** The detector's own score, in that detector's own units. Never a probability. */
+  readonly sharpness: number;
+  readonly sharpness_note: string;
+  readonly direction: string | null;
+  readonly from_value: string | null;
+  readonly to_value: string | null;
+  readonly summary: string;
+  readonly before: EvidenceWindow;
+  readonly after: EvidenceWindow;
+  /** The library's own KS distance across the split, 0-1, or null. */
+  readonly distribution_distance: number | null;
+  readonly context: readonly ContextPoint[];
+  readonly evidence_ids: readonly string[];
+  readonly limitations: readonly string[];
+}
+
+export interface TemporalShiftReport {
+  readonly case_id: UUID;
+  readonly generated_at: string;
+  readonly method: string;
+  readonly bucket: string;
+  readonly min_persist: number;
+  readonly subjects: number;
+  readonly observations: number;
+  readonly window_start: string | null;
+  readonly window_end: string | null;
+  readonly shifts: readonly TemporalShift[];
+  readonly refusals: readonly TemporalRefusal[];
+  /** Stated on every read, including an empty one. */
+  readonly basis: string;
+  readonly limitations: readonly string[];
+}
+
+export interface TemporalBoundary {
+  readonly index: number;
+  readonly at: string;
+  readonly gain: number;
+  readonly mean_before: number;
+  readonly mean_after: number;
+}
+
+export interface TemporalRegime {
+  readonly index: number;
+  readonly first_bucket: string;
+  readonly last_bucket: string;
+  readonly buckets: number;
+  readonly mean: number;
+  readonly peak: number;
+  readonly total: number;
+}
+
+export interface SubjectSegmentation {
+  readonly subject_id: string;
+  readonly subject_kind: string;
+  readonly subject_label: string | null;
+  readonly channel: string;
+  readonly gain_function: string;
+  readonly min_size: number;
+  readonly min_gain: number;
+  readonly buckets: number;
+  readonly window_start: string | null;
+  readonly window_end: string | null;
+  readonly boundaries: readonly TemporalBoundary[];
+  readonly regimes: readonly TemporalRegime[];
+  readonly limitations: readonly string[];
+}
+
+export interface TemporalSegmentationReport {
+  readonly case_id: UUID;
+  readonly generated_at: string;
+  readonly gain: string;
+  readonly min_size: number;
+  readonly min_gain: number;
+  readonly bucket: string;
+  readonly series: readonly SubjectSegmentation[];
+  readonly refusals: readonly TemporalRefusal[];
+  readonly basis: string;
+  readonly limitations: readonly string[];
+}
+
+export interface ActorPresence {
+  readonly marketplace: string;
+  readonly role: string | null;
+  readonly first_seen: string | null;
+  readonly last_seen: string | null;
+  readonly listing_count: number | null;
+}
+
+export interface ActorTransitionReport {
+  readonly actor_id: UUID;
+  readonly handle: string;
+  readonly generated_at: string;
+  readonly min_persist: number;
+  readonly marketplaces: readonly string[];
+  readonly presence: readonly ActorPresence[];
+  readonly window_start: string | null;
+  readonly window_end: string | null;
+  readonly transitions: readonly TemporalShift[];
+  readonly refusals: readonly TemporalRefusal[];
+  readonly basis: string;
+  readonly limitations: readonly string[];
+}
+
+export interface BehaviourPoint {
+  readonly at: string;
+  readonly events: number;
+  readonly magnitude: number;
+}
+
+export interface AlgorithmBandwidth {
+  readonly algorithm: string;
+  readonly min_points: number;
+  readonly note: string;
+}
+
+export interface Bandwidth {
+  readonly cusum: AlgorithmBandwidth;
+  readonly ks: AlgorithmBandwidth;
+  readonly binary_segmentation: AlgorithmBandwidth;
+}
+
+export interface ActorBehaviourReport {
+  readonly actor_id: UUID;
+  readonly handle: string;
+  readonly generated_at: string;
+  readonly channel: string;
+  readonly bucket: string;
+  readonly points: readonly BehaviourPoint[];
+  readonly buckets: number;
+  readonly observations: number;
+  readonly window_start: string | null;
+  readonly window_end: string | null;
+  readonly mean: number | null;
+  readonly standard_deviation: number | null;
+  readonly peak: number | null;
+  readonly silent_buckets: number;
+  readonly analysable: boolean;
+  readonly refusal: TemporalRefusal | null;
+  readonly bandwidth: Bandwidth;
+  readonly limitations: readonly string[];
 }

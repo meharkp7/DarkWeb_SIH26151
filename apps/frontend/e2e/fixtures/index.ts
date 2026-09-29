@@ -1,10 +1,14 @@
 import { expect, test as base } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { ANALYST_EMAIL, ANALYST_PASSWORD } from './environment';
 
 export { API_ORIGIN, ANALYST_EMAIL } from './environment';
 export { collectPageProblems, OVERFLOW_TOLERANCE_PX } from './problems';
 export type { OverflowReport, PageProblems } from './problems';
+export { trackSockets, LIVE_PATH } from './live';
+export type { SocketProbe, TrackedSocket } from './live';
+export { TOP_LEVEL_ROUTES, WORKSPACE_TABS, workspaceRoutes } from './routes';
+export type { RouteUnderTest, WorkspaceTab } from './routes';
 
 /** Where the sign-in form lives; every unauthenticated route renders it. */
 export const SIGN_IN_SUBMIT = 'button:has-text("Enter secure workspace")';
@@ -45,6 +49,25 @@ export async function firstCaseId(page: Page): Promise<string> {
   const href = await link.getAttribute('href');
   if (href === null) throw new Error('Register row link carried no href.');
   return decodeURIComponent(href.replace(/^\/cases\//, ''));
+}
+
+/**
+ * Navigate and wait until the route has stopped asking for things.
+ *
+ * `networkidle` is not incidental: the console-error and failed-request
+ * assertions only mean something if the route has finished loading when they are
+ * read. A snapshot taken while requests are still in flight reports a clean
+ * console for a page that errors a moment later, which is the failure mode this
+ * suite exists to catch.
+ */
+export async function gotoSettled(page: Page, path: string): Promise<void> {
+  await page.goto(path);
+  await page.waitForLoadState('networkidle');
+}
+
+/** The sidebar's live chip; the only place the shell states feed health. */
+export function liveChip(page: Page): Locator {
+  return page.locator('.sidebar-live');
 }
 
 type Fixtures = {

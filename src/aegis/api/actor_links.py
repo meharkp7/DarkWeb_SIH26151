@@ -43,6 +43,7 @@ from aegis.schemas.actor_links import (
 
 router = APIRouter(prefix="/api/v1/actors", tags=["actors"])
 
+
 def _link_schema(
     row: ActorLinkRecord,
     subject: ActorRecord,
@@ -78,9 +79,7 @@ def _link_schema(
     )
 
 
-def _resolve_ends(
-    db: Session, rows: list[ActorLinkRecord]
-) -> list[ActorLink]:
+def _resolve_ends(db: Session, rows: list[ActorLinkRecord]) -> list[ActorLink]:
     if not rows:
         return []
     actor_ids = {row.subject_actor_id for row in rows} | {row.object_actor_id for row in rows}
@@ -187,7 +186,7 @@ def actor_graph(
             db.scalar(
                 select(func.count())
                 .select_from(ActorRecord)
-                .where(*( [ActorRecord.category == category] if category else [] ))
+                .where(*([ActorRecord.category == category] if category else []))
             )
             or 0
         )
@@ -234,9 +233,9 @@ def actor_graph(
         kinds_by_actor.setdefault(actor_id, set()).add(kind)
 
     platform_rows = db.execute(
-        select(ActorMarketplaceRecord.actor_id, func.count()).where(
-            ActorMarketplaceRecord.actor_id.in_(actor_ids)
-        ).group_by(ActorMarketplaceRecord.actor_id)
+        select(ActorMarketplaceRecord.actor_id, func.count())
+        .where(ActorMarketplaceRecord.actor_id.in_(actor_ids))
+        .group_by(ActorMarketplaceRecord.actor_id)
     ).all()
     platforms = {actor_id: int(total) for actor_id, total in platform_rows}
 
@@ -313,9 +312,7 @@ def links_summary(db: Annotated[Session, Depends(get_db)]) -> dict[str, Any]:
     total = sum(by_kind.values())
     without_basis = int(
         db.scalar(
-            select(func.count())
-            .select_from(ActorLinkRecord)
-            .where(ActorLinkRecord.basis.is_(None))
+            select(func.count()).select_from(ActorLinkRecord).where(ActorLinkRecord.basis.is_(None))
         )
         or 0
     )

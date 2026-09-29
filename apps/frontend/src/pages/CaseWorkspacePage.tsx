@@ -27,6 +27,7 @@ import { ReportPreview } from '../components/ReportPreview';
 import { usePublishAgentContext } from '../components/agent-context';
 import type { WorkspaceView } from '../components/agent-context';
 import { AssessmentPanel } from '../components/workspace/AssessmentPanel';
+import { BehaviouralShifts } from '../components/workspace/BehaviouralShifts';
 import { EvidenceLedger } from '../components/workspace/EvidenceLedger';
 import { HypothesisBoard } from '../components/workspace/HypothesisBoard';
 import { NetworkGraph } from '../components/workspace/NetworkGraph';
@@ -132,8 +133,10 @@ function MetricStrip({ metrics }: { metrics: CaseMetrics | null }) {
       {cells.map((cell) => (
         <div className={cell.tone === undefined ? 'inv-metric' : `inv-metric ${cell.tone}`} key={cell.label}>
           <dt>{cell.label}</dt>
-          <dd>{cell.value}</dd>
-          {cell.sub !== undefined && <small>{cell.sub}</small>}
+          <dd>
+            {cell.value}
+            {cell.sub !== undefined && <small className="inv-metric__sub">{cell.sub}</small>}
+          </dd>
         </div>
       ))}
     </dl>
@@ -662,7 +665,16 @@ export function CaseWorkspacePage() {
         {tab === 'network' && <NetworkGraph caseId={caseId} caseName={record.name} />}
 
         {tab === 'timeline' && (
-          <TimelineLanes timeline={timeline} onSelectEvidence={openEvidenceFromTab} />
+          <>
+            <TimelineLanes timeline={timeline} onSelectEvidence={openEvidenceFromTab} />
+            {/* Beside the chronology, not inside it: the lanes say what happened
+                when, and this says when something changed, how sharply, and on
+                what evidence. Two questions about one history. */}
+            <BehaviouralShifts
+              caseId={caseId}
+              onSelectEvidence={openEvidenceFromTab}
+            />
+          </>
         )}
 
         {tab === 'assessment' && (

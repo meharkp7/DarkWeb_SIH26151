@@ -3,7 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { DataBlock } from '../components/DataBlock';
 import { ErrorState, LoadingState } from '../components/States';
+import { TimeRangeNotice } from '../components/TimeRangeControl';
 import { useApi } from '../hooks/useApi';
+import { filterByTimeRange, useTimeRange } from '../store/TimeRange';
 import { formatDateTime, formatPercent } from '../lib/format';
 import type {
   CollectionJob,
@@ -49,11 +51,35 @@ export function CollectionPage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') === 'jobs' ? 'jobs' : 'sources') as Tab;
   const statusFilter = params.get('status') ?? '';
+  const { from, to, isoFrom, isoTo, label: windowLabel, isActive } = useTimeRange();
 
   const status = useApi<CollectionStatus>(api.collectionStatusUrl());
   const sources = useApi<CollectionSource[]>(api.collectionSourcesUrl());
+  /**
+   * The run log is narrowed by the server. `GET /v1/collection/jobs` already
+   * takes `since`/`until` and applies them to `started_at` in SQL, so the
+   * window is a query here rather than a slice the browser makes afterwards.
+   */
   const jobs = useApi<CollectionJob[]>(
-    api.collectionJobsUrl({ limit: 60, status: statusFilter || undefined }),
+    api.collectionJobsUrl({
+      limit: 60,
+      status: statusFilter || undefined,
+      since: isoFrom,
+      until: isoTo,
+    }),
+  );
+
+  /**
+   * The source register is not, and the page says so. `GET /v1/collection/sources`
+   * takes no parameters at all, so the only way to bound it is in the browser,
+   * over the sources already loaded — measured by *last scan*, the one date on
+   * a source that means anything. A source nobody has ever scanned has no date
+   * and is left out, counted, rather than being presented as if it were inside
+   * the window.
+   */
+  const sourcesInWindow = useMemo(
+    () => filterByTimeRange(sources.data ?? [], (source) => source.last_scanned_at, from, to),
+    [sources.data, from, to],
   );
 
   const [run, setRun] = useState<CollectionRunResult | null>(null);
@@ -184,6 +210,19 @@ export function CollectionPage() {
             ))}
           </section>
 
+          {/*
+            The strip above and the coverage block below are read from
+            `GET /v1/collection/status`, which takes no time bound and computes
+            its own 24-hour figures. They are labelled as they are, and saying
+            so here is what stops an analyst reading a 7-day window into a
+            count that was never bounded by one.
+          */}
+          {isActive && (
+            <p className="tr-notice">
+              {`${windowLabel} — the four figures above and the coverage block below are not bounded by this window. They come from GET /v1/collection/status, which takes no time parameter and counts the last 24 hours on its own. The window applies to the source register and the run log below.`}
+            </p>
+          )}
+
           <DataBlock
             eyebrow="Coverage"
             title="What the register actually contains"
@@ -241,32 +280,65 @@ export function CollectionPage() {
         </>
       ) : null}
 
-      <nav className="col-tabs" aria-label="Collection views">
+      <div className="col-tabs" role="tablist" aria-label="Collection views">
         {TABS.map((item) => (
           <button
             key={item.id}
+            id={`col-tab-${item.id}`}
             type="button"
             role="tab"
             aria-selected={tab === item.id}
+            aria-controls={`col-panel-${item.id}`}
+            // Roving tabindex: only the selected tab is in the tab order, so
+            // a keyboard user reaches the panel rather than walking the strip.
+            tabIndex={tab === item.id ? 0 : -1}
             onClick={() => setParam('tab', item.id === 'sources' ? null : item.id)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+              event.preventDefault();
+              const from = TABS.findIndex((t) => t.id === item.id);
+              const offset = event.key === 'ArrowRight' ? 1 : -1;
+              // The modulo keeps it wrapping, so Left from the first tab
+              // lands on the last rather than dead-ending.
+              const next = TABS[(from + offset + TABS.length) % TABS.length];
+              if (next === undefined) return;
+              setParam('tab', next.id === 'sources' ? null : next.id);
+              document.getElementById(`col-tab-${next.id}`)?.focus();
+            }}
           >
             {item.label}
           </button>
         ))}
-      </nav>
+      </div>
 
       {tab === 'sources' ? (
+        <div id="col-panel-sources" role="tabpanel" aria-labelledby="col-tab-sources">
         <DataBlock
           eyebrow="Register"
           title="Sources and their quality weighting"
           lead="Reliability is a property of the outlet, recorded when the source was registered. It is a weight on that source, not a measurement of any individual record, and it does not change from one collection to the next."
         >
+          <TimeRangeNotice
+            window={windowLabel}
+            shown={sourcesInWindow.rows.length}
+            total={sourcesInWindow.total}
+            basis={`in the browser over the ${sourcesInWindow.total} loaded ${
+              sourcesInWindow.total === 1 ? 'source' : 'sources'
+            }, by last scan — GET /v1/collection/sources takes no parameters`}
+            undated={sourcesInWindow.undated}
+          />
           {sources.loading ? (
             <LoadingState label="Loading sources" />
           ) : sources.error !== null ? (
             <ErrorState message={sources.error} onRetry={sources.reload} />
-          ) : (sources.data?.length ?? 0) === 0 ? (
+          ) : (sourcesInWindow.total === 0) ? (
             <p className="hint">No sources are registered.</p>
+          ) : sourcesInWindow.rows.length === 0 ? (
+            <p className="hint">
+              No registered source was last scanned inside {windowLabel}. A source nobody has ever
+              scanned carries no date at all, so it cannot be shown to fall in a window — widen the
+              window, or set it to all time, to see the whole register.
+            </p>
           ) : (
             <div className="table-wrap">
               <table className="col-table" aria-label="Source register">
@@ -283,7 +355,7 @@ export function CollectionPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sources.data?.map((source) => (
+                  {sourcesInWindow.rows.map((source) => (
                     <tr key={source.source_id}>
                       <th scope="row">{source.name}</th>
                       <td className="mono">{source.source_type}</td>
@@ -322,12 +394,28 @@ export function CollectionPage() {
             </div>
           )}
         </DataBlock>
+        </div>
       ) : (
+        <div id="col-panel-jobs" role="tabpanel" aria-labelledby="col-tab-jobs">
         <DataBlock
           eyebrow="History"
           title="Run log"
           lead="Every job the platform has run against a registered source, newest first. Failures are shown alongside successes; a run log containing only successful runs cannot tell an analyst which sources keep failing."
         >
+          {/*
+            The unfiltered total is deliberately absent rather than guessed.
+            The window reached the server, so the only number available is the
+            page that came back — and a page of 60 is not a register total.
+            Saying "0 in window" beside a 2,000-run register would be a
+            confident answer to a question nobody asked.
+          */}
+          <TimeRangeNotice
+            window={windowLabel}
+            shown={jobs.data?.length ?? 0}
+            total={null}
+            basis={`by the server, on GET /v1/collection/jobs, by the time a run started`}
+            footnote="This log is paged at 60 runs, so the number above is a page of the register rather than the whole of it: runs before the page, and any that fall outside the window, are not counted here either way."
+          />
           <div className="col-filters" role="search" aria-label="Filter the run log">
             <button
               type="button"
@@ -355,7 +443,9 @@ export function CollectionPage() {
             <ErrorState message={jobs.error} onRetry={jobs.reload} />
           ) : (jobs.data?.length ?? 0) === 0 ? (
             <p className="hint">
-              No jobs match this filter.{' '}
+              {isActive
+                ? `No run was started inside ${windowLabel}. That is a fact about the window, not about the sources: widen it, or set it to all time, to see the rest of the log.`
+                : 'No jobs match this filter.'}{' '}
               <Link to="/actors" className="link-button">
                 Review the source register
               </Link>
@@ -405,6 +495,7 @@ export function CollectionPage() {
             </div>
           )}
         </DataBlock>
+        </div>
       )}
     </div>
   );

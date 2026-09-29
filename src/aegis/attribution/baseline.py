@@ -244,7 +244,11 @@ class XgboostAttributionBaseline(AttributionBaseline):
         if len(set(labels)) < 2:
             raise ValueError("XGBoost requires both positive and negative examples")
         features = np.asarray([item.signals.as_vector() for item in examples], dtype=np.float64)
-        dtrain = DMatrix(features, label=np.asarray(labels, dtype=np.float32))
+        # nthread=1 on DMatrix as well as in params: params only throttles the
+        # booster, whereas DMatrix's own OpenMP team (SparsePage::Push) is
+        # sized separately and is what crashes when another native library in
+        # the process ships its own copy of libomp.
+        dtrain = DMatrix(features, label=np.asarray(labels, dtype=np.float32), nthread=1)
         params: dict[str, object] = {
             "max_depth": self.max_depth,
             "eta": self.learning_rate,
@@ -265,7 +269,7 @@ class XgboostAttributionBaseline(AttributionBaseline):
         from xgboost import DMatrix  # noqa: PLC0415
 
         values = np.asarray([signals.as_vector()], dtype=np.float64)
-        return round(float(self._model.predict(DMatrix(values))[0]), 6)
+        return round(float(self._model.predict(DMatrix(values, nthread=1))[0]), 6)
 
 
 def all_baselines() -> list[AttributionBaseline]:

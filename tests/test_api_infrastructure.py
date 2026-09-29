@@ -197,8 +197,7 @@ def _features(
         http={
             "status_code": status,
             "server": server or _SERVERS[_slot(label, len(_SERVERS))],
-            "content_type": content_type
-            or _CONTENT_TYPES[_slot(label + "t", len(_CONTENT_TYPES))],
+            "content_type": content_type or _CONTENT_TYPES[_slot(label + "t", len(_CONTENT_TYPES))],
             "headers": {
                 name: "synthetic"
                 for name in (
@@ -273,10 +272,7 @@ def world() -> Iterator[dict[str, object]]:
         onion_a = _onion("onion-a")
         onion_b = _onion("onion-b")
         onion_c = _onion("onion-c")
-        ids = {
-            name: uuid4()
-            for name in ("onion_a", "host_a", "onion_b", "host_b", "onion_c")
-        }
+        ids = {name: uuid4() for name in ("onion_a", "host_a", "onion_b", "host_b", "onion_c")}
 
         shared_page = _page("shared-origin")
         plans = [
@@ -563,14 +559,10 @@ def test_finding_detail_route(
     client: TestClient, world: dict[str, object], auth_headers: dict[str, str]
 ) -> None:
     finding_id = world["finding_ids"][0]
-    body = client.get(
-        f"/api/v1/infrastructure/findings/{finding_id}", headers=auth_headers
-    )
+    body = client.get(f"/api/v1/infrastructure/findings/{finding_id}", headers=auth_headers)
     assert body.status_code == 200
     assert body.json()["finding_id"] == finding_id
-    missing = client.get(
-        f"/api/v1/infrastructure/findings/{uuid4()}", headers=auth_headers
-    )
+    missing = client.get(f"/api/v1/infrastructure/findings/{uuid4()}", headers=auth_headers)
     assert missing.status_code == 404
 
 
@@ -665,9 +657,7 @@ def test_match_never_pairs_an_observation_with_itself() -> None:
 
     # And the table refuses it even if a caller bypasses both.
     with SessionLocal() as db:
-        record = db.scalar(
-            select(InfrastructureObservationRecord).limit(1)
-        )
+        record = db.scalar(select(InfrastructureObservationRecord).limit(1))
         assert record is not None
         db.add(
             InfrastructureMatchRecord(
@@ -844,9 +834,7 @@ def test_correlate_requires_explicit_thresholds(
     assert partial.status_code == 422
 
 
-def test_correlate_unknown_case_is_404(
-    client: TestClient, auth_headers: dict[str, str]
-) -> None:
+def test_correlate_unknown_case_is_404(client: TestClient, auth_headers: dict[str, str]) -> None:
     body = client.post(
         "/api/v1/infrastructure/correlate",
         json={"case_id": str(uuid4()), "thresholds": RULE_BODY},
@@ -882,9 +870,9 @@ def test_correlate_limitations_survive_to_the_response(
 
     for match in payload["existing"]:
         assert match["limitations"], "a stored match keeps its limitations"
-        assert any(
-            "common control" in note.casefold() for note in match["limitations"]
-        ), "the per-match list is the library's, not a restatement"
+        assert any("common control" in note.casefold() for note in match["limitations"]), (
+            "the per-match list is the library's, not a restatement"
+        )
     assert payload["existing"], "an already-recorded match is reported, not rewritten"
     assert payload["created"] == [], "nothing new is created for a recorded pair"
     assert payload["thresholds"]["min_similarity"] == 0.42

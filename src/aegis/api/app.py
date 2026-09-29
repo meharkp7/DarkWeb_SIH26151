@@ -26,6 +26,7 @@ from aegis.api.personas import router as personas_router
 from aegis.api.reports import router as reports_router
 from aegis.api.search import router as search_router
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
+from aegis.api.temporal import router as temporal_router
 from aegis.api.workspace import router as workspace_router
 from aegis.db.audit import AuditService
 from aegis.db.models import CaseRecord
@@ -429,6 +430,9 @@ app.include_router(admin_router)
 # is registered first — and a path parameter that fails to parse as a UUID
 # yields 422, not the 200 the link endpoints are supposed to return.
 app.include_router(actor_links_router)
+# Same reason, for `/actors/{actor_id}/temporal/…`: registered before the actor
+# router so a path parameter that cannot parse never shadows a real route.
+app.include_router(temporal_router)
 app.include_router(actors_router)
 app.include_router(search_router)
 app.include_router(infrastructure_router)

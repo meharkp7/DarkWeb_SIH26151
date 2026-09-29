@@ -314,7 +314,7 @@ export function InfrastructurePage(): JSX.Element {
             role="tab"
             id={`inf-tab-${entry.id}`}
             aria-selected={tab === entry.id}
-            aria-controls={`inf-panel-${entry.id}`}
+            tabIndex={tab === entry.id ? 0 : -1}
             className="inf-tab"
             onClick={() => patch({ tab: entry.id === 'findings' ? null : entry.id, inspect: null })}
           >

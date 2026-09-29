@@ -74,6 +74,7 @@ from aegis.db.models import (
     RelationshipRecord,
     RoleRecord,
     SourceRecord,
+    TemporalObservationRecord,
     UserRecord,
 )
 from aegis.db.session import SessionLocal
@@ -105,6 +106,7 @@ BATCH = 400
 #: the dataset: leaving them behind would leave actors pointing at sources a
 #: reset has already removed.
 DEMO_TABLES: tuple[str, ...] = (
+    "temporal_observations",
     "actor_links",
     "persona_linkages",
     "infrastructure_matches",
@@ -2850,6 +2852,9 @@ def seed(
         "actor_marketplaces": 0,
         "actor_case_links": 0,
         "persona_linkages": 0,
+        "temporal_observations": 0,
+        "temporal_actors": 0,
+        "temporal_entities": 0,
     }
 
     for blueprint, case in zip(CASE_BLUEPRINTS, cases, strict=True):
@@ -2895,6 +2900,12 @@ def seed(
     # After the cases and sources for the same reason: observations cite real
     # evidence rows, which cite a real source and belong to a real case.
     totals.update(seed_infrastructure(db, sources, cases, rng, now))
+
+    # Last, so it sees the whole world: the temporal surface reads the actor
+    # registry, the per-case entities and the evidence ledger, and the shifts it
+    # reports are derived from these sightings by the real detectors rather than
+    # seeded as rows.
+    totals.update(seed_temporal_shifts(db, cases, rng, now))
 
     AuditService(db).record(
         "demo.seeded",
@@ -3232,6 +3243,458 @@ def seed_collection_history(
         "collection_jobs": len(rows),
         "collection_jobs_failed": sum(1 for row in rows if row.status == "failed"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Behavioural change history
+# ---------------------------------------------------------------------------
+
+#: Days of history a seeded profile spans. Long enough for a daily series to
+#: have two regimes with runway either side of the boundary, and short enough
+#: that the whole surface stays inside a reviewer's attention.
+TEMPORAL_WINDOW_DAYS = 70
+
+#: Day index the seeded break falls on, counting back from ``now``.
+TEMPORAL_BREAK_DAY = 35
+
+#: Per-day event counts either side of the break, drawn from fixed tuples so the
+#: seeded series is byte-identical on every run and its shape is readable here.
+#:
+#: The jump is roughly an order of magnitude (mean 1 -> 12, 2 -> 10), which is
+#: what a mean-shift gain of ``n_l·n_r/(n_l+n_r)·Δ²`` needs to clear the
+#: threshold the temporal routes apply to a daily count series. The steady pool
+#: carries deliberate ±1 jitter: a constant series would make detection
+#: trivially easy and would prove nothing, while a jittered one is the control
+#: that shows the detector is not simply firing on every actor.
+_PROFILE_LEVELS: dict[str, tuple[tuple[int, ...], tuple[int, ...]]] = {
+    "quiet-then-active": ((0, 1, 1, 2), (10, 11, 12, 13, 14)),
+    "cadence-change": ((1, 2, 2, 3), (9, 10, 10, 11, 12)),
+    "steady": ((3, 4, 4, 5), (3, 4, 4, 5)),
+}
+
+#: What each seeded actor demonstrates, and which channels carry it. Two actors
+#: per profile: one number is an anecdote, and the market-move profile is the
+#: only one where the cadence deliberately does *not* change — that contrast is
+#: the point of seeding it.
+TEMPORAL_ACTOR_PROFILES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("quiet-then-active", ("activity",)),
+    ("quiet-then-active", ("activity",)),
+    ("marketplace-move", ("activity", "marketplace")),
+    ("marketplace-move", ("activity", "marketplace")),
+    ("cadence-change", ("activity", "handle")),
+    ("cadence-change", ("activity", "handle")),
+)
+
+#: Days between marketplace sightings. Two rather than one so a sighting is a
+#: distinct observation on a distinct day, which is what the persistence rule
+#: needs in order to confirm a move rather than react to a single row.
+MARKETPLACE_SIGHTING_INTERVAL = 2
+
+#: Case-scoped entity series: how many entities per case get a history, and what
+#: each demonstrates. One breaking and one steady, so the case panel shows both
+#: a regime change and the negative result beside it.
+TEMPORAL_ENTITY_PROFILES: tuple[tuple[str, int], ...] = (
+    ("cadence-change", 20),
+    ("steady", 20),
+)
+
+#: Entity series are shorter than the actor profiles: a case's evidence graph is
+#: about a single investigation, and a persona's whole history is not.
+TEMPORAL_ENTITY_WINDOW_DAYS = 40
+
+
+def _temporal_metadata(
+    profile: str,
+    break_at: datetime | None,
+    channel: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Label every seeded sighting, including the ground truth of its break.
+
+    ``regime_break_at`` is the *answer* the detectors are supposed to recover,
+    written down so a test can check the detected boundary against it rather
+    than merely checking that something was detected. It lives in metadata and
+    not in a column because it is a property of this demonstration fixture, not
+    an observation the platform recorded.
+    """
+    payload: dict[str, Any] = {
+        "synthetic": True,
+        "schema_version": SCHEMA_VERSION,
+        "profile": profile,
+        "channel": channel,
+    }
+    if break_at is not None:
+        payload["regime_break_at"] = break_at.isoformat()
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _activity_observations(
+    *,
+    observation_prefix: str,
+    case_id: UUID | None,
+    actor_id: UUID | None,
+    entity_id: UUID | None,
+    subject_id: str,
+    subject_kind: str,
+    source_id: UUID | None,
+    profile: str,
+    level_profile: str,
+    break_day: int,
+    start: datetime,
+    rng: random.Random,
+    days: int,
+) -> list[TemporalObservationRecord]:
+    """One activity sighting per unit of seeded activity, on its own day.
+
+    The detectors count *events* per bucket, not a stored magnitude, so an actor
+    active twelve times a day needs twelve rows. Storing a single row with
+    ``magnitude=12`` would chart correctly and detect as one event, which is
+    precisely the kind of "underlying shape" that makes a detector look like it
+    works when it is not reading what it claims to read.
+    """
+    before, after = _PROFILE_LEVELS[level_profile]
+    # A steady series has no break, so it records no `regime_break_at`. Writing
+    # the nominal day anyway would put a false ground truth in the fixture and
+    # make a correct negative result look like a miss.
+    break_at = None if level_profile == "steady" else start + timedelta(days=break_day)
+    rows: list[TemporalObservationRecord] = []
+    for day in range(days):
+        pool = after if day >= break_day else before
+        for index in range(pool[rng.randrange(len(pool))]):
+            observed = start + timedelta(
+                days=day, hours=8 + (index % 12), minutes=(index * 7) % 60
+            )
+            rows.append(
+                TemporalObservationRecord(
+                    observation_id=sid(f"temporal:{observation_prefix}:{day}:{index}"),
+                    case_id=case_id,
+                    actor_id=actor_id,
+                    entity_id=entity_id,
+                    subject_id=subject_id,
+                    subject_kind=subject_kind,
+                    channel="activity",
+                    observed_at=observed,
+                    value="post",
+                    magnitude=1.0,
+                    evidence_id=None,
+                    source_id=source_id,
+                    metadata_json=_temporal_metadata(
+                        profile,
+                        break_at,
+                        "activity",
+                        # `level` rather than `profile`, because one actor's
+                        # scenario can deliberately hold its cadence steady: the
+                        # marketplace profile is *about* the cadence not moving.
+                        {"level_profile": level_profile, "day_index": day},
+                    ),
+                )
+            )
+    return rows
+
+
+def _state_observations(
+    *,
+    observation_prefix: str,
+    case_id: UUID | None,
+    actor_id: UUID,
+    subject_id: str,
+    source_id: UUID | None,
+    profile: str,
+    channel: str,
+    values: tuple[str, tuple[str]],
+    break_day: int,
+    start: datetime,
+    days: int,
+    interval: int,
+) -> list[TemporalObservationRecord]:
+    """Daily sightings of a categorical channel, on each side of a move.
+
+    The recorded ground truth is the *first sighting on the new value*, not the
+    nominal break day. A detector can only report a change at a moment it
+    observed one, so on a two-day sighting cadence the earliest honest answer
+    for a day-35 break is the day-36 sighting — and the fixture has to say so,
+    or a test comparing the two would be comparing against a fiction.
+    """
+    origin, destination = values
+    days_seen = [day for day in range(0, days, interval)]
+    first_new = next((day for day in days_seen if day >= break_day), None)
+    break_at = None if first_new is None else start + timedelta(days=first_new, hours=9)
+    rows: list[TemporalObservationRecord] = []
+    for day in days_seen:
+        value = destination if day >= break_day else origin
+        rows.append(
+            TemporalObservationRecord(
+                observation_id=sid(f"temporal:{observation_prefix}:{day}"),
+                case_id=case_id,
+                actor_id=actor_id,
+                entity_id=None,
+                subject_id=subject_id,
+                subject_kind="actor",
+                channel=channel,
+                observed_at=start + timedelta(days=day, hours=9),
+                value=value,
+                magnitude=None,
+                evidence_id=None,
+                source_id=source_id,
+                metadata_json=_temporal_metadata(
+                    profile,
+                    break_at,
+                    channel,
+                    {"day_index": day, "from_value": origin, "to_value": destination},
+                ),
+            )
+        )
+    return rows
+
+
+def seed_temporal_shifts(
+    db: Session,
+    cases: list[CaseRecord],
+    rng: random.Random,
+    now: datetime,
+) -> dict[str, int]:
+    """Give some actors a genuine behavioural break, and shape it to be findable.
+
+    The change detectors in :mod:`aegis.timeline` can only report a shift they
+    can see, so this seeds the thing they read: per-day activity sightings, a
+    venue to move between, a handle to move to. **No shift is inserted.** There
+    is no "change point" row anywhere in the schema, because a seeded one could
+    only ever prove that this file wrote a number the panel read back — the
+    whole claim is that the boundary is *derived* by the real detectors from
+    these sightings, and the test checks it against the ground truth recorded in
+    each row's ``regime_break_at``.
+
+    Three profiles, two actors each, plus a control in every one:
+
+    * **quiet-then-active** — a persona posting about once a day, then about
+      twelve. Found by ``segment``/``cusum`` on the activity channel.
+    * **marketplace-move** — the same persona on one venue, then another, with
+      its *cadence deliberately unchanged*. Found by
+      ``detect_marketplace_transitions`` on the marketplace channel, and the
+      unchanged cadence is the control: a detector that only reads volume would
+      report nothing here.
+    * **cadence-change** — a steady low rate that becomes a steady high rate on
+      the same day the persona rebrands. Two independent findings from one
+      boundary.
+
+    Every case also gets two of its own extracted entities with histories — one
+    breaking, one steady — so the case-scoped panel has a negative result beside
+    a positive one rather than only the flattering half.
+    """
+    actors = list(db.scalars(select(ActorRecord).order_by(ActorRecord.actor_id)).all())
+    if not actors:
+        return {"temporal_observations": 0, "temporal_actors": 0, "temporal_entities": 0}
+
+    # Midnight UTC, so a seeded "day N" really is bucket N. Carrying the
+    # wall-clock time of `now` forward would push every observation into the
+    # next day's bucket near the end of the window, and the boundary a
+    # detector reports would then be a day out from the one this file seeded.
+    start = (now - timedelta(days=TEMPORAL_WINDOW_DAYS)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    chosen = rng.sample(actors, min(len(TEMPORAL_ACTOR_PROFILES), len(actors)))
+    rows: list[TemporalObservationRecord] = []
+    venues = list(ACTOR_MARKETPLACES)
+    moved_actors: list[ActorRecord] = []
+    chosen_source = chosen[0].source_id if chosen else None
+
+    for index, (actor, (profile, channels)) in enumerate(
+        zip(chosen, TEMPORAL_ACTOR_PROFILES, strict=False)
+    ):
+        # The marketplace profile holds its cadence steady on purpose.
+        level_profile = "steady" if profile == "marketplace-move" else profile
+        prefix = f"actor:{actor.actor_id}:{profile}"
+        if "activity" in channels:
+            rows.extend(
+                _activity_observations(
+                    observation_prefix=prefix,
+                    case_id=None,
+                    actor_id=actor.actor_id,
+                    entity_id=None,
+                    subject_id=str(actor.actor_id),
+                    subject_kind="actor",
+                    source_id=actor.source_id,
+                    profile=profile,
+                    level_profile=level_profile,
+                    break_day=TEMPORAL_BREAK_DAY,
+                    start=start,
+                    rng=rng,
+                    days=TEMPORAL_WINDOW_DAYS,
+                )
+            )
+        if "marketplace" in channels:
+            origin, destination = venues[index % len(venues)], venues[(index + 3) % len(venues)]
+            if destination == origin:
+                destination = venues[(index + 4) % len(venues)]
+            rows.extend(
+                _state_observations(
+                    observation_prefix=f"{prefix}:marketplace",
+                    case_id=None,
+                    actor_id=actor.actor_id,
+                    subject_id=str(actor.actor_id),
+                    source_id=actor.source_id,
+                    profile=profile,
+                    channel="marketplace",
+                    values=(origin, destination),
+                    break_day=TEMPORAL_BREAK_DAY,
+                    start=start,
+                    days=TEMPORAL_WINDOW_DAYS,
+                    interval=MARKETPLACE_SIGHTING_INTERVAL,
+                )
+            )
+            moved_actors.append(actor)
+        if "handle" in channels:
+            rows.extend(
+                _state_observations(
+                    observation_prefix=f"{prefix}:handle",
+                    case_id=None,
+                    actor_id=actor.actor_id,
+                    subject_id=str(actor.actor_id),
+                    source_id=actor.source_id,
+                    profile=profile,
+                    channel="handle",
+                    values=(actor.handle, f"{actor.handle}_v2"),
+                    break_day=TEMPORAL_BREAK_DAY,
+                    start=start,
+                    days=TEMPORAL_WINDOW_DAYS,
+                    interval=1,
+                )
+            )
+
+    # The registry windows have to agree with the sightings they summarise, or
+    # the two halves of the actor surface contradict each other: an actor whose
+    # presence row still claims it was trading on the old venue yesterday, while
+    # the detection says it moved a month ago, is a data problem an analyst
+    # would (rightly) stop to investigate. One window per venue, derived from the
+    # sightings rather than re-rolled.
+    spans: dict[tuple[UUID, str], tuple[datetime, datetime]] = {}
+    for row in rows:
+        if row.channel != "marketplace" or row.actor_id is None:
+            continue
+        key = (row.actor_id, row.value)
+        low, high = spans.get(key, (row.observed_at, row.observed_at))
+        spans[key] = (min(low, row.observed_at), max(high, row.observed_at))
+
+    for (actor_id, venue), (first, last) in sorted(spans.items()):
+        window = db.scalar(
+            select(ActorMarketplaceRecord).where(
+                ActorMarketplaceRecord.actor_id == actor_id,
+                ActorMarketplaceRecord.marketplace == venue,
+            )
+        )
+        if window is None:
+            db.add(
+                ActorMarketplaceRecord(
+                    presence_id=sid(f"actor-marketplace:{actor_id}:{venue}"),
+                    actor_id=actor_id,
+                    marketplace=venue,
+                    role="vendor",
+                    first_seen=first,
+                    last_seen=last,
+                    listing_count=rng.randint(0, 180),
+                    source_id=chosen_source,
+                    metadata_json={
+                        "synthetic": True,
+                        "schema_version": SCHEMA_VERSION,
+                        "derived_from": "temporal_observations",
+                    },
+                )
+            )
+            continue
+        # Widened, never narrowed: a sighting the random registry pass did not
+        # know about can only extend what the platform has seen, not retract it.
+        if window.first_seen is None or first < window.first_seen:
+            window.first_seen = first
+        if window.last_seen is None or last > window.last_seen:
+            window.last_seen = last
+    db.flush()
+
+    entity_rows: list[TemporalObservationRecord] = []
+    for case in cases:
+        entities = list(
+            db.scalars(
+                select(EntityRecord)
+                .where(EntityRecord.case_id == case.case_id)
+                .order_by(EntityRecord.entity_id)
+                .limit(len(TEMPORAL_ENTITY_PROFILES))
+            ).all()
+        )
+        if not entities:
+            continue
+        # Cite real ledger rows so an entity's activity is traceable to the
+        # evidence it was extracted from, rather than only to itself.
+        evidence_ids = list(
+            db.scalars(
+                select(EvidenceRecord.evidence_id)
+                .where(EvidenceRecord.case_id == case.case_id)
+                .order_by(EvidenceRecord.collected_at.asc())
+                .limit(64)
+            ).all()
+        )
+        for order, (entity, (profile, break_day)) in enumerate(
+            zip(entities, TEMPORAL_ENTITY_PROFILES, strict=False)
+        ):
+            seeded = _activity_observations(
+                observation_prefix=f"entity:{entity.entity_id}:{profile}",
+                case_id=case.case_id,
+                actor_id=None,
+                entity_id=entity.entity_id,
+                subject_id=str(entity.entity_id),
+                subject_kind="entity",
+                source_id=None,
+                profile=profile,
+                level_profile=profile,
+                break_day=break_day,
+                start=(now - timedelta(days=TEMPORAL_ENTITY_WINDOW_DAYS)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ),
+                rng=rng,
+                days=TEMPORAL_ENTITY_WINDOW_DAYS,
+            )
+            if evidence_ids:
+                for position, row in enumerate(seeded):
+                    row.evidence_id = evidence_ids[(position + order) % len(evidence_ids)]
+            entity_rows.extend(seeded)
+
+    all_rows = [*rows, *entity_rows]
+    _flush_batches(db, all_rows)
+
+    # The personas whose behaviour actually changed are only reachable from a
+    # case through the identifier link the registry already models: an actor is
+    # cross-case, so its observations carry no `case_id`, and without this the
+    # case timeline could not answer "did a persona in this case change?" — the
+    # question the whole surface exists for. One identifier per seeded actor,
+    # spread across cases, exactly as `seed_actor_registry` does.
+    linked = 0
+    if cases:
+        identifiers = list(
+            db.scalars(
+                select(ActorIdentifierRecord)
+                .where(ActorIdentifierRecord.actor_id.in_([a.actor_id for a in chosen]))
+                .order_by(ActorIdentifierRecord.identifier_id)
+            ).all()
+        )
+        for index, identifier in enumerate(identifiers):
+            if index % 3 != 0:
+                continue
+            identifier.case_id = cases[index % len(cases)].case_id
+            identifier.metadata_json = {
+                **(identifier.metadata_json or {}),
+                "temporal_actor": True,
+            }
+            linked += 1
+    db.flush()
+
+    return {
+        "temporal_observations": len(all_rows),
+        "temporal_actors": len(chosen),
+        "temporal_entities": len(entity_rows),
+        "temporal_marketplace_moves": len(moved_actors),
+        "temporal_actor_case_links": linked,
+    }
+
 
 
 # The entry point is last so every seeder above is defined before `main()`

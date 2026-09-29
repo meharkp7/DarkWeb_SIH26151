@@ -205,21 +205,30 @@ export const api = {
     return getJson<SearchResponse>(apiUrl(`/v1/search?${query}`), signal);
   },
   collectionSourcesUrl: () => apiUrl('/v1/collection/sources'),
-  collectionJobsUrl: (params?:{status?:string;limit?:number;offset?:number}) => {
+  /**
+   * `since`/`until` are additive: `GET /v1/collection/jobs` already bounds the
+   * run log by `started_at` server-side, so a chosen timeline is a query here
+   * rather than a slice the browser makes afterwards.
+   */
+  collectionJobsUrl: (params?:{status?:string;limit?:number;offset?:number;since?:string;until?:string}) => {
     const query = new URLSearchParams();
     if (params?.status) query.set('status', params.status);
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
     if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.since) query.set('since', params.since);
+    if (params?.until) query.set('until', params.until);
     const suffix = query.toString() ? `?${query}` : '';
     return apiUrl(`/v1/collection/jobs${suffix}`);
   },
   collectionStatusUrl: () => apiUrl('/v1/collection/status'),
   collectionSources: (signal?:AbortSignal) => getJson<CollectionSource[]>(apiUrl('/v1/collection/sources'), signal),
-  collectionJobs: (params?:{status?:string;limit?:number;offset?:number}, signal?:AbortSignal) => {
+  collectionJobs: (params?:{status?:string;limit?:number;offset?:number;since?:string;until?:string}, signal?:AbortSignal) => {
     const query = new URLSearchParams();
     if (params?.status) query.set('status', params.status);
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
     if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    if (params?.since) query.set('since', params.since);
+    if (params?.until) query.set('until', params.until);
     const suffix = query.toString() ? `?${query}` : '';
     return getJson<CollectionJob[]>(apiUrl(`/v1/collection/jobs${suffix}`), signal);
   },
@@ -400,6 +409,40 @@ export const api = {
     query.set('format', format);
     if (filters?.dataset !== undefined) query.set('dataset', filters.dataset);
     return apiUrl(`/v1/infrastructure/export?${query}`);
+  },
+
+  // --- behavioural change detection ---------------------------------------
+  // URLs rather than promises, because `useApi` keys its effect on the URL
+  // string and the analysis window is a query the panel owns.
+  temporalShiftsUrl: (
+    caseId: string,
+    params?: { method?: string; bucket?: string; minPersist?: number },
+  ) => {
+    const query = new URLSearchParams();
+    if (params?.method) query.set('method', params.method);
+    if (params?.bucket) query.set('bucket', params.bucket);
+    if (params?.minPersist !== undefined) query.set('min_persist', String(params.minPersist));
+    const suffix = query.toString() === '' ? '' : `?${query.toString()}`;
+    return apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/temporal/shifts${suffix}`);
+  },
+  temporalSegmentsUrl: (
+    caseId: string,
+    params?: { subject?: string; gain?: string; bucket?: string },
+  ) => {
+    const query = new URLSearchParams();
+    if (params?.subject) query.set('subject', params.subject);
+    if (params?.gain) query.set('gain', params.gain);
+    if (params?.bucket) query.set('bucket', params.bucket);
+    const suffix = query.toString() === '' ? '' : `?${query.toString()}`;
+    return apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/temporal/segments${suffix}`);
+  },
+  actorTransitionsUrl: (actorId: string) =>
+    apiUrl(`/v1/actors/${encodeURIComponent(actorId)}/temporal/transitions`),
+  actorBehaviourUrl: (actorId: string, bucket?: string) => {
+    const query = new URLSearchParams();
+    if (bucket) query.set('bucket', bucket);
+    const suffix = query.toString() === '' ? '' : `?${query.toString()}`;
+    return apiUrl(`/v1/actors/${encodeURIComponent(actorId)}/temporal/behaviour${suffix}`);
   },
 };
 
