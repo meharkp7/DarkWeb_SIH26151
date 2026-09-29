@@ -75,6 +75,12 @@ export const METRICS = {
   competingHypotheses: 'hypotheses.competing',
   evidenceProvenance: 'evidence.provenance',
   caseMetrics: 'case.metrics',
+  actorRegistry: 'actor.registry',
+  actorProfile: 'actor.profile',
+  actorSummary: 'actor.summary',
+  personaLinkageRegister: 'persona.linkage.register',
+  personaLinkageSummary: 'persona.linkage.summary',
+  personaLinkageDetail: 'persona.linkage.detail',
 } as const;
 
 export type MetricName = (typeof METRICS)[keyof typeof METRICS];
@@ -178,6 +184,28 @@ const LEADS: Readonly<Record<MetricName, LeadBuilder>> = {
 
   'case.metrics': () =>
     'Counts for this case alone: evidence records, resolved relationships, entities, distinct sources, contradictory citations, hypotheses, and distinct independence groups. Attribution is the highest calibrated confidence among this case\'s assessments, and it is absent when nothing here has been assessed — which means missing, not zero.',
+
+  'actor.registry': ({ total, shown }) =>
+    `The cross-case actor registry: one row per tracked actor${
+      total === null ? '' : `, ${total} in total`
+    }, of which ${shown === null ? 'this view' : `${shown}`} are shown. The identifier and marketplace counts are counts of stored rows, grouped in the database rather than counted per row. Attribution confidence is the recorded score or absent — an actor nobody has assessed reads as "not assessed", never as zero, and a confidence filter excludes those actors rather than ranking them last. Last scan is when the actor was last re-scanned, which is a different fact from last seen: an actor can be observed daily and scanned monthly. Links counts distinct investigations citing one of this actor's identifiers, so one investigation cited twice is one link.${total !== null && shown !== null && shown < total ? ` This view is filtered: ${shown} of ${total} actors match.` : ''}`,
+
+  'actor.profile': () =>
+    "One actor, resolved into its parts. Identifiers are grouped by kind, and each carries its own confidence or the absence of one, the independence group it belongs to, and the investigation it was observed in — three identifiers sharing an independence group are one source wearing three hats, not three corroborations. Marketplace presences are windows: a first-seen and a last-seen per venue, so a persona that has left a venue is visible as one rather than as absent. Persona linkages are proposals to merge a candidate handle into this actor; a linkage is only a finding once an analyst has ruled on it, and the model's score is kept separate from that ruling so a rejection stays visible as a rejection.",
+
+  'actor.summary': () =>
+    'Registry-wide counts, recomputed on each read with nothing filtered: every actor, by status, by category and by identifier kind. Stale counts actors whose last scan is older than the stated threshold, including those never scanned at all, because an actor nobody has looked at is the back of the backlog rather than an exemption from it. Unassessed counts actors carrying no attribution score — the population a confidence filter excludes, stated here so the exclusion is visible rather than silent.',
+
+  'persona.linkage.register': ({ total, shown }) =>
+    `Every proposal to merge a candidate handle into a tracked actor${
+      total === null ? '' : `, ${total} on file`
+    }${shown === null || total === null || shown === total ? '' : `, ${shown} shown by the current filters`}. The score is the model's own output for the pair and is never changed by a decision; the status is an analyst's ruling and exists in a separate column. A proposal nobody has ruled on is a hypothesis, and it is drawn as one. The aligned, apart and contested columns count named features, and the three partition the vocabulary between them: a feature measured on one side only, or measured inside the band where neither agreement nor disagreement can be claimed, is contested rather than quietly counted as support. Filters, the sort and the row under inspection all live in the address bar, so a view of this register can be linked or handed over. Adjudicated names the analyst and the date, or an em dash when nobody has ruled.`,
+
+  'persona.linkage.summary': () =>
+    'Counts over exactly the linkages the register beside it is showing. The two figures worth reading are the confirmations the scorer ranked below the stated threshold and the rejections it ranked at or above it. Those are the model\'s false-negative and false-positive rates as analysts have actually observed them, counted from the decisions rather than reported by the thing being measured, which is the only version of the number that can be checked. When nothing here has been adjudicated the block says so instead of printing a clean 0% over an empty denominator, because a scorer nobody has ever overruled has not been tested.',
+
+  'persona.linkage.detail': () =>
+    'One linkage. The three feature lists are named, not counted: which features agree, which disagree, and which could not be decided either way. Contested is not a synonym for weak support — it holds everything the analysis could not separate, including features measured on only one side and features the similarity function scores as perfect agreement only because both sides were zero. The limitations are what this analysis cannot see, generated by the scorer that produced the number: what a text sample leaves no trace of, what a behavioural profile cannot distinguish from a shared schedule, and which of the recorded metrics are not the model\'s output at all. Where no trained pairwise verifier was applied, the record says so rather than presenting a probability no model produced.',
 };
 
 /**

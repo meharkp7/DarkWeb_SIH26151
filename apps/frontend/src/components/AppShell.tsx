@@ -12,15 +12,22 @@ import { useAuth } from '../store/auth';
  * Five destinations, and that is the whole app.
  *
  * There is deliberately no top-level Graph / Evidence / Hypotheses /
- * Attribution / Timeline / Sources / Actors entry. All of that is case
- * analysis, and an investigator opens a case rather than a subsystem — so it
- * lives behind `Investigations` in the Investigation Workspace. Putting it in
- * the sidebar too meant every one of those screens was reachable without a case
- * and therefore had to either duplicate the workspace or guess at one.
+ * Attribution / Timeline / Sources entry. All of that is case analysis, and an
+ * investigator opens a case rather than a subsystem — so it lives behind
+ * `Investigations` in the Investigation Workspace. Putting it in the sidebar
+ * too meant every one of those screens was reachable without a case and
+ * therefore had to either duplicate the workspace or guess at one.
+ *
+ * `Actors` is the one cross-case surface, and it is different in kind: a
+ * tracked actor belongs to no single investigation, several cases may cite it,
+ * and "who is this persona across the whole platform" is a question an analyst
+ * asks before choosing which case to open. It is here for that reason and not
+ * as case analysis in disguise.
  */
 const NAV = [
   { to: '/', label: 'Command Center', icon: '⌂', end: true },
   { to: '/cases', label: 'Investigations', icon: '◎', end: false },
+  { to: '/actors', label: 'Actors', icon: '☗', end: false },
   { to: '/threat-watch', label: 'Threat Watch', icon: '◉', end: false },
 ];
 
@@ -29,6 +36,7 @@ const SYSTEM_NAV = [{ to: '/admin', label: 'Administration', icon: '⚙', end: f
 /** Breadcrumb labels; a raw path segment reads as a slug, not as a name. */
 const SECTION_LABELS: Record<string, string> = {
   cases: 'Investigations',
+  actors: 'Actors',
   'threat-watch': 'Threat Watch',
   watch: 'Threat Watch',
   // `/reports` is a redirect, not a destination: exporting an investigation is

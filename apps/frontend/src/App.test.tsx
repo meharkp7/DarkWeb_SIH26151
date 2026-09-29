@@ -244,7 +244,7 @@ describe('App route table', () => {
 });
 
 describe('primary navigation', () => {
-  it('offers exactly the five spaces plus Administration', async () => {
+  it('offers exactly the four spaces plus Administration', async () => {
     installRouteFetch();
     renderRoute('/');
 
@@ -257,6 +257,7 @@ describe('primary navigation', () => {
     expect(labels).toEqual([
       '⌂Command Center',
       '◎Investigations',
+      '☗Actors',
       '◉Threat Watch',
       '⚙Administration',
     ]);
@@ -267,7 +268,10 @@ describe('primary navigation', () => {
     renderRoute('/');
 
     const nav = await screen.findByRole('navigation', { name: 'Primary' });
-    for (const retired of ['Graph', 'Evidence', 'Hypotheses', 'Attribution', 'Timeline', 'Sources', 'Actors']) {
+    // `Actors` is no longer in this list: the actor registry is a cross-case
+    // surface that several investigations cite, so it is a destination in its
+    // own right rather than case analysis waiting for a case to be opened.
+    for (const retired of ['Graph', 'Evidence', 'Hypotheses', 'Attribution', 'Timeline', 'Sources']) {
       expect(nav.textContent).not.toContain(retired);
     }
   });

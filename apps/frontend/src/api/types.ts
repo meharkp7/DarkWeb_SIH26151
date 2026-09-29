@@ -502,3 +502,443 @@ export interface SearchResponse {
   readonly counts: Readonly<Partial<Record<SearchKind, number>>>;
   readonly truncated: Readonly<Partial<Record<SearchKind, boolean>>>;
 }
+
+// ---------------------------------------------------------------------------
+// Actor registry
+//
+// The mirror of `src/aegis/schemas/actors.py`. Every field the problem
+// statement names is on every row, and `confidence` is nullable because
+// "not assessed" and "assessed at zero" are different facts — the UI must be
+// able to tell them apart rather than rendering both as a 0%.
+// ---------------------------------------------------------------------------
+
+/** Identifier kinds the registry stores. */
+export type ActorIdentifierKind =
+  | 'handle'
+  | 'pgp'
+  | 'wallet'
+  | 'onion'
+  | 'clearnet'
+  | 'jabber'
+  | (string & {});
+
+export interface ActorRegistryRow {
+  readonly actor_id: UUID;
+  readonly handle: string;
+  readonly category: string;
+  readonly status: string;
+  /** `null` means *not assessed* — not zero. */
+  readonly confidence: number | null;
+  readonly first_seen: string | null;
+  readonly last_seen: string | null;
+  readonly last_scan_at: string | null;
+  readonly source_id: UUID | null;
+  readonly source_name: string | null;
+  readonly identifier_count: number;
+  readonly marketplace_count: number;
+  /** Distinct investigations citing one of this actor's identifiers. */
+  readonly case_link_count: number;
+  readonly identifier_kinds: Readonly<Record<string, number>>;
+  readonly notes: string | null;
+}
+
+export interface ActorIdentifier {
+  readonly identifier_id: UUID;
+  readonly kind: string;
+  readonly value: string;
+  readonly independence_group: string | null;
+  readonly confidence: number | null;
+  readonly first_seen: string | null;
+  readonly last_seen: string | null;
+  readonly source_id: UUID | null;
+  readonly source_name: string | null;
+  readonly case_id: UUID | null;
+}
+
+export interface ActorMarketplacePresence {
+  readonly presence_id: UUID;
+  readonly marketplace: string;
+  readonly role: string | null;
+  readonly first_seen: string | null;
+  readonly last_seen: string | null;
+  readonly listing_count: number | null;
+  readonly source_id: UUID | null;
+  readonly source_name: string | null;
+}
+
+export interface PersonaLinkageSummary {
+  readonly linkage_id: UUID;
+  readonly candidate_handle: string;
+  readonly method: string;
+  /** The model's score, never overwritten by the analyst's ruling. */
+  readonly score: number;
+  readonly status: 'proposed' | 'confirmed' | 'rejected' | (string & {});
+  readonly aligned_features: readonly string[];
+  readonly apart_features: readonly string[];
+  readonly contested_features: readonly string[];
+  readonly limitations: readonly string[];
+  readonly case_id: UUID | null;
+  readonly adjudicated_by: UUID | null;
+  readonly adjudicated_at: string | null;
+  readonly rationale: string | null;
+}
+
+export interface ActorCaseLink {
+  readonly case_id: UUID;
+  readonly name: string;
+  readonly status: string;
+  readonly identifier_count: number;
+}
+
+export interface ActorProfile {
+  readonly actor: ActorRegistryRow;
+  readonly identifiers_by_kind: Readonly<Record<string, readonly ActorIdentifier[]>>;
+  readonly marketplaces: readonly ActorMarketplacePresence[];
+  /** Empty means "no linkage rows on file", not "no linkage exists". */
+  readonly persona_linkages: readonly PersonaLinkageSummary[];
+  readonly linked_cases: readonly ActorCaseLink[];
+}
+
+export interface ActorCategoryCount {
+  readonly category: string;
+  readonly count: number;
+}
+
+export interface ActorStatusCount {
+  readonly status: string;
+  readonly count: number;
+}
+
+export interface ActorIdentifierKindCount {
+  readonly kind: string;
+  readonly count: number;
+}
+
+export interface ActorSummary {
+  readonly total: number;
+  readonly by_status: readonly ActorStatusCount[];
+  readonly by_category: readonly ActorCategoryCount[];
+  readonly identifier_kinds: readonly ActorIdentifierKindCount[];
+  readonly identifiers: number;
+  readonly marketplaces: number;
+  /** Threshold, not lookback: "no scan in N days". A larger N is laxer. */
+  readonly stale_days: number;
+  readonly stale: number;
+  /** Actors carrying no attribution score — what `min_confidence` excludes. */
+  readonly unassessed: number;
+}
+
+/** The filter set both the list route and the export accept. */
+export interface ActorQuery {
+  readonly q?: string;
+  readonly category?: string;
+  readonly status?: string;
+  readonly min_confidence?: number;
+  readonly source_id?: string;
+  readonly sort?: string;
+  readonly dir?: 'asc' | 'desc';
+}
+
+// ---------------------------------------------------------------------------
+// Tor hidden-service infrastructure
+//
+// These mirror the Pydantic models in `src/aegis/api/infrastructure.py`.
+// ---------------------------------------------------------------------------
+
+/** The five misconfiguration classes the detector files, in display order. */
+export const INFRA_FINDING_KINDS = [
+  'exposed_status_page',
+  'clearnet_certificate',
+  'default_banner',
+  'descriptor_inconsistency',
+  'shared_fingerprint',
+] as const;
+export type InfraFindingKind = (typeof INFRA_FINDING_KINDS)[number];
+
+export const INFRA_FINDING_KIND_LABELS: Readonly<Record<InfraFindingKind, string>> = {
+  exposed_status_page: 'Exposed status page',
+  clearnet_certificate: 'Clearnet-tied certificate',
+  default_banner: 'Default service banner',
+  descriptor_inconsistency: 'Descriptor inconsistency',
+  shared_fingerprint: 'Shared fingerprint',
+};
+
+export const INFRA_SEVERITIES = [
+  'critical',
+  'high',
+  'medium',
+  'low',
+  'informational',
+] as const;
+export type InfraSeverity = (typeof INFRA_SEVERITIES)[number];
+
+export type InfraNetwork = 'onion' | 'clearnet';
+
+/**
+ * A misconfiguration in one hidden service.
+ *
+ * `limitations` is not decoration: shared hosting, a CDN and a reused default
+ * banner all produce these signals legitimately, so a finding rendered without
+ * its alternative reading is a false accusation with a confidence bar on it.
+ * `confidence` is nullable — an unscored detector must read as unscored, not
+ * as zero.
+ */
+export interface InfraFinding {
+  readonly finding_id: UUID;
+  readonly observation_id: UUID;
+  readonly case_id: UUID | null;
+  readonly subject: string;
+  readonly network: InfraNetwork;
+  readonly kind: InfraFindingKind;
+  readonly kind_label: string;
+  readonly severity: InfraSeverity;
+  readonly detail: string;
+  readonly limitations: readonly string[];
+  readonly confidence: number | null;
+  readonly detected_at: string;
+  readonly observed_at: string;
+  readonly evidence_id: UUID | null;
+  readonly metadata: Readonly<Record<string, unknown>>;
+}
+
+/** The per-channel scores behind one correlation, exactly as stored. */
+export interface InfraChannelScores {
+  readonly certificate: number | null;
+  readonly content: number | null;
+  readonly technology: number | null;
+  readonly http: number | null;
+  readonly tls: number | null;
+  readonly temporal: number;
+  /** Channels that contributed to `overall`. A null channel is *absent*, not zero. */
+  readonly available_channels: readonly string[];
+  /**
+   * Channels clearing their own decisive cutoff, strongest first. One entry
+   * here means the whole score rests on a single dimension.
+   */
+  readonly decisive_channels: readonly string[];
+}
+
+export interface InfraMatch {
+  readonly match_id: UUID;
+  readonly case_id: UUID | null;
+  readonly onion_observation_id: UUID;
+  readonly clearnet_observation_id: UUID;
+  readonly onion_subject: string;
+  readonly clearnet_subject: string;
+  readonly overall: number;
+  readonly breakdown: InfraChannelScores;
+  /** The channel that carried the candidate, named. */
+  readonly strongest_channel: string | null;
+  /** True when `decisive_channels` holds at most one entry. */
+  readonly single_channel: boolean;
+  readonly limitations: readonly string[];
+  readonly sources: readonly string[];
+  readonly evidence_ids: readonly string[];
+  readonly detected_at: string;
+  readonly metadata: Readonly<Record<string, unknown>>;
+}
+
+/** The stored `features_json` document, with its derived half intact. */
+export interface InfraFeaturesDocument {
+  readonly schema_version: string;
+  readonly observation: Readonly<Record<string, unknown>>;
+  readonly content: { readonly sha256: string; readonly simhash: number } | null;
+  readonly technology_keys: readonly string[];
+}
+
+export interface InfraObservation {
+  readonly observation_id: UUID;
+  readonly subject: string;
+  readonly network: InfraNetwork;
+  readonly source: string;
+  readonly observed_at: string;
+  readonly observed_until: string | null;
+  readonly case_id: UUID | null;
+  readonly evidence_id: UUID | null;
+  readonly features: Readonly<Record<string, unknown>>;
+  readonly finding_count: number;
+  readonly match_count: number;
+}
+
+export interface InfraSummary {
+  readonly findings_total: number;
+  readonly findings_by_kind: Readonly<Record<string, number>>;
+  readonly findings_by_severity: Readonly<Record<string, number>>;
+  /** Findings the platform declines to score, counted rather than averaged in. */
+  readonly findings_unscored: number;
+  readonly observations_total: number;
+  readonly onion_services: number;
+  readonly clearnet_hosts: number;
+  readonly matches_total: number;
+  /**
+   * The headline: matches whose score is carried by exactly one channel. A
+   * correlation resting on a single dimension is a weak finding, and a total
+   * that hides this lets it be read as a strong one.
+   */
+  readonly single_channel_matches: number;
+  readonly matches_by_strongest_channel: Readonly<Record<string, number>>;
+  readonly earliest_observation: string | null;
+  readonly latest_observation: string | null;
+}
+
+/** The decision rule for a correlation run. Every field is required by the API. */
+export interface InfraThresholdInput {
+  readonly min_similarity: number;
+  readonly min_certificate: number;
+  readonly min_content: number;
+  readonly min_http: number;
+  readonly min_temporal_overlap: number;
+  readonly require_temporal_overlap: boolean;
+}
+
+export interface InfraSkippedObservation {
+  readonly observation_id: UUID;
+  readonly subject: string;
+  readonly reason: string;
+}
+
+export interface InfraCorrelateRequest {
+  readonly case_id: UUID;
+  readonly thresholds: InfraThresholdInput;
+  readonly observation_ids?: readonly UUID[];
+  readonly networks?: readonly InfraNetwork[];
+  readonly since?: string | null;
+  readonly until?: string | null;
+  readonly limit?: number | null;
+}
+
+export interface InfraCorrelateResponse {
+  readonly case_id: UUID;
+  readonly thresholds: InfraThresholdInput;
+  readonly observations_considered: number;
+  readonly pairs_evaluated: number;
+  readonly candidates: number;
+  readonly same_network_candidates: number;
+  readonly created: readonly InfraMatch[];
+  readonly existing: readonly InfraMatch[];
+  readonly skipped_observations: readonly InfraSkippedObservation[];
+  /** The correlation's own limitations, verbatim and deduplicated. */
+  readonly limitations: readonly string[];
+  readonly correlated_at: string;
+}
+
+export interface InfraListFilters {
+  readonly kind?: string;
+  readonly severity?: string;
+  readonly caseId?: string;
+  readonly subject?: string;
+  readonly network?: InfraNetwork;
+  readonly since?: string;
+  readonly until?: string;
+  readonly minConfidence?: number;
+  readonly strongestChannel?: string;
+  readonly minOverall?: number;
+  readonly limit?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Persona linkage
+// ---------------------------------------------------------------------------
+
+/**
+ * The three states a linkage can be in.
+ *
+ * `proposed` is a hypothesis nobody has ruled on; only `confirmed` is a finding.
+ * The distinction is load-bearing, so it is a closed union rather than a string.
+ */
+export const PERSONA_LINKAGE_STATUSES = ['proposed', 'confirmed', 'rejected'] as const;
+export type PersonaLinkageStatus = (typeof PERSONA_LINKAGE_STATUSES)[number];
+
+export const PERSONA_LINKAGE_METHODS = [
+  'stylometry',
+  'behavioural',
+  'infrastructure',
+  'attribution',
+  'manual',
+] as const;
+export type PersonaLinkageMethod = (typeof PERSONA_LINKAGE_METHODS)[number];
+
+/** The methods the API will score from a supplied sample. */
+export const PERSONA_SCORABLE_METHODS = ['stylometry', 'behavioural'] as const;
+export type PersonaScorableMethod = (typeof PERSONA_SCORABLE_METHODS)[number];
+
+/** Human labels: the raw method names are not what an analyst reads. */
+export const PERSONA_METHOD_LABELS: Readonly<Record<PersonaLinkageMethod, string>> = {
+  stylometry: 'Stylometry',
+  behavioural: 'Behavioural',
+  infrastructure: 'Infrastructure',
+  attribution: 'Attribution',
+  manual: 'Manual',
+};
+
+export interface PersonaLinkage {
+  readonly linkage_id: UUID;
+  readonly actor_id: UUID;
+  /** Resolved server-side so the register never shows a bare actor UUID. */
+  readonly actor_handle: string;
+  readonly candidate_handle: string;
+  readonly method: PersonaLinkageMethod;
+  /** The model's output. An adjudication never changes it. */
+  readonly score: number;
+  readonly status: PersonaLinkageStatus;
+  readonly aligned_features: readonly string[];
+  readonly apart_features: readonly string[];
+  readonly contested_features: readonly string[];
+  readonly limitations: readonly string[];
+  readonly case_id: UUID | null;
+  readonly case_name: string | null;
+  readonly adjudicated_by: UUID | null;
+  readonly adjudicated_by_name: string | null;
+  readonly adjudicated_at: string | null;
+  readonly rationale: string | null;
+  readonly created_at: string;
+  readonly metadata: Readonly<Record<string, unknown>>;
+  /** True only once a human ruled. Gates whether the score may be called a finding. */
+  readonly analyst_recorded: boolean;
+}
+
+export interface PersonaLinkageDetail extends PersonaLinkage {
+  /** Feature name -> agreement, the terms the three-way split was made from. */
+  readonly feature_agreement: Readonly<Record<string, number>>;
+  /** The function that produced `score`, named. */
+  readonly scorer: string | null;
+}
+
+export interface PersonaLinkageSummary {
+  readonly total: number;
+  readonly by_status: Readonly<Record<string, number>>;
+  readonly by_method: Readonly<Record<string, number>>;
+  readonly proposed: number;
+  readonly confirmed: number;
+  readonly rejected: number;
+  readonly adjudicated: number;
+  readonly confirmed_total: number;
+  readonly rejected_total: number;
+  /** Confirmations the scorer ranked below the threshold: observed false negatives. */
+  readonly confirmed_low_score: number;
+  /** Rejections the scorer ranked at or above it: observed false positives. */
+  readonly rejected_high_score: number;
+  /** Returned so the comparison is labelled rather than implied. */
+  readonly score_threshold: number;
+  /** Set when nothing here has been adjudicated, rather than reporting a clean 0%. */
+  readonly gap: string | null;
+}
+
+export interface AdjudicationResponse {
+  /** The stored row as the server now holds it, not as the client hoped. */
+  readonly linkage: PersonaLinkage;
+  readonly previous_status: string | null;
+  readonly previous_rationale: string | null;
+  readonly previous_adjudicator: string | null;
+  readonly audit_seq: number;
+}
+
+/** Filters shared by the list, the summary and the export, so they cannot disagree. */
+export interface PersonaFilters {
+  readonly status?: PersonaLinkageStatus | null;
+  readonly method?: PersonaLinkageMethod | null;
+  readonly actor_id?: string | null;
+  readonly min_score?: number | null;
+  readonly from?: string | null;
+  readonly until?: string | null;
+}

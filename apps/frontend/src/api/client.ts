@@ -260,6 +260,58 @@ export const api = {
     query.set('format', format);
     return apiUrl(`/v1/actors/export?${query}`);
   },
+
+  // --- persona linkage -----------------------------------------------------
+  /**
+   * One serialiser for the filter set, shared by the register URL, the summary
+   * URL and the export URL. Sharing it is what stops the summary block and the
+   * table beside it describing two different views.
+   */
+  personaFilterParams(filters?: PersonaFilters): URLSearchParams {
+    const query = new URLSearchParams();
+    if (filters?.status) query.set('status', filters.status);
+    if (filters?.method) query.set('method', filters.method);
+    if (filters?.actor_id) query.set('actor_id', filters.actor_id);
+    if (typeof filters?.min_score === 'number') query.set('min_score', String(filters.min_score));
+    // The API bounds the proposal timestamp by `since`/`until`; the page calls
+    // them `from`/`until` because that is the timeline an analyst is looking at.
+    if (filters?.from) query.set('since', `${filters.from}T00:00:00Z`);
+    if (filters?.until) query.set('until', `${filters.until}T23:59:59Z`);
+    return query;
+  },
+  /** URLs rather than promises: `useApi` keys its effect on the URL string. */
+  personaLinkagesUrl: (filters?: PersonaFilters) => {
+    const suffix = api.personaFilterParams(filters).toString();
+    return apiUrl(`/v1/personas/linkages${suffix ? `?${suffix}` : ''}`);
+  },
+  personaSummaryUrl: (filters?: PersonaFilters) => {
+    const suffix = api.personaFilterParams(filters).toString();
+    return apiUrl(`/v1/personas/linkages/summary${suffix ? `?${suffix}` : ''}`);
+  },
+  getPersonaLinkageUrl: (id:string) => apiUrl(`/v1/personas/linkages/${encodeURIComponent(id)}`),
+  getPersonaLinkage: (id:string,signal?:AbortSignal) =>
+    getJson<PersonaLinkageDetail>(api.getPersonaLinkageUrl(id),signal),
+  /**
+   * Propose a linkage. There is deliberately no `score` field: the platform
+   * computes it from the samples, and a body carrying one is refused outright.
+   */
+  proposePersonaLinkage: (payload: {
+    actor_id: string;
+    candidate_handle: string;
+    method: PersonaScorableMethod;
+    case_id?: string | null;
+    actor_sample?: string;
+    candidate_sample?: string;
+  }) => postJson<PersonaLinkageDetail>(apiUrl('/v1/personas/linkages'), payload),
+  adjudicatePersonaLinkage: (
+    id: string,
+    payload: { status: 'confirmed' | 'rejected'; analyst_id: string; rationale: string },
+  ) => postJson<AdjudicationResponse>(api.getPersonaLinkageUrl(id) + '/adjudicate', payload),
+  personaExportUrl: (format:'csv'|'json', filters?:PersonaFilters) => {
+    const query = api.personaFilterParams(filters);
+    query.set('format', format);
+    return apiUrl(`/v1/personas/export?${query}`);
+  },
 };
 
 /**

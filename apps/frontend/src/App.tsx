@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { AdminPage } from './pages/AdminPage';
 import { CaseWorkspacePage } from './pages/CaseWorkspacePage';
+import { ActorProfilePage } from './pages/ActorProfilePage';
+import { ActorsPage } from './pages/ActorsPage';
 import { CasesPage } from './pages/CasesPage';
 import { CommandCenterPage } from './pages/CommandCenterPage';
 import { LoginPage } from './pages/LoginPage';
@@ -12,8 +14,8 @@ import { useAuth } from './store/auth';
 /**
  * The retired standalone screens.
  *
- * Evidence, Network, Timeline, Attribution, Hypotheses, Sources and Actors
- * were each a global route. Every one of them is meaningless without a case —
+ * Evidence, Network, Timeline, Attribution, Hypotheses and Sources were each
+ * a global route. Every one of them is meaningless without a case —
  * they are views *of* an investigation — so reaching them without one either
  * duplicated the workspace or silently invented a context. They now redirect
  * to the register, and the real views live in the workspace tabs.
@@ -25,7 +27,6 @@ const CASE_SCOPED_RETIRED = [
   'attribution',
   'hypotheses',
   'sources',
-  'actors',
 ] as const;
 
 function SessionGate() {
@@ -57,6 +58,8 @@ function SessionGate() {
         <Route index element={<CommandCenterPage />} />
         <Route path="cases" element={<CasesPage />} />
         <Route path="cases/:caseId" element={<CaseWorkspacePage />} />
+        <Route path="actors" element={<ActorsPage />} />
+        <Route path="actors/:actorId" element={<ActorProfilePage />} />
         <Route path="threat-watch" element={<ThreatWatchPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="watch" element={<Navigate to="/threat-watch" replace />} />
