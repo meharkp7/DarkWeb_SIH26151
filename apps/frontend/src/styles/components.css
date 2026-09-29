@@ -3,7 +3,7 @@
    ==========================================================================
 
    These classes back the reusable layer in `src/components/` — Panel, Badge,
-   DataTable, Drawer, GraphView, ScoreBars, Sparkline, TimelineBars, Evidence*
+   DataTable, Drawer, ScoreBars, Sparkline, TimelineBars, Evidence*
    and the loading/error/empty states.
 
    Before this file existed none of them had any matching rule, so every
@@ -1337,3 +1337,35 @@
   display: flex;
   gap: 8px;
 }
+
+/* --------------------------------------------------------------------------
+   Shared additions
+   -------------------------------------------------------------------------- */
+
+/* Inline text button. Used inside prose and empty states where a full button
+   would imply a primary action the author did not mean to emphasise. */
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Stale-feed warning shown inside a page body as well as in the shell. */
+.watch-degraded {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(228, 184, 109, 0.45);
+  background: rgba(228, 184, 109, 0.08);
+  border-radius: var(--radius-sm);
+  color: var(--amber);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-notice[id] { scroll-margin-top: 12px; }
