@@ -950,3 +950,99 @@ export interface PersonaFilters {
   readonly from?: string | null;
   readonly until?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Autonomous collection
+// ---------------------------------------------------------------------------
+
+/** One registered source, with the quality basis the PS asks to be visible. */
+export interface CollectionSource {
+  readonly source_id: UUID;
+  readonly source_type: string;
+  readonly name: string;
+  /** A weight on the outlet, not a measurement of any record it produced. */
+  readonly reliability: number;
+  readonly reliability_basis: string;
+  readonly independence_group: string | null;
+  /** How many sources share this group. >1 means they are not independent. */
+  readonly independence_group_size: number;
+  readonly independence_note: string | null;
+  readonly record_count: number;
+  readonly job_count: number;
+  readonly last_scanned_at: string | null;
+  readonly last_status: string | null;
+  readonly synthetic: boolean;
+}
+
+export interface CollectionJob {
+  readonly job_id: UUID;
+  readonly source_id: UUID;
+  readonly source_name: string | null;
+  readonly source_type: string | null;
+  readonly collector_name: string;
+  readonly collector_version: string;
+  readonly status: string;
+  readonly candidates: number;
+  readonly records: number;
+  readonly errors: number;
+  readonly error_samples: readonly string[];
+  readonly duration_seconds: number;
+  readonly independence_group: string | null;
+  readonly reliability: number | null;
+  readonly synthetic: boolean;
+  readonly started_at: string | null;
+  readonly finished_at: string | null;
+}
+
+export interface CollectionStatus {
+  readonly generated_at: string;
+  readonly sources_total: number;
+  readonly sources_healthy: number;
+  readonly sources_stale: number;
+  /** Sources nobody has looked at. Not the same as a source with nothing. */
+  readonly sources_never_scanned: number;
+  readonly stale_after_days: number;
+  readonly jobs_last_24h: Readonly<Record<string, number>>;
+  readonly jobs_last_24h_total: number;
+  readonly records_last_24h: number;
+  readonly contributing_sources: number;
+  readonly mean_contributing_reliability: number | null;
+  readonly independence_groups: number;
+  readonly dominant_independence_group: string | null;
+  readonly dominant_independence_group_size: number;
+  readonly reliability_basis: string;
+  readonly limitations: readonly string[];
+}
+
+export interface CollectionRunRequest {
+  readonly job_type?: 'DISCOVER' | 'COLLECT' | 'DIFF' | 'REPROCESS' | 'REASSESS' | 'REVALIDATE';
+  readonly case_id?: UUID;
+  readonly seed_terms?: readonly string[];
+  readonly platforms?: readonly string[];
+  readonly limit?: number;
+}
+
+export interface CollectionRunOutcome {
+  readonly collector: string | null;
+  readonly status: string;
+  readonly candidates: number;
+  readonly records: number | null;
+  readonly errors: readonly string[];
+}
+
+export interface CollectionRunResult {
+  readonly collection_mode: string;
+  /** True when the run used the in-process synthetic corpus, not a network collector. */
+  readonly synthetic: boolean;
+  readonly mode_note: string;
+  readonly duration_seconds: number;
+  readonly error_count: number;
+  readonly ingested: number;
+  readonly job_ids: readonly UUID[];
+  readonly outcomes: readonly CollectionRunOutcome[];
+  readonly notes: readonly string[];
+  readonly limitations: readonly string[];
+  readonly audit_seq: number;
+  readonly started_at: string;
+  readonly finished_at: string;
+}

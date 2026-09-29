@@ -62,6 +62,7 @@ from aegis.db.models import (
     ArtifactRecord,
     AssessmentRecord,
     CaseRecord,
+    CollectionJobRecord,
     EntityRecord,
     EvidenceRecord,
     HypothesisLinkRecord,
@@ -1091,9 +1092,7 @@ def seed_persona_linkages(
         # persona as a heavily rewritten one.
         want_other = band == "low" or (band == "any" and cursor % 2 == 0)
         options = (
-            other_actor_options(corpus_actor)
-            if want_other
-            else same_actor_options(corpus_actor)
+            other_actor_options(corpus_actor) if want_other else same_actor_options(corpus_actor)
         )
         options = options[cursor % 3 :] + options[: cursor % 3]
 
@@ -1101,9 +1100,7 @@ def seed_persona_linkages(
         for _corpus_id, alias_id, stack in options:
             try:
                 result = (
-                    score_stylometry(
-                        documents[known_alias], _migrate(documents[alias_id], stack)
-                    )
+                    score_stylometry(documents[known_alias], _migrate(documents[alias_id], stack))
                     if method == "stylometry"
                     else score_behaviour(
                         _behaviour_events(known_alias, alias_by_id, posts_by_alias, rhythm),
@@ -1112,9 +1109,11 @@ def seed_persona_linkages(
                 )
             except SampleTooShort:
                 continue
-            if band == "any" or (
-                band == "high" and result.score >= LINKAGE_SCORE_THRESHOLD
-            ) or (band == "low" and result.score < LINKAGE_SCORE_THRESHOLD):
+            if (
+                band == "any"
+                or (band == "high" and result.score >= LINKAGE_SCORE_THRESHOLD)
+                or (band == "low" and result.score < LINKAGE_SCORE_THRESHOLD)
+            ):
                 chosen = (alias_id, stack, result)
                 break
             # Remember the best effort so a band the samples cannot reach still
@@ -1149,9 +1148,7 @@ def seed_persona_linkages(
         }
         rows.append(
             PersonaLinkageRecord(
-                linkage_id=sid(
-                    f"persona-linkage-seed:{actor.actor_id}:{handle}:{method}:{cursor}"
-                ),
+                linkage_id=sid(f"persona-linkage-seed:{actor.actor_id}:{handle}:{method}:{cursor}"),
                 actor_id=actor.actor_id,
                 candidate_handle=handle,
                 method=method,
@@ -2002,7 +1999,7 @@ INFRA_TECH_POOL: tuple[str, ...] = (
     "bootstrap:5.2",
     "wordpress:6.4",
     "react:18.2",
-    "let\'s-encrypt",
+    "let's-encrypt",
     "docker:24.0",
     "haproxy:2.8",
     "envoy:1.27",
@@ -2066,8 +2063,26 @@ def _infra_clearnet_host(label: str) -> str:
 #: unrelated services towards each other on the content channel, and the
 #: absence of a correlation then stops meaning anything.
 _INFRA_SYLLABLES: tuple[str, ...] = (
-    "ka", "ro", "mi", "ta", "ne", "su", "lo", "vi", "da", "pu",
-    "ze", "na", "gi", "ho", "we", "fu", "qa", "be", "cy", "mo",
+    "ka",
+    "ro",
+    "mi",
+    "ta",
+    "ne",
+    "su",
+    "lo",
+    "vi",
+    "da",
+    "pu",
+    "ze",
+    "na",
+    "gi",
+    "ho",
+    "we",
+    "fu",
+    "qa",
+    "be",
+    "cy",
+    "mo",
 )
 
 
@@ -2157,9 +2172,7 @@ class PlannedInfraObservation:
             "evidence_ids": [str(self.evidence_id)],
             "subject": self.subject,
             "subject_type": (
-                str(EntityType.ONION_SERVICE)
-                if self.network == "onion"
-                else str(EntityType.DOMAIN)
+                str(EntityType.ONION_SERVICE) if self.network == "onion" else str(EntityType.DOMAIN)
             ),
             "source": self.source.name,
             "observed_range": {
@@ -2269,8 +2282,7 @@ def _infra_subject_plan(
             # A rotating window over the header pool, so two unrelated hosts
             # share almost no header names.
             "headers": {
-                name: "synthetic"
-                for name in INFRA_HEADER_POOL[index % 7 : (index % 7) + 6]
+                name: "synthetic" for name in INFRA_HEADER_POOL[index % 7 : (index % 7) + 6]
             },
         },
         certificate={
@@ -2707,9 +2719,7 @@ def seed_infrastructure(
         right = candidate.right_observation_id
         if network_by_id[left] == network_by_id[right]:
             continue
-        onion, clearnet = (
-            (left, right) if network_by_id[left] == "onion" else (right, left)
-        )
+        onion, clearnet = (left, right) if network_by_id[left] == "onion" else (right, left)
         detected = max(
             plan_by_id[onion].window_end,
             plan_by_id[clearnet].window_end,
@@ -2861,6 +2871,9 @@ def seed(
     registry = seed_actor_registry(db, sources, users, rng, now)
     totals.update(registry)
 
+    # After the sources: every job cites one.
+    totals.update(seed_collection_history(db, sources, rng, now))
+
     # After the registry: `actor_links` references actors on both ends.
     if registry.get("actors", 0):
         seeded_actors = list(db.scalars(select(ActorRecord).order_by(ActorRecord.handle)).all())
@@ -2989,9 +3002,7 @@ TRUST_LIMITATIONS: dict[str, tuple[str, ...]] = {
         "Co-occurrence on one venue is not proof of a working relationship.",
     ),
     "works_with": ("A shared operation does not establish a durable association."),
-    "sells_to": (
-        "A purchase does not identify the buyer, and a dispute may be theatre.",
-    ),
+    "sells_to": ("A purchase does not identify the buyer, and a dispute may be theatre.",),
     "mentions": ("Mentioning is the weakest signal here and carries no relationship claim."),
     "disputes": ("A public accusation is evidence of friction, not of wrongdoing."),
     "shares_identifier": (
@@ -3098,6 +3109,128 @@ def seed_actor_links(
     return {
         "actor_links": len(rows),
         "actor_links_recorded": sum(1 for row in rows if row.analyst_recorded),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Collection history
+# ---------------------------------------------------------------------------
+
+#: Collector name per source type, matching what the API's live run writes so
+#: a seeded job and a real one are describable by the same readers. A register
+#: where the log names collectors that cannot exist would teach an analyst
+#: the wrong vocabulary.
+_COLLECTOR_FOR_SOURCE_TYPE: dict[str, str] = {
+    "forum": "synthetic_forum",
+    "marketplace": "synthetic_marketplace",
+    "public_web": "synthetic_surface",
+    "channel": "synthetic_channel",
+    "threat_feed": "synthetic_feed",
+    "analyst_submitted": "analyst_submission",
+    "synthetic": "synthetic_corpus",
+}
+
+#: Failure reasons a run actually records, in the shape the API's
+#: ``CollectorOutcome.errors`` carries. A run log seeded with only successes
+#: is a marketing page: an operator needs to see which sources keep failing.
+_COLLECTION_ERRORS: tuple[str, ...] = (
+    "collector refused the scope: source not configured for autonomous scanning",
+    "candidate fetch timed out after the configured attempt budget",
+    "normalizer raised: document truncated below the minimum token count",
+    "rate limiter deferred the run past the job window",
+)
+
+_COLLECTION_STATUSES: tuple[str, ...] = ("completed", "completed", "partial", "failed", "running")
+
+
+def seed_collection_history(
+    db: Session,
+    sources: list[SourceRecord],
+    rng: random.Random,
+    now: datetime,
+) -> dict[str, int]:
+    """Run history for the source register.
+
+    The problem statement asks the system to "work in an autonomous mode,
+    drawing on available sources of good quality and reliability". A run log
+    with no runs in it cannot show that, and a log with only successful runs
+    cannot show it honestly.
+
+    Deliberately shaped: a minority of jobs are `failed` or `partial`, several
+    sources have no job at all (so "never scanned" is non-zero and the status
+    headline has something honest to report), and record counts correlate with
+    the source's reliability rather than being uniform. A register where every
+    source returns the same number tells an analyst nothing about which ones
+    are worth scanning.
+    """
+    if not sources:
+        return {"collection_jobs": 0, "collection_jobs_failed": 0}
+
+    rows: list[CollectionJobRecord] = []
+    # One source is left with no run at all, and one only rarely scanned, so
+    # "never scanned" and "stale" are both non-zero in the status headline.
+    unrun = {sources[rng.randrange(len(sources))].source_id}
+    rare = {sources[rng.randrange(len(sources))].source_id}
+
+    for source in sources:
+        collector = _COLLECTOR_FOR_SOURCE_TYPE.get(source.source_type, "synthetic_corpus")
+        if source.source_id in unrun:
+            continue
+        runs = 2 if source.source_id in rare else rng.randint(6, 16)
+        for index in range(runs):
+            started = now - timedelta(
+                days=rng.randint(0, 30), hours=rng.randint(0, 23), minutes=rng.randint(0, 59)
+            )
+            # `running` only for the most recent job of an actively-scanned
+            # source; a run that started three weeks ago and is still running
+            # is a stuck job, not a live one.
+            if index == 0 and rng.random() < 0.18:
+                status = "running"
+            else:
+                status = rng.choice(_COLLECTION_STATUSES)
+            duration = timedelta(seconds=rng.randint(4, 900))
+            reliability = float(source.reliability or 0.5)
+            candidates = rng.randint(20, 900)
+            # Records produced scale with reliability: a 0.95 source is worth
+            # more attention than a 0.74 one, and a flat distribution would
+            # hide that.
+            produced = int(candidates * (0.25 + reliability * 0.5))
+            errors: list[str] = []
+            if status in {"partial", "failed"}:
+                errors = [
+                    _COLLECTION_ERRORS[rng.randrange(len(_COLLECTION_ERRORS))]
+                    for _ in range(rng.randint(1, 3))
+                ]
+                produced = int(produced * rng.uniform(0.05, 0.55))
+            rows.append(
+                CollectionJobRecord(
+                    job_id=sid(f"collection_job:{source.source_id}:{index}"),
+                    source_id=source.source_id,
+                    collector_name=collector,
+                    collector_version="1.4.0",
+                    status=status,
+                    started_at=started,
+                    finished_at=None if status == "running" else started + duration,
+                    metadata_json={
+                        "schema_version": "aegis-collection/1",
+                        "synthetic": True,
+                        "candidates": candidates,
+                        "records": produced,
+                        "errors": len(errors),
+                        "error_detail": errors,
+                        "duration_seconds": int(duration.total_seconds()),
+                        "source_reliability": reliability,
+                        "independence_group": (source.metadata_json or {}).get(
+                            "independence_group"
+                        ),
+                    },
+                )
+            )
+
+    _flush_batches(db, rows)
+    return {
+        "collection_jobs": len(rows),
+        "collection_jobs_failed": sum(1 for row in rows if row.status == "failed"),
     }
 
 

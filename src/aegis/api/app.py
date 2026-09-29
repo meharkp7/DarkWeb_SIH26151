@@ -16,6 +16,7 @@ from aegis.api.admin import router as admin_router
 from aegis.api.analysis import run_synthetic_analysis
 from aegis.api.auth import router as auth_router
 from aegis.api.auth import validate_access_token
+from aegis.api.collection import router as collection_router
 from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
 from aegis.api.infrastructure import router as infrastructure_router
@@ -397,3 +398,4 @@ app.include_router(actors_router)
 app.include_router(search_router)
 app.include_router(infrastructure_router)
 app.include_router(personas_router)
+app.include_router(collection_router)

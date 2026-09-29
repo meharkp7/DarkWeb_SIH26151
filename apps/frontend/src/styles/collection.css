@@ -1,0 +1,339 @@
+/* --------------------------------------------------------------------------
+   Autonomous collection
+
+   The register and the run log. Dense, quiet, and built so that "never
+   scanned" reads as a gap in coverage rather than as a neutral fact.
+   -------------------------------------------------------------------------- */
+
+.col-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.col-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.col-hero h1 {
+  margin: 4px 0 6px;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.col-hero p {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.col-hero__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.col-run {
+  padding: 9px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.col-run[disabled] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.col-hero__hint {
+  color: var(--faint);
+  font-size: 10.5px;
+  max-width: 30ch;
+  text-align: right;
+}
+
+.col-run-result {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.col-run-result__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.col-run-result__note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  max-width: 78ch;
+}
+
+.col-run-result__stats {
+  display: flex;
+  gap: 26px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.col-run-result__stats b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 17px;
+}
+
+.col-run-result__stats span {
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.col-run-result__limits {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.col-run-result__limits ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+.col-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.col-tag--warn {
+  border-color: rgba(228, 184, 109, 0.5);
+  color: var(--amber);
+}
+
+.col-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.col-strip__cell {
+  padding: 14px 16px;
+  background: var(--surface-2);
+}
+
+.col-strip__cell b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.col-strip__cell span {
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.col-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 26px;
+  margin: 0 0 12px;
+}
+
+.col-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.col-facts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.col-facts dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-align: right;
+}
+
+.col-facts__note {
+  display: block;
+  color: var(--faint);
+  font-family: var(--font);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.col-limitations {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--faint);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.col-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.col-tabs button {
+  padding: 9px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.col-tabs button[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.col-filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.col-filters button {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.col-filters button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.col-table {
+  width: 100%;
+  /* More columns than fit beside the sidebar; a floor keeps every column
+     legible and turns the overflow into a scroll rather than clipping the
+     last one silently. */
+  min-width: 960px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.col-table th,
+.col-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+
+.col-table thead th {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.col-table tbody th {
+  font-weight: 500;
+}
+
+.col-num {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.col-bar {
+  display: inline-block;
+  width: 56px;
+  height: 5px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.col-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.col-bar i[data-tone='warn'] {
+  background: var(--amber);
+}
+
+.col-bar i[data-tone='muted'] {
+  background: var(--faint);
+}
+
+.col-warn {
+  color: var(--amber);
+  font-size: 10.5px;
+}
+
+.col-status {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.col-status[data-status='completed'] { color: var(--green); }
+.col-status[data-status='partial'],
+.col-status[data-status='running'] { color: var(--amber); }
+.col-status[data-status='failed'] { color: var(--red); }
+.col-status[data-status='never run'] { color: var(--faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .col-run,
+  .col-tabs button,
+  .col-filters button {
+    transition: none;
+  }
+}

@@ -253,12 +253,16 @@ describe('primary navigation', () => {
     // Reports is deliberately absent: exporting an investigation is an action
     // taken on a case, so it lives in the workspace header rather than
     // occupying a destination of its own.
+    // Each of the three core capabilities in the problem statement has its
+    // own destination, plus Collection for the autonomous mode the statement
+    // also requires.
     expect(labels).toEqual([
       '⌂Command Center',
       '◎Investigations',
       '☗Actors',
       '⛓Infrastructure',
       '⚯Persona Linkage',
+      '⟳Collection',
       '◉Threat Watch',
       '⚙Administration',
     ]);

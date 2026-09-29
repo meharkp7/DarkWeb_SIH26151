@@ -3,6 +3,7 @@ import type {
   ActorIdentifier, ActorMarketplacePresence, ActorProfile, ActorQuery,
   AdjudicationResponse, AuditTrailResponse, CaseCreate, CaseGraph, CaseHypothesis, CaseMetrics,
   CaseNote, CaseNoteCreate, CaseQueueEntry, CaseTimeline, CaseUpdate, CaseWorkspace, CommandPosture,
+  CollectionJob, CollectionRunRequest, CollectionRunResult, CollectionSource, CollectionStatus,
   CopilotResponse, CreatedSource, DashboardSnapshot, Evidence, EvidenceCreate, EvidenceProvenance,
   HealthResponse, InfraCorrelateRequest, InfraCorrelateResponse, InfraFinding, InfraListFilters,
   InfraMatch, InfraObservation, InfraSummary, InvestigationCase, LiveActivity, ModelRegistryResponse,
@@ -203,6 +204,17 @@ export const api = {
     const query = new URLSearchParams({ q });
     return getJson<SearchResponse>(apiUrl(`/v1/search?${query}`), signal);
   },
+  collectionSources: (signal?:AbortSignal) => getJson<CollectionSource[]>(apiUrl('/v1/collection/sources'), signal),
+  collectionJobs: (params?:{status?:string;limit?:number;offset?:number}, signal?:AbortSignal) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    if (params?.offset !== undefined) query.set('offset', String(params.offset));
+    const suffix = query.toString() ? `?${query}` : '';
+    return getJson<CollectionJob[]>(apiUrl(`/v1/collection/jobs${suffix}`), signal);
+  },
+  collectionStatus: (signal?:AbortSignal) => getJson<CollectionStatus>(apiUrl('/v1/collection/status'), signal),
+  runCollection: (payload?:CollectionRunRequest) => postJson<CollectionRunResult>(apiUrl('/v1/collection/run'), payload ?? {}),
   team: (signal?:AbortSignal) => getJson<TeamResponse>(apiUrl('/v1/admin/team'),signal),
   /** URL form, for `useApi`. */
   teamUrl: () => apiUrl('/v1/admin/team'),

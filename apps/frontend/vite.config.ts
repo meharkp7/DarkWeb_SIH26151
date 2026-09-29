@@ -59,6 +59,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
   },
   test: {
+    // `e2e/**` is Playwright's, not vitest's. Without this the unit runner
+    // collects Playwright specs and fails on the missing vitest globals.
+    exclude: ['e2e/**', 'e2e-axe/**', 'node_modules/**', 'dist/**'],
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: false,

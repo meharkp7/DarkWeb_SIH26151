@@ -30,6 +30,7 @@ const NAV = [
   { to: '/actors', label: 'Actors', icon: '☗', end: false },
   { to: '/infrastructure', label: 'Infrastructure', icon: '⛓', end: false },
   { to: '/personas', label: 'Persona Linkage', icon: '⚯', end: false },
+  { to: '/collection', label: 'Collection', icon: '⟳', end: false },
   { to: '/threat-watch', label: 'Threat Watch', icon: '◉', end: false },
 ];
 
@@ -41,6 +42,7 @@ const SECTION_LABELS: Record<string, string> = {
   actors: 'Actors',
   infrastructure: 'Infrastructure',
   personas: 'Persona Linkage',
+  collection: 'Collection',
   'threat-watch': 'Threat Watch',
   watch: 'Threat Watch',
   // `/reports` is a redirect, not a destination: exporting an investigation is
