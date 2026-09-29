@@ -1,0 +1,739 @@
+/*
+ * Actor registry.
+ *
+ * A new file rather than an addition to `investigations.css`: the register is a
+ * primary destination in its own right, and co-locating its rules with the
+ * investigations register would make two unrelated screens one file to reason
+ * about. Everything here is scoped under an `act-` prefix and reads design
+ * tokens only, so it follows the palette wherever the tokens are redefined.
+ */
+
+.act-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.act-page__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.act-page__head h1 {
+  margin: 0.15rem 0 0;
+  font-size: 1.55rem;
+  letter-spacing: -0.01em;
+}
+
+.act-page__head p {
+  margin: 0.4rem 0 0;
+  max-width: 68ch;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.act-page__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* --- filter toolbar ----------------------------------------------------- */
+
+.act-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.act-toolbar__search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.6rem;
+  min-width: 16rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.act-toolbar__search input {
+  flex: 1;
+  padding: 0.42rem 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.act-toolbar__search input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.act-select {
+  padding: 0.4rem 0.5rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+}
+
+.act-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- register ----------------------------------------------------------- */
+
+.act-register {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+.act-register th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.5rem 0.6rem;
+  text-align: start;
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.act-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.act-sort:hover {
+  color: var(--text);
+}
+
+.act-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The arrow is drawn rather than inserted as a character: a screen reader
+   announces the direction from `aria-sort`, and a glyph would be read twice. */
+.act-sort__arrow::after {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-inline: 3px solid transparent;
+  border-bottom: 4px solid var(--faint);
+  opacity: 0.55;
+}
+
+th[aria-sort='ascending'] .act-sort__arrow::after {
+  border-bottom: 0;
+  border-top: 4px solid var(--text);
+  opacity: 1;
+}
+
+th[aria-sort='descending'] .act-sort__arrow::after {
+  border-top: 0;
+  border-bottom: 4px solid var(--text);
+  opacity: 1;
+}
+
+.act-register td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+
+.act-register tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.act-register tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.act-register tr.insp-selected-row {
+  background: var(--surface-3);
+}
+
+.act-num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+
+.act-handle {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.act-handle:hover {
+  text-decoration: underline;
+}
+
+.act-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.act-handle-id {
+  display: block;
+  margin-top: 0.1rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.act-cat {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 0.1rem;
+}
+
+/* --- confidence --------------------------------------------------------- */
+
+.act-conf {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.act-conf__value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.act-conf__track {
+  width: 100%;
+  min-width: 4.5rem;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.act-conf__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.act-conf__fill--ok {
+  background: var(--green);
+}
+
+.act-conf__fill--warn {
+  background: var(--amber);
+}
+
+.act-conf__fill--danger {
+  background: var(--red);
+}
+
+.act-conf__none {
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* --- identifier kind glyphs --------------------------------------------- */
+
+/* Short, hand-drawn and aria-hidden: the count beside them carries the number
+   and a screen reader gets the kind names from the cell's own text. */
+.act-kinds {
+  display: flex;
+  gap: 0.18rem;
+  justify-content: flex-end;
+  margin-top: 0.2rem;
+}
+
+.act-kinds__glyph {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 2px;
+  background: var(--accent-2);
+}
+
+.act-kinds__glyph--handle {
+  background: var(--green);
+}
+
+.act-kinds__glyph--pgp {
+  background: var(--amber);
+}
+
+.act-kinds__glyph--wallet {
+  background: var(--red);
+}
+
+.act-kinds__glyph--onion {
+  background: #9b8cff;
+}
+
+.act-kinds__glyph--clearnet {
+  background: #6fb3d6;
+}
+
+.act-kinds__glyph--jabber {
+  background: #d69f6f;
+}
+
+/* --- stale indicator ---------------------------------------------------- */
+
+.act-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.act-stale__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.act-stale--none .act-stale__dot {
+  background: var(--faint);
+}
+
+.act-never {
+  color: var(--faint);
+  font-style: italic;
+}
+
+/* --- summary strip ------------------------------------------------------ */
+
+.act-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.55rem;
+}
+
+.act-tile {
+  padding: 0.6rem 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.act-tile__value {
+  display: block;
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.act-tile__label {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.act-tile__sub {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.act-tile--warn {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line));
+}
+
+/* --- profile ------------------------------------------------------------ */
+
+.act-profile__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .act-profile__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.act-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 0;
+}
+
+.act-fact__label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.act-fact__value {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.92rem;
+}
+
+.act-id-group {
+  margin-bottom: 1rem;
+}
+
+.act-id-group__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.act-id-group__kind {
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.act-id-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.act-id-row:last-child {
+  border-bottom: 0;
+}
+
+.act-id-row__value {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.act-id-row__meta {
+  font-size: 0.72rem;
+  color: var(--faint);
+  text-align: end;
+  white-space: nowrap;
+}
+
+/* --- marketplace timeline ----------------------------------------------- */
+
+/*
+ * A hand-drawn presence bar rather than a chart library: each venue is one row
+ * on a shared time axis, so "moved off two of four venues" is a shape you can
+ * read rather than four numbers you have to compare.
+ */
+.act-tl {
+  position: relative;
+  height: 1.55rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.act-tl__span {
+  position: absolute;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.act-tl__span--closed {
+  background: color-mix(in srgb, var(--faint) 40%, transparent);
+}
+
+.act-tl__span--open {
+  background: color-mix(in srgb, var(--green) 45%, transparent);
+}
+
+.act-tl__now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--red);
+}
+
+.act-tl__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
+.act-venue {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) minmax(0, 2fr) auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.act-venue:last-child {
+  border-bottom: 0;
+}
+
+.act-venue__name {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.act-venue__role {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.act-venue__window {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--faint);
+  text-align: end;
+  white-space: nowrap;
+}
+
+/* --- linkage rows ------------------------------------------------------- */
+
+.act-linkage {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.act-linkage:last-child {
+  border-bottom: 0;
+}
+
+.act-linkage__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.act-linkage__handle {
+  font-family: var(--mono);
+  font-size: 0.86rem;
+}
+
+.act-linkage__score {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.act-features {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+/*
+ * The three-way feature split keeps its colour *and* its word. A one-sided
+ * feature is aligned, an opposed one is apart, and anything measured on both
+ * sides is contested rather than quietly counted as agreement.
+ */
+.act-feature {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.72rem;
+}
+
+.act-feature--aligned {
+  border-color: color-mix(in srgb, var(--green) 55%, var(--line));
+  color: var(--green);
+}
+
+.act-feature--apart {
+  border-color: color-mix(in srgb, var(--red) 55%, var(--line));
+  color: var(--red);
+}
+
+.act-feature--contested {
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--line));
+  color: var(--amber);
+}
+
+.act-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
+/* --- export popover ----------------------------------------------------- */
+
+.act-exp {
+  position: relative;
+}
+
+.act-exp__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+}
+
+.act-exp__trigger:hover {
+  background: var(--surface-3);
+}
+
+.act-exp__trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.act-exp__panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.4rem);
+  inset-inline-end: 0;
+  width: 20rem;
+  padding: 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.act-exp__label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.act-exp__formats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.6rem;
+}
+
+.act-exp__format {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  padding: 0.35rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.act-exp__format:hover {
+  background: var(--surface-2);
+}
+
+.act-exp__format:has(input:checked) {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+
+.act-exp__format input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.act-exp__hint {
+  display: block;
+  color: var(--faint);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.act-exp__note {
+  margin-top: 0.55rem;
+  color: var(--faint);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.act-exp__action {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.45rem;
+  background: var(--white);
+  color: var(--bg);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.act-exp__action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.act-exp__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.act-exp__error {
+  margin-top: 0.5rem;
+  color: var(--red);
+  font-size: 0.76rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .act-conf__fill {
+    transition: none;
+  }
+}
