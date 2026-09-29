@@ -4,6 +4,7 @@ import { AgentButton } from './AgentButton';
 import { ErrorBoundary } from './ErrorBoundary';
 import { usePublishAgentContext } from './agent-context';
 import { useLive } from '../hooks/useLive';
+import { useAuth } from '../store/auth';
 
 /**
  * Five destinations, and that is the whole app.
@@ -20,16 +21,16 @@ import { useLive } from '../hooks/useLive';
  */
 const NAV = [
   { to: '/', label: 'Command Center', icon: '⌂', end: true },
-  { to: '/cases', label: 'Cases', icon: '◎', end: false },
+  { to: '/cases', label: 'Investigations', icon: '◎', end: false },
   { to: '/threat-watch', label: 'Threat Watch', icon: '◉', end: false },
   { to: '/reports', label: 'Reports', icon: '⎙', end: false },
 ];
 
-const SETTINGS_NAV = [{ to: '/settings', label: 'Settings', icon: '⚙', end: true }];
+const SETTINGS_NAV = [{ to: '/settings', label: 'Administration', icon: '⚙', end: true }];
 
 /** Breadcrumb labels; a raw path segment reads as a slug, not as a name. */
 const SECTION_LABELS: Record<string, string> = {
-  cases: 'Cases',
+  cases: 'Investigations',
   'threat-watch': 'Threat Watch',
   watch: 'Threat Watch',
   reports: 'Reports',
@@ -47,6 +48,7 @@ function sectionLabel(pathname: string): string {
 export function AppShell() {
   const location = useLocation();
   const { connected, snapshot } = useLive();
+  const { signOut, identity } = useAuth();
   const section = sectionLabel(location.pathname);
 
   // Inside an investigation the workspace publishes a richer context (case
@@ -104,13 +106,13 @@ export function AppShell() {
         </nav>
         <div className="sidebar-bottom">
           <div className="analyst">
-            <span>MK</span>
+            <span>{(identity?.name ?? 'AN').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span>
             <div>
-              <strong>Analyst</strong>
-              <small>Local workspace</small>
+              <strong>{identity?.name ?? 'Analyst'}</strong>
+              <small>{identity?.role ?? 'Intelligence Analyst'}</small>
             </div>
           </div>
-          <div className="secure-note">Synthetic / authorized data only</div>
+          <div className="secure-note">AUTHORIZED · AUDITED · CONTROLLED</div>
         </div>
       </aside>
       <header className="topbar">
@@ -127,7 +129,7 @@ export function AppShell() {
             <span>⌕</span> Search cases, actors, evidence <kbd>⌘ K</kbd>
           </button>
           <button className="icon-button">◌</button>
-          <div className="profile">MK</div>
+          <button className="profile profile-button" onClick={signOut} title="Sign out">{(identity?.name ?? 'AN').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</button>
         </div>
       </header>
       <main className="app-main">

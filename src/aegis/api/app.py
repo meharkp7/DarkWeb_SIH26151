@@ -53,7 +53,14 @@ _metrics = Metrics()
 #: Paths reachable without the deployment-level API key. Unchanged from the
 #: original inline set — extracted only so the middleware line fits in 100
 #: columns. Do not widen without a deliberate access-control decision.
-_PUBLIC_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc", "/api/v1/auth/login"})
+_PUBLIC_PATHS = frozenset({
+    "/health",
+    "/health/db",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/api/v1/auth/login",
+})
 
 _cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 if _cors_origins:

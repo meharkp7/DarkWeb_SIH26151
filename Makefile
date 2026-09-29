@@ -142,4 +142,4 @@ clean:
 
 
 demo-data:
-	PYTHONPATH=src $(PY) scripts/seed_demo_data.py --evidence-per-case 450 --index
+	PYTHONPATH=src $(PY) scripts/seed_demo_data.py --evidence-per-case 650 --index

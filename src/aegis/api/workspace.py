@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from aegis.api.case_triage import case_is_overdue
+from aegis.api.dashboard_analytics import case_signal_matrix, case_timeline_layers
 from aegis.api.deps import get_db
 from aegis.db.audit import AuditService
 from aegis.db.models import (
@@ -265,6 +266,45 @@ def create_case_note(
     db.commit()
     db.refresh(record)
     return _note_schema(record)
+
+
+@router.get("/{case_id}/signals")
+def case_signals(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> list[dict[str, object]]:
+    _case_or_404(db, case_id)
+    return case_signal_matrix(db, case_id)
+
+
+@router.get("/{case_id}/timeline")
+def case_timeline(
+    case_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 80,
+) -> dict[str, object]:
+    _case_or_404(db, case_id)
+    return case_timeline_layers(db, case_id, limit=limit)
+
+
+@router.get("/{case_id}/metrics")
+def case_metrics(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
+    case = _case_or_404(db, case_id)
+    evidence = db.scalars(select(EvidenceRecord).where(EvidenceRecord.case_id == case_id)).all()
+    entities = db.scalars(select(EntityRecord).where(EntityRecord.case_id == case_id)).all()
+    relationships = db.scalars(
+        select(RelationshipRecord).where(RelationshipRecord.case_id == case_id)
+    ).all()
+    assessments = db.scalars(
+        select(AssessmentRecord).where(AssessmentRecord.case_id == case_id)
+    ).all()
+    lead = assessments[0] if assessments else None
+    return {
+        "case_id": str(case.case_id),
+        "evidence": len(evidence),
+        "links": len(relationships),
+        "entities": len(entities),
+        "sources": len({row.source_id for row in evidence}),
+        "attribution": lead.calibrated_confidence if lead else None,
+        "contradictions": sum(len(row.contradictory_evidence_ids or []) for row in assessments),
+    }
 
 
 @router.get("/{case_id}/evidence")

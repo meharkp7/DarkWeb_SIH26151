@@ -17,6 +17,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from aegis.api.case_triage import case_is_overdue
+from aegis.api.dashboard_analytics import (
+    attribution_posture,
+    command_posture,
+    evidence_velocity,
+    investigation_pressure,
+)
 from aegis.api.deps import get_db
 from aegis.settings import settings
 from aegis.api.auth import validate_access_token
@@ -79,13 +85,18 @@ def _snapshot(db: Session) -> dict[str, object]:
         )
         or 0
     )
+    summaries = dashboard_cases(db)
     return {
         "type": "snapshot",
         "server_time": datetime.now(UTC).isoformat(),
         "counts": counts,
         "critical_alerts": int(critical),
         "activity": _activity(db),
-        "case_summaries": dashboard_cases(db),
+        "case_summaries": summaries,
+        "command_posture": command_posture(db, summaries),
+        "evidence_velocity": evidence_velocity(db),
+        "investigation_pressure": investigation_pressure(db),
+        "attribution_posture": attribution_posture(db),
     }
 
 
@@ -186,6 +197,14 @@ def dashboard_activity(
     db: Annotated[Session, Depends(get_db)], limit: int = 40
 ) -> list[dict[str, object]]:
     return _activity(db, limit=max(1, min(limit, 100)))
+
+
+@router.get("/api/v1/threat-watch/events")
+def threat_watch_events(
+    db: Annotated[Session, Depends(get_db)], limit: int = 60
+) -> list[dict[str, object]]:
+    """Operational event stream for Threat Watch (audit-backed, read-only)."""
+    return _activity(db, limit=max(1, min(limit, 200)))
 
 
 @router.get("/api/v1/cases/{case_id}/activity")

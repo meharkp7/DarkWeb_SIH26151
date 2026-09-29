@@ -53,6 +53,8 @@ export interface CaseSummary extends InvestigationCase {
   sla_overdue: boolean;
   counts: { evidence: number; entities: number; relationships: number; assessments: number };
   last_activity: string | null;
+  queue_score?: number;
+  queue_reason?: string;
 }
 
 export interface CaseCreate {

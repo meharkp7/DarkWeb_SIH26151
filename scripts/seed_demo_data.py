@@ -33,23 +33,60 @@ from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
 
 NAMESPACE = UUID("4b5a6c7d-8e9f-4012-9345-5a6b7c8d9e01")
-CASE_BLUEPRINTS = [
+CASE_BLUEPRINTS: list[tuple[str, str, str, str, str, list[str], int]] = [
+    (
+        "Operation Blackbird",
+        "Attribution-led investigation across infrastructure and financial overlap; synthetic.",
+        "active",
+        "critical",
+        "critical",
+        ["attribution", "infrastructure", "financial"],
+        6,
+    ),
+    (
+        "Silver Lantern",
+        "Marketplace and hosting correlation with actor handles; synthetic.",
+        "active",
+        "high",
+        "high",
+        ["infrastructure", "marketplace"],
+        18,
+    ),
+    (
+        "Northstar",
+        "Cryptocurrency laundering chain and wallet convergence; synthetic.",
+        "active",
+        "high",
+        "high",
+        ["financial", "behavioral"],
+        24,
+    ),
     (
         "Operation Nightfall",
         "Multi-platform ransomware ecosystem; synthetic training scenario.",
         "active",
+        "critical",
+        "critical",
+        ["ransomware", "attribution"],
+        8,
     ),
-    ("Black Ice", "Marketplace and infrastructure overlap investigation; synthetic.", "active"),
-    ("Copper Trace", "Cryptocurrency laundering and actor linkage scenario; synthetic.", "open"),
     (
-        "Silent Meridian",
-        "Forum identity resolution and temporal behavior scenario; synthetic.",
-        "on_hold",
+        "Copper Trace",
+        "Cross-source evidence consistency and contradiction scenario; synthetic.",
+        "open",
+        "medium",
+        "medium",
+        ["contradiction", "stylometry"],
+        72,
     ),
     (
         "Glass Harbor",
-        "Cross-source evidence consistency and contradiction scenario; synthetic.",
-        "active",
+        "Forum identity resolution and temporal behavior scenario; synthetic.",
+        "on_hold",
+        "low",
+        "medium",
+        ["temporal", "behavioral"],
+        120,
     ),
 ]
 SOURCE_BLUEPRINTS = [
@@ -69,7 +106,8 @@ RELATIONSHIPS = [
     "resolves_to",
     "overlaps",
 ]
-SIGNALS = ["behavioral", "linguistic", "temporal", "infrastructure"]
+SIGNALS = ["behavioral", "infrastructure", "financial", "stylometry", "temporal"]
+HYPOTHESES_PER_CASE = 5
 
 
 def sid(label: str) -> UUID:
@@ -81,7 +119,7 @@ def digest(*parts: object) -> str:
 
 
 def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
-    marker = db.scalar(select(CaseRecord).where(CaseRecord.name == "Operation Nightfall"))
+    marker = db.scalar(select(CaseRecord).where(CaseRecord.name == "Operation Blackbird"))
     if marker is not None:
         return {"status": 0, "message": "demo dataset already present"}  # type: ignore[return-value]
 
@@ -100,12 +138,18 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
     db.add_all(sources)
 
     cases: list[CaseRecord] = []
-    for index, (name, description, status) in enumerate(CASE_BLUEPRINTS):
+    for index, (name, description, status, priority, severity, tags, sla_hours) in enumerate(
+        CASE_BLUEPRINTS
+    ):
         case = CaseRecord(
             case_id=sid(f"case:{index}"),
             name=name,
             description=description,
             status=status,
+            priority=priority,
+            severity=severity,
+            tags=list(tags),
+            sla_due_at=now + timedelta(hours=sla_hours),
         )
         cases.append(case)
     db.add_all(cases)
@@ -119,7 +163,7 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
         case_sources = sources[:]
         entities: list[EntityRecord] = []
         evidence_rows: list[EvidenceRecord] = []
-        entity_count = 90
+        entity_count = 160
         for entity_index in range(entity_count):
             kind = ENTITY_KINDS[entity_index % len(ENTITY_KINDS)]
             name = f"{kind.title()}-{case_index + 1:02d}-{entity_index + 1:03d}"
@@ -223,7 +267,7 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
         db.add_all(relationships)
         total_relationships += len(relationships)
 
-        for hypothesis_index in range(48):
+        for hypothesis_index in range(HYPOTHESES_PER_CASE):
             subject = entities[hypothesis_index % entity_count]
             target = entities[(hypothesis_index * 11 + 7) % entity_count]
             if subject.entity_id == target.entity_id:
@@ -234,8 +278,8 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
             final = round(max(0.0, min(1.0, support - contradiction * 0.35)), 4)
             hypothesis_id = sid(f"hypothesis:{case.case_id}:{hypothesis_index}")
             evidence_ids = [
-                str(e.evidence_id)
-                for e in evidence_rows[hypothesis_index * 3 : hypothesis_index * 3 + 3]
+                str(evidence_rows[(hypothesis_index * 3 + offset) % len(evidence_rows)].evidence_id)
+                for offset in range(3)
             ]
             db.add(
                 HypothesisRecord(
@@ -292,15 +336,18 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
             total_assessments += 1
 
         audit = AuditService(db)
-        for event_index in range(18):
-            actions = [
-                "evidence.collected",
-                "entity.extracted",
-                "relationship.updated",
-                "assessment.updated",
-                "alert.critical" if event_index in {4, 13} else "case.activity",
-            ]
-            action = actions[event_index % len(actions)]
+        threat_messages = [
+            ("relationship.updated", "New infrastructure association detected"),
+            ("evidence.collected", "New evidence ingested"),
+            ("assessment.updated", "Attribution confidence revised"),
+            ("alert.critical", "Critical queue escalation"),
+            ("threat.infrastructure", "Infrastructure link surfaced"),
+            ("threat.attribution", "Hypothesis support shifted"),
+        ]
+        for event_index in range(52):
+            action, template = threat_messages[event_index % len(threat_messages)]
+            actor = entities[event_index % len(entities)]
+            infra = entities[(event_index * 5 + 2) % len(entities)]
             audit.record(
                 action,
                 entity_type="case",
@@ -308,10 +355,13 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
                 case_id=case.case_id,
                 payload={
                     "synthetic": True,
-                    "message": f"{action.replace('.', ' ').title()} in {case.name}",
-                    "severity": "critical" if action == "alert.critical" else "info",
+                    "message": (
+                        f"{template} — {actor.surface_form} → {infra.surface_form} "
+                        f"({case.name})"
+                    ),
+                    "severity": "critical" if "critical" in action else "info",
                 },
-                occurred_at=now - timedelta(minutes=event_index * 23 + case_index * 7),
+                occurred_at=now - timedelta(minutes=event_index * 11 + case_index * 5),
             )
 
     db.commit()
@@ -326,7 +376,7 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--evidence-per-case", type=int, default=450)
+    parser.add_argument("--evidence-per-case", type=int, default=650)
     parser.add_argument(
         "--index", action="store_true", help="also bulk-index synthetic evidence in OpenSearch"
     )
