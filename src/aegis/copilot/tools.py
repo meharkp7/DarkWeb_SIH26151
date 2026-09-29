@@ -6,7 +6,7 @@ graph, timeline, hypothesis and assessment objects remain authoritative.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -43,27 +43,101 @@ def _pack(
     items: Sequence[Any],
     evidence_ids: Sequence[str] = (),
     explanation: str = "",
+    describe: Callable[[Any], str] | None = None,
+    render: Callable[[Any], str] | None = None,
+    cite: Callable[[Any], Sequence[str]] | None = None,
 ) -> EvidencePack:
-    """Convert tool results into the canonical Phase 22 evidence pack."""
-    del explanation
+    """Convert tool results into the canonical Phase 22 evidence pack.
 
-    ids = tuple(dict.fromkeys(str(x) for x in evidence_ids))
+    `describe` and `render` exist because the previous shape produced an
+    answer no analyst could read: the summary was a template
+    ("compare_hypotheses returned Hypothesis record <uuid>") and the data
+    region was ``repr(item)`` — a raw Python tuple in the middle of an
+    intelligence report.
+
+    Two correctness problems came with it. A hypothesis was cited by the *first
+    evidence id in the pack*, so the claim text named an evidence record while
+    the item was a hypothesis; and every item fell back to a positional id, so
+    two runs over the same data cited different things. Each tool now says
+    what its own record is, how it renders, and what it is cited by.
+    """
+    del explanation
+    cited = tuple(dict.fromkeys(str(x) for x in evidence_ids))
 
     packed: list[EvidenceItem] = []
     for index, item in enumerate(items):
-        item_id = ids[index] if index < len(ids) else f"{tool.value}:{index}"
+        item_ids = tuple(str(value) for value in cite(item)) if cite is not None else ()
+        if item_ids:
+            item_id = item_ids[0]
+        elif index < len(cited):
+            # Positional fallback, kept only for tools that do not know their
+            # own identity. Stable because `items` is ordered.
+            item_id = cited[index]
+        else:
+            item_id = f"{tool.value}:{index}"
         packed.append(
             EvidenceItem(
                 item_id=item_id,
                 tool=tool,
                 kind=type(item).__name__,
-                summary=f"{tool.value} returned {type(item).__name__} record {item_id}.",
-                data_text=repr(item),
+                summary=(
+                    describe(item)
+                    if describe is not None
+                    else f"{tool.value} returned {type(item).__name__} record {item_id}."
+                ),
+                data_text=render(item) if render is not None else "",
                 provenance={"tool": tool.value},
             )
         )
 
     return EvidencePack(tuple(packed))
+
+
+def _describe(record: object) -> str:
+    """A one-line, human-readable description of a returned record.
+
+    The pack's default summary was a template — "get_actor returned Actor
+    record <uuid>" — which is what the analyst actually saw. Anything better
+    than that has to know the record's fields, and only the tool that fetched
+    it does, so the fallbacks live here and each tool overrides what matters.
+    """
+    name = type(record).__name__
+    fields = {
+        key: value
+        for key, value in vars(record).items()
+        if not key.startswith("_") and isinstance(value, (str, int, float, bool))
+    }
+    if not fields:
+        return f"{name} record"
+    head = ", ".join(f"{key}={value}" for key, value in list(fields.items())[:4])
+    return f"{name}: {head}"
+
+
+def _render(record: object) -> str:
+    """The data region, as text rather than a Python repr."""
+    return (
+        "\n".join(
+            f"{key}={value}" for key, value in vars(record).items() if not key.startswith("_")
+        )
+        if hasattr(record, "__dict__")
+        else str(record)
+    )
+
+
+def _cite_by(*attributes: str) -> Callable[[object], Sequence[str]]:
+    """Cite a record by its own identity, not by its position in the pack.
+
+    Positional ids meant the same question cited different records on a
+    re-run, and a claim could name an evidence id while the item was an
+    actor.
+    """
+    def cite_by(item: object) -> Sequence[str]:
+        return (str(getattr(item, attribute, "unknown")),) if attribute else ()
+
+    for attribute in attributes:
+        if attribute:
+            return cite_by
+    return cite_by
 
 
 def search_evidence(
@@ -125,6 +199,9 @@ def query_graph(
 
     return _pack(
         tool=ToolName.QUERY_GRAPH,
+        describe=_describe,
+        render=_render,
+        cite=_cite_by("entity_id", "label"),
         items=(neighborhood,),
         evidence_ids=evidence_ids,
         explanation=(
@@ -148,6 +225,9 @@ def get_actor(
 
     return _pack(
         tool=ToolName.GET_ACTOR,
+        describe=_describe,
+        render=_render,
+        cite=_cite_by("entity_id", "label"),
         items=(actor, neighborhood),
         evidence_ids=evidence_ids,
         explanation=f"Returned actor node {actor_id} and its immediate associations.",
@@ -198,6 +278,9 @@ def get_assessment(
 
     return _pack(
         tool=ToolName.GET_ASSESSMENT,
+        describe=_describe,
+        render=_render,
+        cite=_cite_by("assessment_id", "hypothesis_id"),
         items=(record,),
         evidence_ids=evidence_ids,
         explanation=f"Returned attribution assessment {assessment_id}.",
@@ -233,10 +316,42 @@ def compare_hypotheses(
         for link in hypothesis.links
     ]
 
+    def describe(hypothesis: object) -> str:
+        return (
+            f"{getattr(hypothesis, 'kind', 'hypothesis')} hypothesis "
+            f"{getattr(hypothesis, 'hypothesis_id', '?')}, status "
+            f"{getattr(hypothesis, 'status', 'unknown')}, "
+            f"{len(getattr(hypothesis, 'links', ()) or ())} cited records"
+        )
+
+    def render(hypothesis: object) -> str:
+        links = list(getattr(hypothesis, "links", ()) or ())
+        supporting = sum(
+            1 for link in links if str(getattr(link, "role", "")).endswith("supporting")
+        )
+        against = len(links) - supporting
+        return (
+            f"kind={getattr(hypothesis, 'kind', '?')}\n"
+            f"status={getattr(hypothesis, 'status', '?')}\n"
+            f"subject={getattr(hypothesis, 'subject_entity_id', '?')}\n"
+            f"object={getattr(hypothesis, 'object_entity_id', '?')}\n"
+            f"supporting_citations={supporting}\n"
+            f"contradicting_citations={against}"
+        )
+
+    def cite(hypothesis: object) -> Sequence[str]:
+        # Cited by the hypothesis itself. Previously the claim carried the
+        # first *evidence* id in the pack, so the answer read "Hypothesis
+        # record <evidence-uuid>" — a citation to the wrong kind of object.
+        return (str(getattr(hypothesis, "hypothesis_id", "unknown")),)
+
     return _pack(
         tool=ToolName.COMPARE_HYPOTHESES,
         items=tuple(sorted(hypotheses, key=lambda h: str(h.hypothesis_id))),
         evidence_ids=evidence_ids,
+        describe=describe,
+        render=render,
+        cite=cite,
         explanation=f"Compared {len(hypotheses)} competing hypotheses.",
     )
 
