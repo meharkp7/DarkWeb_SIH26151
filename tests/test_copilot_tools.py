@@ -115,18 +115,26 @@ def test_compare_hypotheses_is_deterministic() -> None:
         (h1.hypothesis_id, h2.hypothesis_id),
     )
 
+    # Ids are the hypotheses themselves, in hypothesis-id order. This test
+    # previously asserted the *evidence* ids in pack order, which meant a
+    # claim about a hypothesis cited an evidence record — the claim named a
+    # different kind of object from the one it described. The determinism
+    # being protected here is the ordering, so that is what is asserted.
     expected_ids = tuple(
-        str(link.evidence_id)
-        for hypothesis in sorted(
-            (h1, h2),
-            key=lambda h: str(h.hypothesis_id),
-        )
-        for link in hypothesis.links
+        str(hypothesis.hypothesis_id)
+        for hypothesis in sorted((h1, h2), key=lambda h: str(h.hypothesis_id))
     )
 
-    assert pack.ids[0] == expected_ids[0]
-    assert pack.ids[1] == "compare_hypotheses:1"
+    assert pack.ids == expected_ids
     assert all(item.tool.value == "compare_hypotheses" for item in pack.items)
+
+    # A re-run over the same input must produce the same citations, or the
+    # same question cites different records each time it is asked.
+    again = compare_hypotheses(
+        CopilotToolContext(hypotheses=(h1, h2)),
+        (h2.hypothesis_id, h1.hypothesis_id),
+    )
+    assert again.ids == expected_ids
 
 
 def test_missing_dependencies_fail_closed() -> None:

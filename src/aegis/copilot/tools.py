@@ -132,11 +132,17 @@ def _cite_by(*attributes: str) -> Callable[[object], Sequence[str]]:
     actor.
     """
     def cite_by(item: object) -> Sequence[str]:
-        return (str(getattr(item, attribute, "unknown")),) if attribute else ()
+        # `item_id` is the identifier the tool already stamped on the record,
+        # so it is checked first. A record carrying none of the attributes
+        # yields nothing rather than a literal "unknown" — an empty citation
+        # lets the caller fall back to a stable positional id, whereas
+        # "unknown" would silently make every record cite itself.
+        for candidate in ("item_id", *attributes):
+            value = getattr(item, candidate, None)
+            if value:
+                return (str(value),)
+        return ()
 
-    for attribute in attributes:
-        if attribute:
-            return cite_by
     return cite_by
 
 
