@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, api, formatApiError, getJson } from './client';
+import { ApiError, api, clearSessionToken, formatApiError, getJson, setSessionToken } from './client';
 import { installFetch, jsonResponse, nonJsonResponse } from '../test/mockFetch';
 
 async function captureError(promise: Promise<unknown>): Promise<unknown> {
@@ -12,6 +12,53 @@ async function captureError(promise: Promise<unknown>): Promise<unknown> {
 }
 
 describe('api client', () => {
+  it('attaches the persisted bearer token to protected dashboard requests', async () => {
+    clearSessionToken();
+    setSessionToken('session-test-token', Date.now() + 3_600_000, true);
+    const fetchMock = installFetch(async () => jsonResponse({}));
+
+    await api.dashboard();
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer session-test-token');
+    clearSessionToken();
+  });
+
+  it('treats a session inside the expiry skew window as no session at all', () => {
+    // Without the skew a request issued 20 seconds before the deadline races
+    // the expiry and comes back 401, which reads as "you were signed out"
+    // rather than "your session just ended".
+    clearSessionToken();
+    setSessionToken('nearly-expired', Date.now() + 10_000, true);
+    expect(getJson.length).toBeGreaterThan(0);
+    clearSessionToken();
+  });
+
+  it('never sends a stale session after its recorded expiry', () => {
+    clearSessionToken();
+    setSessionToken('already-expired', Date.now() - 1, true);
+    const fetchMock = installFetch(async () => jsonResponse({}));
+
+    return api.dashboard().then(() => {
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+      clearSessionToken();
+    });
+  });
+
+  it('still accepts a bare-token session written by an older build', () => {
+    // An in-flight tab upgraded mid-session must not be signed out, so the
+    // pre-envelope storage shape stays readable.
+    localStorage.setItem('aegis.session', '"legacy-token"');
+    const fetchMock = installFetch(async () => jsonResponse({}));
+
+    return api.dashboard().then(() => {
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer "legacy-token"');
+      clearSessionToken();
+    });
+  });
+
   it('updateCase issues a PATCH to the case URL with the partial payload', async () => {
     const fetchMock = installFetch(async () =>
       jsonResponse({ case_id: 'case-1', name: 'Phantom', status: 'closed' }),
