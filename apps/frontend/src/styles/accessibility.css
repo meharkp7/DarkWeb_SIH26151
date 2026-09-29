@@ -1,0 +1,108 @@
+/* --------------------------------------------------------------------------
+   Accessibility layer
+
+   Cross-cutting rules that must hold for every screen. They live in their own
+   file rather than being sprinkled through the component stylesheets because a
+   focus ring that is defined "somewhere" is a focus ring that gets overridden
+   by the next stylesheet someone writes.
+
+   The rule throughout: no state may be conveyed by colour alone, and every
+   interactive element must show a visible focus ring.
+   -------------------------------------------------------------------------- */
+
+/* Visually hidden but reachable by assistive technology. Used for table
+   captions, expanded-region labels, and live-region announcements. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The first tab stop on every authenticated screen. Without it, reaching the
+   content costs a keyboard user a traversal of the whole sidebar. */
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform 120ms ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* A single, consistent focus ring for everything focusable.
+   `:focus-visible` rather than `:focus` so a mouse click does not leave a ring
+   on a button the user has already acted on, while keyboard and assistive
+   navigation always does. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Older engines without :focus-visible still get a ring on plain :focus —
+   better a slightly noisy ring than no focus indicator at all. */
+@supports not selector(:focus-visible) {
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* The app shell's main region receives programmatic focus when the skip link
+   is used; it must not draw a ring around the entire page. */
+.app-main:focus,
+.app-main:focus-visible {
+  outline: none;
+}
+
+/* Stale-feed warning in the sidebar. The bar reads as a warning in colour and
+   in words, because a colour-only warning is invisible to a screen reader and
+   to a colourblind analyst. */
+.sidebar-degraded {
+  margin: 10px 14px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(228, 184, 109, 0.45);
+  background: rgba(228, 184, 109, 0.08);
+  color: var(--amber);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.analyst__session {
+  color: var(--faint) !important;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
+/* Motion is decorative throughout this product: nothing animates that conveys
+   state, so honouring the preference costs no information. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

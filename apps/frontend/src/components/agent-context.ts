@@ -75,20 +75,51 @@ export function setAgentContext(context: AgentContext): void {
  * context is that the agent proposes the question you were about to type.
  */
 const VIEW_SUGGESTIONS: Record<WorkspaceView, readonly string[]> = {
-  overview: ['Summarize this investigation', 'What is the single strongest signal here?'],
-  evidence: ['Summarize the collected evidence', 'Which evidence is weakest, and why?'],
-  network: ['Show the strongest connections', 'Which actor sits at the centre of this?'],
-  timeline: ['How did this investigation evolve?', 'When did the first activity appear?'],
-  assessment: ['What evidence is driving this confidence?', 'What does this assessment not prove?'],
+  overview: [
+    'What changed in this investigation?',
+    'What is the single strongest signal here?',
+    'What is still unresolved?',
+  ],
+  evidence: [
+    'Summarize the collected evidence',
+    'Which evidence is weakest, and why?',
+    'Which evidence contradicts the leading hypothesis?',
+  ],
+  network: [
+    'Which actor sits at the centre of this?',
+    'What is the shortest path between the two leading actors?',
+    'Which links are weakest?',
+  ],
+  timeline: [
+    'How did this investigation evolve?',
+    'Summarize the last 24 hours',
+    'When did the first activity appear?',
+  ],
+  assessment: [
+    'Compare the competing hypotheses',
+    'What evidence is driving this confidence?',
+    'What does this assessment not prove?',
+  ],
   notes: ['Summarize the analyst notes', 'What is still unresolved?'],
 };
 
 const SPACE_SUGGESTIONS: Record<string, readonly string[]> = {
-  'Command Center': ['What changed recently?', 'Which investigation needs attention?'],
-  Cases: ['Which case needs attention?', 'Show me the most overdue investigation'],
+  'Command Center': [
+    'What changed recently?',
+    'Which investigation needs attention?',
+    'Explain the current queue pressure',
+  ],
+  Investigations: [
+    'Which case needs attention?',
+    'Show me the most overdue investigation',
+    'Why is the top case prioritised?',
+  ],
   'Threat Watch': ['What should I care about?', 'Show the newest critical alerts'],
   Reports: ['What reports exist for the last week?', 'Summarize the latest assessment'],
-  Settings: ['What is the health of this deployment?'],
+  Administration: [
+    'Is the audit trail intact?',
+    'What is the health of this deployment?',
+  ],
 };
 
 export function agentSuggestions(context: AgentContext): readonly string[] {

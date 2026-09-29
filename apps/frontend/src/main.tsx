@@ -2,12 +2,19 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
-import { SessionProvider } from './store/session';
 import { AuthProvider } from './store/auth';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/layout.css';
 import './styles/components.css';
+// Screen-specific layers. Loaded after the shared components so a page can
+// refine a primitive without being able to break every other screen.
+import './styles/command-center.css';
+import './styles/investigations.css';
+import './styles/admin.css';
+// Cross-cutting accessibility rules load last so a component stylesheet cannot
+// accidentally win a specificity contest against the focus ring.
+import './styles/accessibility.css';
 
 const container = document.getElementById('root');
 if (container === null) {
@@ -18,9 +25,7 @@ createRoot(container).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <SessionProvider>
-          <App />
-        </SessionProvider>
+        <App />
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

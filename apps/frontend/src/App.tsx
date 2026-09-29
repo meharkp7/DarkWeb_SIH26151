@@ -1,25 +1,57 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
+import { AdminPage } from './pages/AdminPage';
 import { CaseWorkspacePage } from './pages/CaseWorkspacePage';
 import { CasesPage } from './pages/CasesPage';
 import { CommandCenterPage } from './pages/CommandCenterPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { ReportsPage } from './pages/ReportsPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { ThreatWatchPage } from './pages/ThreatWatchPage';
 import { useAuth } from './store/auth';
 
-export default function App() {
+/**
+ * The retired standalone screens.
+ *
+ * Evidence, Network, Timeline, Attribution, Hypotheses, Sources and Actors
+ * were each a global route. Every one of them is meaningless without a case —
+ * they are views *of* an investigation — so reaching them without one either
+ * duplicated the workspace or silently invented a context. They now redirect
+ * to the register, and the real views live in the workspace tabs.
+ */
+const CASE_SCOPED_RETIRED = [
+  'graph',
+  'evidence',
+  'timeline',
+  'attribution',
+  'hypotheses',
+  'sources',
+  'actors',
+] as const;
+
+function SessionGate() {
   const { authenticated, busy } = useAuth();
   if (busy && !authenticated) {
     return (
       <main className="enterprise-auth enterprise-auth--v2" aria-busy="true">
-        <section className="enterprise-auth__panel"><div className="enterprise-auth__panel-inner"><p className="auth-notice">Restoring analyst session…</p></div></section>
+        <section className="enterprise-auth__panel">
+          <div className="enterprise-auth__panel-inner">
+            <p className="auth-notice">Restoring analyst session…</p>
+          </div>
+        </section>
       </main>
     );
   }
-  if (!authenticated) return <Routes><Route path="*" element={<LoginPage />} /></Routes>;
+  if (!authenticated) {
+    return (
+      <Routes>
+        <Route
+          path="*"
+          element={<LoginPage />}
+        />
+      </Routes>
+    );
+  }
   return (
     <Routes>
       <Route element={<AppShell />}>
@@ -28,17 +60,25 @@ export default function App() {
         <Route path="cases/:caseId" element={<CaseWorkspacePage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="threat-watch" element={<ThreatWatchPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        <Route path="admin" element={<AdminPage />} />
         <Route path="watch" element={<Navigate to="/threat-watch" replace />} />
-        <Route path="graph" element={<Navigate to="/cases" replace />} />
-        <Route path="evidence" element={<Navigate to="/cases" replace />} />
-        <Route path="timeline" element={<Navigate to="/cases" replace />} />
-        <Route path="attribution" element={<Navigate to="/cases" replace />} />
-        <Route path="hypotheses" element={<Navigate to="/cases" replace />} />
-        <Route path="sources" element={<Navigate to="/cases" replace />} />
-        <Route path="actors/:actorId" element={<Navigate to="/cases" replace />} />
+        {CASE_SCOPED_RETIRED.map((path) => (
+          <Route key={path} path={path} element={<Navigate to="/cases" replace />} />
+        ))}
+        {CASE_SCOPED_RETIRED.map((path) => (
+          <Route
+            key={`${path}-detail`}
+            path={`${path}/:entityId`}
+            element={<Navigate to="/cases" replace />}
+          />
+        ))}
+        <Route path="settings" element={<Navigate to="/admin" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   );
+}
+
+export default function App() {
+  return <SessionGate />;
 }

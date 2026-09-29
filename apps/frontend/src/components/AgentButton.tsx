@@ -20,7 +20,11 @@ export function AgentButton() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      // ⌘K belongs to the navigation palette now. Two surfaces claiming the
+      // same shortcut means the analyst can never be sure which one they are
+      // about to get, so the agent takes ⌘J instead — adjacent, unused, and
+      // still reachable without a mouse.
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'j') {
         event.preventDefault();
         setOpen(true);
       }
@@ -71,11 +75,11 @@ export function AgentButton() {
       <button
         className={`agent-orb ${open ? 'agent-orb--open' : ''}`}
         onClick={() => setOpen(true)}
-        aria-label="Ask AEGIS"
+        aria-label="Ask the AEGIS Agent (Command-J)"
       >
         <span className="agent-orb__spark">✦</span>
         <span className="agent-orb__label">Ask AEGIS</span>
-        <kbd>⌘K</kbd>
+        <kbd>⌘J</kbd>
       </button>
       {open && (
         <div
@@ -84,7 +88,28 @@ export function AgentButton() {
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          <section className="agent-panel" role="dialog" aria-modal="true" aria-label="AEGIS Agent">
+          <section
+            className="agent-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="AEGIS Agent"
+            onKeyDown={(e) => {
+              if (e.key !== 'Tab') return;
+              const focusable = e.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+              );
+              const first = focusable[0];
+              const last = focusable[focusable.length - 1];
+              if (first === undefined || last === undefined) return;
+              if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+              } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+              }
+            }}
+          >
             <header className="agent-panel__head">
               <div>
                 <div className="agent-kicker">

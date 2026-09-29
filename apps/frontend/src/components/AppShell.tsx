@@ -1,6 +1,7 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useMemo } from 'react';
 import { AgentButton } from './AgentButton';
+import { CommandPalette, openCommandPalette } from './CommandPalette';
 import { ErrorBoundary } from './ErrorBoundary';
 import { usePublishAgentContext } from './agent-context';
 import { useLive } from '../hooks/useLive';
@@ -12,12 +13,9 @@ import { useAuth } from '../store/auth';
  * There is deliberately no top-level Graph / Evidence / Hypotheses /
  * Attribution / Timeline / Sources / Actors entry. All of that is case
  * analysis, and an investigator opens a case rather than a subsystem — so it
- * lives behind `Cases` in the Investigation Workspace. Putting it in the
- * sidebar too meant every one of those screens was reachable without a case
+ * lives behind `Investigations` in the Investigation Workspace. Putting it in
+ * the sidebar too meant every one of those screens was reachable without a case
  * and therefore had to either duplicate the workspace or guess at one.
- *
- * The floating AEGIS Agent is the sixth affordance, and it is not a page —
- * it reads whatever context the current space publishes.
  */
 const NAV = [
   { to: '/', label: 'Command Center', icon: '⌂', end: true },
@@ -26,7 +24,7 @@ const NAV = [
   { to: '/reports', label: 'Reports', icon: '⎙', end: false },
 ];
 
-const SETTINGS_NAV = [{ to: '/settings', label: 'Administration', icon: '⚙', end: true }];
+const SYSTEM_NAV = [{ to: '/admin', label: 'Administration', icon: '⚙', end: false }];
 
 /** Breadcrumb labels; a raw path segment reads as a slug, not as a name. */
 const SECTION_LABELS: Record<string, string> = {
@@ -34,7 +32,8 @@ const SECTION_LABELS: Record<string, string> = {
   'threat-watch': 'Threat Watch',
   watch: 'Threat Watch',
   reports: 'Reports',
-  settings: 'Settings',
+  admin: 'Administration',
+  settings: 'Administration',
 };
 
 function sectionLabel(pathname: string): string {
@@ -45,11 +44,43 @@ function sectionLabel(pathname: string): string {
   return 'Workspace';
 }
 
+/** `mm:ss` remaining, or null when the session has no recorded expiry. */
+function remainingLabel(expiresAt: number | null): string | null {
+  if (expiresAt === null) return null;
+  const seconds = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  if (seconds < 60) return `${seconds}s`;
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 export function AppShell() {
   const location = useLocation();
-  const { connected, snapshot } = useLive();
-  const { signOut, identity } = useAuth();
+  const { connected, degradedReason, snapshot } = useLive();
+  const { signOut, identity, sessionExpiresAt } = useAuth();
   const section = sectionLabel(location.pathname);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  useEffect(() => {
+    openCommandPalette.set(openPalette);
+    return () => openCommandPalette.set(null);
+  }, [openPalette]);
+
+  // The shell owns the ⌘K binding rather than the palette itself, so the
+  // palette stays a controlled component and the shortcut is declared in one
+  // place next to the other global affordances.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'k' || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      setPaletteOpen((value) => !value);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Inside an investigation the workspace publishes a richer context (case
   // name + active view) and owns this. Here we only cover the top-level
@@ -58,8 +89,21 @@ export function AppShell() {
   const inCase = location.pathname.startsWith('/cases/');
   usePublishAgentContext(useMemo(() => (inCase ? null : { place: section }), [inCase, section]));
 
+  const sessionLeft = remainingLabel(sessionExpiresAt);
+  const initials = (identity?.name ?? 'AN')
+    .split(' ')
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <div className="app-shell">
+      {/* Keyboard users land here first; without it every tab stop goes
+          through the sidebar before reaching the content they navigated to. */}
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">◇</span>
@@ -78,6 +122,14 @@ export function AppShell() {
               : '—'}
           </span>
         </div>
+        {degradedReason ? (
+          // A silent console is worse than a slow one. The feed is stale and
+          // the analyst needs to know the numbers on screen have stopped
+          // moving before they act on them.
+          <p className="sidebar-degraded" role="status">
+            {degradedReason}
+          </p>
+        ) : null}
         <nav aria-label="Primary">
           <p className="nav-label">Workspace</p>
           {NAV.map((item) => (
@@ -87,29 +139,34 @@ export function AppShell() {
               end={item.end}
               className={({ isActive }) => `nav-item ${isActive ? 'nav-item--active' : ''}`}
             >
-              <span>{item.icon}</span>
+              <span aria-hidden="true">{item.icon}</span>
               {item.label}
             </NavLink>
           ))}
           <p className="nav-label nav-label--spaced">System</p>
-          {SETTINGS_NAV.map((item) => (
+          {SYSTEM_NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
               className={({ isActive }) => `nav-item ${isActive ? 'nav-item--active' : ''}`}
             >
-              <span>{item.icon}</span>
+              <span aria-hidden="true">{item.icon}</span>
               {item.label}
             </NavLink>
           ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="analyst">
-            <span>{(identity?.name ?? 'AN').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span>
+            <span>{initials}</span>
             <div>
               <strong>{identity?.name ?? 'Analyst'}</strong>
               <small>{identity?.role ?? 'Intelligence Analyst'}</small>
+              {sessionLeft ? (
+                <small className="analyst__session">
+                  Session {sessionLeft} remaining
+                </small>
+              ) : null}
             </div>
           </div>
           <div className="secure-note">AUTHORIZED · AUDITED · CONTROLLED</div>
@@ -123,16 +180,26 @@ export function AppShell() {
         </div>
         <div className="top-actions">
           <button
+            type="button"
             className="search-pill"
-            onClick={() => window.dispatchEvent(new Event('aegis:open-agent'))}
+            onClick={openPalette}
+            aria-label="Open command palette — navigate, search investigations and run actions"
+            aria-haspopup="dialog"
           >
-            <span>⌕</span> Search cases, actors, evidence <kbd>⌘ K</kbd>
+            <span aria-hidden="true">⌕</span> Search cases, actors, evidence <kbd>⌘ K</kbd>
           </button>
-          <button className="icon-button">◌</button>
-          <button className="profile profile-button" onClick={signOut} title="Sign out">{(identity?.name ?? 'AN').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</button>
+          <button
+            type="button"
+            className="profile profile-button"
+            onClick={signOut}
+            title="Sign out"
+            aria-label={`Sign out ${identity?.name ?? 'analyst'}`}
+          >
+            {initials}
+          </button>
         </div>
       </header>
-      <main className="app-main">
+      <main className="app-main" id="main-content" tabIndex={-1}>
         {/* Scoped to the outlet so a failing screen never takes the sidebar,
             the live indicator or the agent down with it. resetKey is the
             pathname, so moving between spaces clears the error. */}
@@ -141,6 +208,7 @@ export function AppShell() {
         </ErrorBoundary>
       </main>
       <AgentButton />
+      <CommandPalette open={paletteOpen} onClose={closePalette} />
     </div>
   );
 }
