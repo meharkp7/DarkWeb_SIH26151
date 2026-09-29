@@ -38,3 +38,36 @@ def test_protected_routes_reject_anonymous_callers() -> None:
     client = TestClient(app)
     for path in ("/metrics", "/api/v1/cases", "/api/v1/dashboard/summary"):
         assert client.get(path).status_code == 401, path
+
+
+def test_cors_preflight_is_not_gated_by_auth() -> None:
+    """A preflight carries no credentials, so gating it rejects it.
+
+    Found by deploying: the console on Vercel calling the API on Render
+    failed on every request while the same request succeeded from curl. The
+    Vite dev proxy is same-origin, so no preflight is ever sent and no unit
+    test can reach this.
+    """
+    client = TestClient(app)
+    preflight = client.options(
+        "/api/v1/dashboard/summary",
+        headers={
+            "Origin": "https://console.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    # The gate must not answer 401 — that is the whole regression.
+    #
+    # 405 is the correct answer *here* and not in production: this environment
+    # sets no `AEGIS_CORS_ORIGINS`, so CORSMiddleware is not installed and
+    # the OPTIONS falls through to a route that only declares GET. With CORS
+    # configured, CORSMiddleware intercepts and answers 200. Either way the
+    # auth gate stayed out of it.
+    assert preflight.status_code != 401, "preflight must not be auth-gated"
+    assert preflight.status_code in {200, 400, 405}
+
+
+def test_a_protected_route_still_rejects_an_unauthenticated_get() -> None:
+    """The exemption is for OPTIONS only, not a hole in the gate."""
+    client = TestClient(app)
+    assert client.get("/api/v1/dashboard/summary").status_code == 401

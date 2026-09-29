@@ -123,6 +123,22 @@ if _cors_origins:
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Optional deployment-level API-key gate. Disabled by default for local development."""
+    # A CORS preflight must be let through.
+    #
+    # Browsers send `OPTIONS` with no credentials — that is the entire point
+    # of a preflight — so gating it on a bearer token rejects it, and
+    # CORSMiddleware then never gets to answer it. The result is that *every*
+    # cross-origin request fails while the same request works from curl and
+    # from a same-origin dev proxy.
+    #
+    # This only appears in a split deployment: the console on Vercel calling
+    # the API on Render. It was found by deploying, not by testing — the
+    # local Vite proxy makes everything same-origin, so no preflight is ever
+    # sent and the unit suite cannot reach it. `/auth/login` survived only
+    # because it is in `_PUBLIC_PATHS`, which made it look like a working
+    # sign-in followed by a broken console.
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if request.url.path not in _PUBLIC_PATHS:
         supplied = request.headers.get("X-AEGIS-API-Key")
         bearer = request.headers.get("Authorization", "")
