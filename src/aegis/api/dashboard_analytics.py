@@ -746,3 +746,96 @@ def case_hypotheses(db: Session, case_id: UUID) -> list[CaseHypothesis]:
         )
     result.sort(key=lambda row: (-(row.calibrated_confidence or 0.0), str(row.hypothesis_id)))
     return result
+
+
+def hypothesis_comparison(
+    db: Session, case_id: UUID, hypothesis_id: UUID
+) -> dict[str, object] | None:
+    """What agrees and what does not, for one hypothesis.
+
+    A single confidence number hides the shape of the evidence behind it. The
+    analyst needs to see which signals carry the assessment and which are
+    pulling against it, per modality, with the specific records on each
+    side. Anything the comparison cannot source is reported as a gap rather
+    than as agreement.
+
+    The three-way split is deliberate. Collapsing a weak signal into either
+    "aligned" or "apart" would overstate both.
+    """
+    hypothesis = db.get(HypothesisRecord, hypothesis_id)
+    if hypothesis is None or hypothesis.case_id != case_id:
+        return None
+
+    links = db.scalars(
+        select(HypothesisLinkRecord).where(HypothesisLinkRecord.hypothesis_id == hypothesis_id)
+    ).all()
+    if not links:
+        return {
+            "hypothesis_id": str(hypothesis_id),
+            "aligned": [],
+            "apart": [],
+            "weak": [],
+            "supporting_evidence": 0,
+            "contradicting_evidence": 0,
+            "independent_source_groups": 0,
+            "gap": "No evidence has been linked to this hypothesis yet.",
+        }
+
+    evidence_ids = {link.evidence_id for link in links}
+    titles = {
+        row.evidence_id: str((row.metadata_json or {}).get("title") or "Observation")
+        for row in db.scalars(
+            select(EvidenceRecord).where(EvidenceRecord.evidence_id.in_(evidence_ids))
+        ).all()
+    }
+
+    buckets: dict[str, dict[str, list[dict[str, object]]]] = {}
+    groups: set[str] = set()
+    for link in links:
+        modality = link.modality or "unattributed"
+        if link.role == "supporting":
+            groups.add(link.independence_group)
+        side = "supporting" if link.role == "supporting" else "contradicting"
+        buckets.setdefault(modality, {"supporting": [], "contradicting": []})
+        buckets[modality][side].append(
+            {
+                "evidence_id": str(link.evidence_id),
+                "title": titles.get(link.evidence_id, "Observation"),
+                "weight": link.weight,
+                "independence_group": link.independence_group,
+            }
+        )
+
+    aligned: list[dict[str, object]] = []
+    apart: list[dict[str, object]] = []
+    weak: list[dict[str, object]] = []
+    for modality in sorted(buckets):
+        sides = buckets[modality]
+        supporting = sides["supporting"]
+        contradicting = sides["contradicting"]
+        net = len(supporting) - len(contradicting)
+        entry = {
+            "modality": modality,
+            "supporting": supporting,
+            "contradicting": contradicting,
+            "net": net,
+        }
+        # One-sided is alignment, opposite-sided is contradiction, and a
+        # tied or empty modality is neither — it is a gap in the record.
+        if supporting and not contradicting:
+            aligned.append(entry)
+        elif contradicting and not supporting:
+            apart.append(entry)
+        else:
+            weak.append(entry)
+
+    return {
+        "hypothesis_id": str(hypothesis_id),
+        "aligned": aligned,
+        "apart": apart,
+        "weak": weak,
+        "supporting_evidence": sum(len(b["supporting"]) for b in buckets.values()),
+        "contradicting_evidence": sum(len(b["contradicting"]) for b in buckets.values()),
+        "independent_source_groups": len(groups),
+        "gap": None,
+    }

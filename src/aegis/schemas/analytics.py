@@ -15,7 +15,7 @@ decoration, so each aggregate is paired with the query that explains it.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -424,3 +424,80 @@ class ModelRegistryResponse(BaseModel):
 
     runs: list[ModelRunSummary]
     total: int
+
+
+class ComparisonEvidence(BaseModel):
+    """A single cited record on one side of a hypothesis."""
+
+    model_config = ConfigDict(frozen=True)
+
+    evidence_id: UUID
+    title: str
+    weight: float | None = None
+    independence_group: str | None = None
+
+
+class ComparisonSide(BaseModel):
+    """One modality's evidence on one side of a hypothesis."""
+
+    model_config = ConfigDict(frozen=True)
+
+    modality: str
+    supporting: list[ComparisonEvidence]
+    contradicting: list[ComparisonEvidence]
+    #: supporting minus contradicting. Negative means the evidence is pulling
+    #: against the hypothesis.
+    net: int
+
+
+class HypothesisComparison(BaseModel):
+    """What agrees with a hypothesis and what does not, per modality.
+
+    The three-way split is the point. Collapsing a weak or absent signal
+    into either "aligned" or "apart" would overstate both, so anything that
+    is not one-sided is reported as a gap in the record rather than as
+    agreement.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    hypothesis_id: UUID
+    aligned: list[ComparisonSide]
+    apart: list[ComparisonSide]
+    weak: list[ComparisonSide]
+    supporting_evidence: int
+    contradicting_evidence: int
+    independent_source_groups: int
+    #: Set when there is nothing to compare, and says so rather than
+    #: returning three empty lists that read as "no disagreement".
+    gap: str | None = None
+
+
+class RecordLinkageRequest(BaseModel):
+    """An analyst promoting a model association into recorded evidence.
+
+    This is the boundary between an estimate and a finding, so it is an
+    explicit, attributed, audited act — never a side effect of viewing a
+    score.
+    """
+
+    disposition: Literal["confirmed", "rejected"]
+    #: The evidence the analyst relied on. Required: an attribution recorded
+    #: with no cited basis is indistinguishable from a model output, which is
+    #: the thing the badge is distinguishing.
+    evidence_ids: list[UUID] = Field(min_length=1, max_length=50)
+    rationale: str = Field(min_length=1, max_length=2000)
+    actor_id: UUID | None = None
+
+
+class RecordLinkageResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    hypothesis_id: UUID
+    disposition: str
+    #: True once an analyst has ruled on it; the UI stops calling the figure
+    #: an estimate only after this flips.
+    analyst_recorded: bool
+    evidence_ids: list[UUID]
+    recorded_at: datetime
+    audit_seq: int

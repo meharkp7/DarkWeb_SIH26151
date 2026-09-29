@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import String, func, select
+from sqlalchemy import String, delete, func, select
 from sqlalchemy.orm import Session
 
 from aegis.api.case_triage import case_is_overdue
@@ -15,6 +15,7 @@ from aegis.api.dashboard_analytics import (
     case_hypotheses,
     case_signal_matrix,
     case_timeline_layers,
+    hypothesis_comparison,
 )
 from aegis.api.deps import get_db
 from aegis.db.audit import AuditService
@@ -25,6 +26,8 @@ from aegis.db.models import (
     CaseRecord,
     EntityRecord,
     EvidenceRecord,
+    HypothesisLinkRecord,
+    HypothesisRecord,
     RelationshipRecord,
 )
 from aegis.schemas.analytics import (
@@ -32,6 +35,9 @@ from aegis.schemas.analytics import (
     CaseHypothesis,
     CaseMetrics,
     CaseTimeline,
+    HypothesisComparison,
+    RecordLinkageRequest,
+    RecordLinkageResponse,
     SignalBand,
 )
 from aegis.schemas.evidence import CaseNote, CaseNoteCreate
@@ -371,4 +377,116 @@ def case_network(
         edges=[edge for edge in graph.edges if edge.source in kept and edge.target in kept],
         edge_types=graph.edge_types,
         node_types=graph.node_types,
+    )
+
+
+@router.get("/{case_id}/hypotheses/{hypothesis_id}/comparison", response_model=HypothesisComparison)
+def hypothesis_comparison_route(
+    case_id: UUID,
+    hypothesis_id: UUID,
+    db: Annotated[Session, Depends(get_db)],
+) -> HypothesisComparison:
+    """What agrees with a hypothesis and what does not, per modality.
+
+    A single confidence number hides the shape of the evidence behind it.
+    This is the shape: which signals carry the assessment, which pull against
+    it, and which are simply not recorded.
+    """
+    _case_or_404(db, case_id)
+    payload = hypothesis_comparison(db, case_id, hypothesis_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Hypothesis not found in this case")
+    return HypothesisComparison(**payload)  # type: ignore[arg-type]
+
+
+@router.post(
+    "/{case_id}/hypotheses/{hypothesis_id}/record",
+    response_model=RecordLinkageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_linkage(
+    case_id: UUID,
+    hypothesis_id: UUID,
+    payload: RecordLinkageRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> RecordLinkageResponse:
+    """Record an analyst's ruling on a model association.
+
+    This is the boundary between an estimate and a finding, so it is an
+    explicit, cited, attributed and audited act — never a side effect of
+    viewing a score. The UI stops calling a figure an estimate only after
+    this has happened, which means the transition is visible and reversible
+    in the record rather than implied by a number moving.
+
+    The cited evidence must belong to this case. A linkage attributed to
+    evidence from a different investigation would not survive a reader
+    following the citation, which is the only test of an attribution that
+    matters.
+    """
+    _case_or_404(db, case_id)
+    hypothesis = db.get(HypothesisRecord, hypothesis_id)
+    if hypothesis is None or hypothesis.case_id != case_id:
+        raise HTTPException(status_code=404, detail="Hypothesis not found in this case")
+
+    cited = db.scalars(
+        select(EvidenceRecord).where(
+            EvidenceRecord.evidence_id.in_(payload.evidence_ids),
+            EvidenceRecord.case_id == case_id,
+        )
+    ).all()
+    if len(cited) != len(set(payload.evidence_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Every cited evidence record must belong to this case.",
+        )
+
+    role = "supporting" if payload.disposition == "confirmed" else "contradicting"
+    # The analyst ruling is a *current position*, not an append-only log —
+    # the append-only record is the audit entry written below. Replacing the
+    # previous ruling rather than accumulating is what makes re-recording
+    # idempotent and makes reversing a decision possible, and it keeps a
+    # hypothesis from carrying both "confirmed" and "rejected" analyst links
+    # simultaneously, which is how a contradictory record gets made.
+    db.execute(
+        delete(HypothesisLinkRecord).where(
+            HypothesisLinkRecord.hypothesis_id == hypothesis_id,
+            HypothesisLinkRecord.independence_group == "analyst-recorded",
+        )
+    )
+    for evidence in cited:
+        db.add(
+            HypothesisLinkRecord(
+                link_id=uuid5(hypothesis_id, f"analyst:{evidence.evidence_id}"),
+                hypothesis_id=hypothesis_id,
+                evidence_id=evidence.evidence_id,
+                role=role,
+                modality=str((evidence.metadata_json or {}).get("modality") or "unattributed"),
+                independence_group="analyst-recorded",
+                weight=1.0,
+            )
+        )
+    if hypothesis.status != payload.disposition:
+        hypothesis.status = "supported" if payload.disposition == "confirmed" else "rejected"
+
+    record = AuditService(db).record(
+        "attribution.analyst_recorded",
+        case_id=case_id,
+        entity_type="hypothesis",
+        entity_id=str(hypothesis_id),
+        actor_id=payload.actor_id,
+        payload={
+            "disposition": payload.disposition,
+            "rationale": payload.rationale,
+            "evidence_ids": [str(row.evidence_id) for row in cited],
+            "independence_group": "analyst-recorded",
+        },
+    )
+    db.commit()
+    return RecordLinkageResponse(
+        hypothesis_id=hypothesis_id,
+        disposition=payload.disposition,
+        analyst_recorded=True,
+        evidence_ids=[row.evidence_id for row in cited],
+        recorded_at=record.occurred_at,
+        audit_seq=record.seq,
     )
