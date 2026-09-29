@@ -2,7 +2,7 @@ import { expect, test as base } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { ANALYST_EMAIL, ANALYST_PASSWORD } from './environment';
 
-export { API_ORIGIN, ANALYST_EMAIL } from './environment';
+export { ANALYST_EMAIL, ANALYST_PASSWORD, API_ORIGIN } from './environment';
 export { collectPageProblems, OVERFLOW_TOLERANCE_PX } from './problems';
 export type { OverflowReport, PageProblems } from './problems';
 export { trackSockets, LIVE_PATH } from './live';
