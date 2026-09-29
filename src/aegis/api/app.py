@@ -10,13 +10,16 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
+from aegis.api.actors import router as actors_router
 from aegis.api.admin import router as admin_router
 from aegis.api.analysis import run_synthetic_analysis
 from aegis.api.auth import router as auth_router
 from aegis.api.auth import validate_access_token
 from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
+from aegis.api.infrastructure import router as infrastructure_router
 from aegis.api.live import router as live_router
+from aegis.api.personas import router as personas_router
 from aegis.api.reports import router as reports_router
 from aegis.api.search import router as search_router
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
@@ -384,4 +387,7 @@ app.include_router(reports_router)
 app.include_router(live_router)
 app.include_router(workspace_router)
 app.include_router(admin_router)
+app.include_router(actors_router)
 app.include_router(search_router)
+app.include_router(infrastructure_router)
+app.include_router(personas_router)
