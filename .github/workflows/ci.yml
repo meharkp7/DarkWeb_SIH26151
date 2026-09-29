@@ -114,8 +114,18 @@ jobs:
         run: PYTHONPATH=src uv run python scripts/seed_demo_data.py --reset --evidence-per-case 620
       # AEGIS_REQUIRE_DB=1 turns "PostgreSQL unreachable" from a skip into a
       # failure, so a wiring mistake cannot quietly reduce this run to nothing.
+      # The GNN modules are excluded here rather than installed. They need
+      # `torch`, which is an ~2GB install, and they are pure model code with
+      # no database dependency — so running them here would pay the download
+      # a second time to re-test what the `backend` job, which does install
+      # `--extra ml`, has already covered. Everything that touches Postgres
+      # still runs here against a real migrated and seeded database.
       - name: Pytest
-        run: PYTHONPATH=src uv run pytest -q --junitxml=reports/pytest.xml
+        run: >
+          PYTHONPATH=src uv run pytest -q --junitxml=reports/pytest.xml
+          --ignore=tests/test_gnn_adapter.py
+          --ignore=tests/test_gnn_torch.py
+          --ignore=tests/test_gnn_training.py
         env:
           AEGIS_REQUIRE_DB: "1"
       - uses: actions/upload-artifact@v4
