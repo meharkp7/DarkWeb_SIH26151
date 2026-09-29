@@ -127,15 +127,44 @@ The `CI` workflow runs on pushes to `main` and on pull requests:
 
 ## API
 
-- `GET /health`
-- `GET /health/db`
-- `POST /api/v1/sources`
-- `POST /api/v1/evidence`
-- `GET /api/v1/evidence/{evidence_id}`
-- `GET /api/v1/evidence/{evidence_id}/provenance`
-- `POST /api/v1/analysis/synthetic`
+Everything below is served under `api_key_auth`; a request needs either a
+session bearer token or the deployment API key. Only `/health`, `/health/db`
+and `/docs` are public.
+
+| Area | Routes |
+|---|---|
+| Auth | `POST /api/v1/auth/login`, `GET /api/v1/auth/me` |
+| Command Center | `GET /api/v1/dashboard/summary`, `GET /api/v1/dashboard/cases`, `GET /api/v1/dashboard/activity` |
+| Cases | `GET|POST /api/v1/cases`, `GET|PATCH /api/v1/cases/{id}` |
+| Workspace | `GET /api/v1/cases/{id}/workspace`, `/evidence`, `/graph`, `/hypotheses`, `/signals`, `/timeline`, `/metrics`, `/activity`, `GET|POST /notes` |
+| Threat Watch | `GET /api/v1/threat-watch/events`, `WS /api/v1/live` |
+| Reports | `GET /api/v1/cases/{id}/reports/preview`, `GET /api/v1/cases/{id}/reports/export?format=` |
+| Administration | `GET /api/v1/admin/team`, `GET /api/v1/admin/audit`, `GET /api/v1/admin/audit/verify`, `GET /api/v1/admin/system` |
+| Registry | `GET /api/v1/models` |
+| Evidence | `POST /api/v1/sources`, `POST /api/v1/evidence`, `GET /api/v1/evidence/{id}`, `GET /api/v1/evidence/{id}/provenance` |
+| Analysis | `POST /api/v1/analysis/synthetic`, `POST /api/v1/copilot/query` |
 
 Swagger UI: `http://127.0.0.1:8000/docs`
+
+`GET /api/v1/dashboard/summary` is the single source for the Command Center.
+It carries the posture counts, the evidence-velocity series, the pressure
+indicators and the attribution posture in one typed frame, and the websocket
+pushes the identical payload — so the console renders the same whether or not
+the live socket is up.
+
+## Running the console
+
+```bash
+make infra-up && make migrate
+uv run python scripts/seed_demo_data.py --reset   # coherent synthetic dataset
+uv run uvicorn aegis.api.app:app --reload --port 8000
+cd apps/frontend && npm install && npm run dev   # http://127.0.0.1:5173
+```
+
+The demo seeder writes ~4,300 evidence records, ~900 entities, ~2,900
+relationships, 28 hypotheses with assessments and ~500 audit events across
+seven investigations, in strict foreign-key order. It is idempotent: pass
+`--reset` to rebuild, or run it again to leave the existing dataset alone.
 
 ## Documentation
 
