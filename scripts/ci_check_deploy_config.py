@@ -24,6 +24,43 @@ def _fail(problems: list[str]) -> int:
     return 1
 
 
+#: Values Render must be able to read. A manifest that parses cleanly can
+#: still be the wrong manifest: a `sync` flag typed as a YAML boolean rather
+#: than the string Render expects means the variable is never prompted for,
+#: and the deploy fails much later with a missing environment variable.
+REQUIRED_SERVICE_KEYS = {"name", "runtime", "buildCommand", "startCommand", "healthCheckPath"}
+
+
+def _is_prompted(env_var: dict[str, object]) -> bool:
+    """True when Render will prompt for this value on deploy.
+
+    `sync: false` parses as a YAML boolean. Render documents the string, and
+    a boolean is not truthy-tested the same way, so both spellings are
+    accepted here and the manifest is normalised to the string form.
+    """
+    value = env_var.get("sync")
+    return value is False or str(value).lower() == "false"
+
+
+def check_blueprint_prompts(service: dict[str, object]) -> list[str]:
+    """A deploy needs at least one prompted variable, and it must be the database."""
+    problems: list[str] = []
+    env_vars = service.get("envVars")
+    if not isinstance(env_vars, list) or not env_vars:
+        return ["render.yaml declares no envVars; the service would deploy unconfigured"]
+    prompted = [
+        str(entry.get("key"))
+        for entry in env_vars
+        if isinstance(entry, dict) and _is_prompted(entry)
+    ]
+    if "AEGIS_DATABASE_URL" not in prompted:
+        problems.append(
+            "AEGIS_DATABASE_URL must be prompted for (sync: \"false\"); a hard-coded "
+            "connection string in a committed manifest is a credential in git"
+        )
+    return problems
+
+
 def check_render_yaml(problems: list[str]) -> None:
     path = ROOT / "render.yaml"
     try:
@@ -39,9 +76,10 @@ def check_render_yaml(problems: list[str]) -> None:
 
     for service in services:
         name = service.get("name", "<unnamed>")
-        for key in ("type", "runtime", "buildCommand", "startCommand"):
+        for key in ("type", "runtime", "buildCommand", "startCommand", "healthCheckPath"):
             if not service.get(key):
                 problems.append(f"render.yaml service {name!r} has no {key}")
+        problems.extend(check_blueprint_prompts(service))
         # A command that names a script which does not exist deploys to a
         # service that dies on first boot, which is the worst place to find out.
         for key in ("buildCommand", "startCommand"):

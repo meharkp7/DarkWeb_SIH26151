@@ -55,7 +55,7 @@ services:
       # Neon, Supabase, or any other host. SSL is required in production:
       # the audit chain and the session tokens both travel over this link.
       - key: AEGIS_DATABASE_URL
-        sync: false
+        sync: false  # boolean renders as false; Render prompts for it
       - key: AEGIS_ENVIRONMENT
         value: production
       # Sessions are 15 minutes by default. A long session on a shared screen
@@ -78,7 +78,7 @@ services:
       # - key: AEGIS_AUTH_EMAIL
       #   value: analyst@aegis-intelligence.com
       # - key: AEGIS_AUTH_PASSWORD
-      #   sync: false
+      #   sync: "false"
       # Optional adapters. Unset in production; the platform reports them as
       # unavailable rather than failing.
       # - key: AEGIS_OPENSEARCH_URL
