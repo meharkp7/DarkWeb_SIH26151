@@ -1,10 +1,11 @@
 import { parseSyntheticAnalysisResponse } from './parse';
 import type {
-  AuditTrailResponse, CaseCreate, CaseGraph, CaseHypothesis, CaseMetrics,
+  AdjudicationResponse, AuditTrailResponse, CaseCreate, CaseGraph, CaseHypothesis, CaseMetrics,
   CaseNote, CaseNoteCreate, CaseQueueEntry, CaseTimeline, CaseUpdate, CaseWorkspace, CommandPosture,
   CopilotResponse, CreatedSource, DashboardSnapshot, Evidence, EvidenceCreate, EvidenceProvenance,
-  HealthResponse, InvestigationCase, LiveActivity, ModelRegistryResponse, SearchResponse,
-  SignalBand, SourceCreate, SyntheticAnalysisRequest, SystemHealth, TeamResponse,
+  HealthResponse, InvestigationCase, LiveActivity, ModelRegistryResponse, PersonaFilters,
+  PersonaLinkage, PersonaLinkageDetail, PersonaLinkageSummary, PersonaScorableMethod,
+  SearchResponse, SignalBand, SourceCreate, SyntheticAnalysisRequest, SystemHealth, TeamResponse,
 } from './types';
 
 function stripTrailingSlash(value: string): string { return value.endsWith('/') ? value.replace(/\/+$/, '') : value; }
@@ -222,6 +223,60 @@ export const api = {
   getEvidenceProvenance: (id:string,signal?:AbortSignal) => getJson<EvidenceProvenance>(apiUrl(`/v1/evidence/${encodeURIComponent(id)}/provenance`),signal),
   runSyntheticAnalysis: async (payload:SyntheticAnalysisRequest) => parseSyntheticAnalysisResponse(await postJson<unknown>(apiUrl('/v1/analysis/synthetic'),payload)),
   copilot: (question:string,limit=10) => postJson<CopilotResponse>(apiUrl('/v1/copilot/query'),{question,limit}),
+
+  // --- actor registry ------------------------------------------------------
+  // One serialiser for the filter set, used by the list URL and the export URL,
+  // so what an analyst downloads is the table they were looking at rather than
+  // the whole registry with the filters applied in someone's head afterwards.
+  actorFilterParams(filters?: ActorQuery): URLSearchParams {
+    const query = new URLSearchParams();
+    if (filters?.q) query.set('q', filters.q);
+    if (filters?.category) query.set('category', filters.category);
+    if (filters?.status) query.set('status', filters.status);
+    if (filters?.min_confidence !== undefined) query.set('min_confidence', String(filters.min_confidence));
+    if (filters?.source_id) query.set('source_id', filters.source_id);
+    if (filters?.sort) query.set('sort', filters.sort);
+    if (filters?.dir) query.set('dir', filters.dir);
+    return query;
+  },
+  /** A URL rather than a promise: `useApi` keys its effect on the URL string. */
+  actorQueryUrl: (filters?: ActorQuery) => {
+    const query = api.actorFilterParams(filters);
+    const suffix = query.toString() ? `?${query}` : '';
+    return apiUrl(`/v1/actors${suffix}`);
+  },
+  actorSummaryUrl: () => apiUrl('/v1/actors/summary'),
+  actorCategoriesUrl: () => apiUrl('/v1/actors/categories'),
+  getActorUrl: (id:string) => apiUrl(`/v1/actors/${encodeURIComponent(id)}`),
+  getActor: (id:string,signal?:AbortSignal) => getJson<ActorProfile>(api.getActorUrl(id),signal),
+  actorIdentifiers: (id:string,signal?:AbortSignal) => getJson<ActorIdentifier[]>(apiUrl(`/v1/actors/${encodeURIComponent(id)}/identifiers`),signal),
+  actorMarketplaces: (id:string,signal?:AbortSignal) => getJson<ActorMarketplacePresence[]>(apiUrl(`/v1/actors/${encodeURIComponent(id)}/marketplaces`),signal),
+  /**
+   * A URL, not a fetch: the export button downloads the response as a blob
+   * because a plain `<a download>` cannot carry an Authorization header.
+   */
+  actorExportUrl: (format:'csv'|'json'|'stix', filters?:ActorQuery) => {
+    const query = api.actorFilterParams(filters);
+    query.set('format', format);
+    return apiUrl(`/v1/actors/export?${query}`);
+  },
 };
 
-export function liveUrl(): string { const base = new URL(apiUrl('/v1/live'),window.location.href); base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'; const token = getSessionToken() || getApiKey(); if (token) base.searchParams.set('access_token', token); return base.toString(); }
+/**
+ * The live-socket URL, with no credential attached.
+ *
+ * The credential travels in the `Sec-WebSocket-Protocol` handshake header
+ * (see `useLive`), which is exactly the point of using a subprotocol: headers
+ * are not written to access logs, and a query string is — in the proxy, in
+ * the browser history, and in anything that records request URLs.
+ *
+ * This function used to *also* append `?access_token=`, which put the token
+ * in the URL while the subprotocol carried it anyway. The redundancy bought
+ * nothing and cost the leak; worse, the duplicate also made the connection
+ * fail in practice, which is how it was found.
+ */
+export function liveUrl(): string {
+  const base = new URL(apiUrl('/v1/live'), window.location.href);
+  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  return base.toString();
+}

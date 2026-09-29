@@ -25,6 +25,13 @@ const apiProxy = (target: string) => ({
   // redirects; following one would turn a rejected token into an HTML page.
   autoRewrite: false,
   secure: false,
+  // Required for `/api/v1/live`. Without it the proxy forwards HTTP only and
+  // the browser's upgrade request is answered by the static handler, so the
+  // socket never opens and the console sits on "Reconnecting" forever with no
+  // error anywhere. The live snapshot falls back to REST, so the failure
+  // looks like a working screen that merely stops updating — which is the
+  // worst shape a failure can take here.
+  ws: true,
 });
 
 export default defineConfig({
