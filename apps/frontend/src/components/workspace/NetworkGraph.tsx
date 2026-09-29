@@ -3,7 +3,8 @@ import { apiUrl } from '../../api/client';
 import type { CaseGraph, CaseGraphEdge, CaseGraphNode } from '../../api/types';
 import { useApi } from '../../hooks/useApi';
 import { formatDate, formatPercent, shortId } from '../../lib/format';
-import { Badge } from '../Badge';
+import { InspectorRail } from '../InspectorRail';
+import type { InspectorFact } from '../InspectorRail';
 import { EmptyState, ErrorState, LoadingState } from '../States';
 
 export interface NetworkGraphProps {
@@ -39,6 +40,11 @@ const LANE_W = 108;
 const MAX_NODES = 70;
 
 const GRAPH_ENDPOINT = 'GET /api/v1/cases/{id}/graph';
+
+const GRAPH_TABS = [
+  { id: 'links', label: 'Links' },
+  { id: 'window', label: 'Observation window' },
+] as const;
 
 function graphPath(caseId: string, nodeTypes: readonly string[], edgeTypes: readonly string[]): string {
   const query = new URLSearchParams();
@@ -262,6 +268,7 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
   const [edgeTypes, setEdgeTypes] = useState<readonly string[]>([]);
   const [recency, setRecency] = useState<Recency>('all');
   const [selected, setSelected] = useState<string | null>(null);
+  const [railTab, setRailTab] = useState<string>('links');
 
   const unfiltered = useApi<CaseGraph>(apiUrl(`/v1/cases/${encodeURIComponent(caseId)}/graph`));
   const filteredUrl = useMemo(() => {
@@ -301,6 +308,24 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
   }, [visible, layout]);
 
   const selectedNode = visible.nodes.find((node) => node.entity_id === selected) ?? null;
+
+  const nodeEdges = useMemo(() => {
+    if (selectedNode === null) return [] as CaseGraphEdge[];
+    return visible.edges
+      .filter((edge) => edge.source === selectedNode.entity_id || edge.target === selectedNode.entity_id)
+      .slice(0, 12);
+  }, [selectedNode, visible.edges]);
+
+  const selectedFacts: InspectorFact[] =
+    selectedNode === null
+      ? []
+      : [
+          { label: 'Entity type', value: selectedNode.type.replaceAll('_', ' ') },
+          { label: 'Degree', value: selectedNode.degree, mono: true },
+          { label: 'Evidence', value: selectedNode.evidence_count, mono: true },
+          { label: 'Modality', value: selectedNode.modality === null ? '—' : selectedNode.modality.replaceAll('_', ' ') },
+        ];
+
   const connected = useMemo(() => {
     if (selected === null) return new Set<string>();
     const set = new Set<string>();
@@ -406,7 +431,7 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
           />
         )}
         {!resource.loading && resource.error === null && visible.nodes.length > 0 && (
-          <div className="inv-network">
+          <div className={selectedNode === null ? 'insp-shell' : 'insp-shell has-rail'}>
             <div>
               <svg
                 className="inv-network__canvas"
@@ -505,69 +530,84 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
               </p>
             </div>
 
-            <aside className="inv-inspector" aria-label="Node inspector">
-              {selectedNode === null ? (
-                <p className="hint">
-                  Select an entity in the graph to read its observation window, degree and
-                  corroborating evidence count.
-                </p>
-              ) : (
-                <>
-                  <span className="eyebrow">Selected entity</span>
-                  <h4>{selectedNode.label}</h4>
-                  <Badge tone="info">{selectedNode.type.replaceAll('_', ' ')}</Badge>
-                  {selectedNode.modality !== null && (
-                    <p className="hint">
-                      Modality {selectedNode.modality.replaceAll('_', ' ')}
-                    </p>
-                  )}
-                  <dl className="kv kv--tight">
-                    <dt>Entity ID</dt>
-                    <dd className="mono">{selectedNode.entity_id}</dd>
-                    <dt>Normalized</dt>
-                    <dd className="mono">{shortId(selectedNode.normalized_form, 20)}</dd>
-                    <dt>First observed</dt>
-                    <dd>{formatDate(selectedNode.first_seen)}</dd>
-                    <dt>Last observed</dt>
-                    <dd>{formatDate(selectedNode.last_seen)}</dd>
-                    <dt>Degree</dt>
-                    <dd>{selectedNode.degree}</dd>
-                    <dt>Evidence records</dt>
-                    <dd>{selectedNode.evidence_count}</dd>
-                    <dt>Confidence</dt>
-                    <dd>{formatPercent(selectedNode.confidence)}</dd>
-                  </dl>
-                  <p className="eyebrow" style={{ marginTop: 18 }}>
-                    Relationships
-                  </p>
-                  <ul className="inv-inspector__edges">
-                    {visible.edges
-                      .filter((edge) => edge.source === selectedNode.entity_id || edge.target === selectedNode.entity_id)
-                      .slice(0, 12)
-                      .map((edge) => {
-                        const peer = edge.source === selectedNode.entity_id ? edge.target : edge.source;
-                        const other = visible.nodes.find((node) => node.entity_id === peer);
-                        return (
-                          <li key={edge.relationship_id}>
-                            <button
-                              type="button"
-                              onClick={() => setSelected(peer)}
-                            >
-                              {`${edge.type} → ${other?.label ?? shortId(peer, 12)}`}
-                              <small className="hint" style={{ display: 'block' }}>
-                                {`${formatPercent(edge.confidence)} · ${edge.evidence_ids.length} record(s) · ${formatDate(edge.last_seen)}`}
-                              </small>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    {visible.edges.filter(
-                      (edge) => edge.source === selectedNode.entity_id || edge.target === selectedNode.entity_id,
-                    ).length === 0 && <li className="hint">No relationships in the current view.</li>}
+            <InspectorRail
+              open={selectedNode !== null}
+              onClose={() => setSelected(null)}
+              title={selectedNode?.label ?? 'Entity'}
+              subtitle={selectedNode === null ? undefined : selectedNode.type.replaceAll('_', ' ')}
+              empty="Select an entity in the graph to read its observation window, degree and corroborating evidence count."
+              status={
+                selectedNode === null
+                  ? undefined
+                  : [
+                      { label: selectedNode.type.replaceAll('_', ' '), tone: 'muted' as const },
+                      {
+                        label: `${selectedNode.evidence_count} evidence record${selectedNode.evidence_count === 1 ? '' : 's'}`,
+                        tone: selectedNode.evidence_count > 0 ? ('ok' as const) : ('muted' as const),
+                      },
+                    ]
+              }
+              confidence={
+                selectedNode === null ? undefined : { value: selectedNode.confidence, kind: 'estimate' as const }
+              }
+              facts={selectedFacts}
+              identifiers={selectedNode === null ? undefined : [{ kind: 'entity_id', value: selectedNode.entity_id }]}
+              summary={
+                selectedNode === null || selectedNode.modality === null
+                  ? undefined
+                  : `Modality ${selectedNode.modality.replaceAll('_', ' ')}`
+              }
+              tabs={GRAPH_TABS}
+              activeTab={railTab}
+              onTabChange={setRailTab}
+              tabPanels={{
+                links: (
+                  <ul className="insp-panel-list">
+                    {nodeEdges.map((edge) => {
+                      const peer = edge.source === selectedNode?.entity_id ? edge.target : edge.source;
+                      const other = visible.nodes.find((node) => node.entity_id === peer);
+                      return (
+                        <li key={edge.relationship_id}>
+                          <button
+                            type="button"
+                            className="insp-panel-list__row insp-panel-list__row--button"
+                            onClick={() => setSelected(peer)}
+                          >
+                            <span>{`${edge.type} → ${other?.label ?? shortId(peer, 12)}`}</span>
+                            <span className="insp-panel-list__meta">
+                              {`${formatPercent(edge.confidence)} · ${edge.evidence_ids.length} ev`}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {nodeEdges.length === 0 && <li className="hint">No relationships in the current view.</li>}
                   </ul>
-                </>
-              )}
-            </aside>
+                ),
+                window: (
+                  <dl className="insp-facts">
+                    <div className="insp-facts__row">
+                      <dt className="insp-facts__label">First seen</dt>
+                      <dd className="insp-facts__value">{formatDate(selectedNode?.first_seen)}</dd>
+                    </div>
+                    <div className="insp-facts__row">
+                      <dt className="insp-facts__label">Last seen</dt>
+                      <dd className="insp-facts__value">{formatDate(selectedNode?.last_seen)}</dd>
+                    </div>
+                    <div className="insp-facts__row">
+                      <dt className="insp-facts__label">Degree</dt>
+                      <dd className="insp-facts__value insp-facts__value--mono">{selectedNode?.degree ?? 0}</dd>
+                    </div>
+                    <div className="insp-facts__row">
+                      <dt className="insp-facts__label">Normalized</dt>
+                      <dd className="insp-facts__value insp-facts__value--mono">
+                        {shortId(selectedNode?.normalized_form ?? '', 20)}
+                      </dd>
+                    </div>
+                  </dl>
+                ),
+              }}
+            />
           </div>
         )}
       </div>

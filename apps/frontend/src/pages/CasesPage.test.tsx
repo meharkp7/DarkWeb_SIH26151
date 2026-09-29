@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { CasesPage } from './CasesPage';
 import type { CasePriority, CaseQueueEntry, CaseStatus, SlaState } from '../api/types';
@@ -79,6 +79,37 @@ function renderPage(initialEntry = '/cases'): void {
       <CasesPage />
     </MemoryRouter>,
   );
+}
+
+/**
+ * The register plus a location probe, so "did this navigate?" can be answered
+ * from the router rather than inferred from a missing href.
+ */
+function renderRouted(initialEntry: string): void {
+  function Probe() {
+    return <span data-testid="location">{useLocation().pathname + useLocation().search}</span>;
+  }
+  render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Routes>
+        <Route
+          path="/cases"
+          element={
+            <>
+              <CasesPage />
+              <Probe />
+            </>
+          }
+        />
+        <Route path="/cases/:caseId" element={<p>Case workspace</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+/** The inspector rail is the only `complementary` landmark on the register. */
+function rail(): HTMLElement | null {
+  return screen.queryByRole('complementary');
 }
 
 /** Body rows only — the header row is not a case. */
@@ -302,6 +333,109 @@ describe('CasesPage', () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it('inspects a case in place instead of navigating away', async () => {
+    installFetch(async () => jsonResponse(CASES));
+
+    renderRouted('/cases');
+    await caseRows();
+
+    expect(rail()).toBeNull();
+
+    const row = (await caseRows())[0];
+    await userEvent.click(row as HTMLElement);
+
+    const panel = await screen.findByRole('complementary', { name: 'Alpha Marketplace' });
+    // The register is still behind the rail: selection replaced nothing.
+    expect(screen.getByRole('link', { name: 'Gamma Leak' })).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/cases?inspect=case-c1');
+    // The facts the rail is required to carry, all read from the API payload.
+    expect(panel).toHaveTextContent('82.5');
+    expect(panel).toHaveTextContent('Critical triage priority');
+    expect(panel).toHaveTextContent('case-c1');
+    expect(screen.getByRole('link', { name: 'Open investigation →' })).toHaveAttribute(
+      'href',
+      '/cases/case-c1',
+    );
+    expect(rail()).toHaveAttribute('data-open', 'true');
+    void row;
+  });
+
+  it('marks the inspected row as the selected one', async () => {
+    installFetch(async () => jsonResponse(CASES));
+
+    renderPage();
+    await caseRows();
+
+    await userEvent.click((await caseRows())[1] as HTMLElement);
+
+    await waitFor(() => {
+      expect(screen.getByRole('complementary', { name: 'Beta Breach' })).toBeInTheDocument();
+    });
+    const selected = (await caseRows()).filter((row) => row.getAttribute('aria-selected') === 'true');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.textContent).toContain('Beta Breach');
+  });
+
+  it('still opens the workspace from the case name link', async () => {
+    installFetch(async () => jsonResponse(CASES));
+
+    renderRouted('/cases');
+    await caseRows();
+
+    await userEvent.click(screen.getByRole('link', { name: 'Alpha Marketplace' }));
+
+    expect(await screen.findByText('Case workspace')).toBeInTheDocument();
+  });
+
+  it('restores the inspected case from the inspect query parameter', async () => {
+    installFetch(async () => jsonResponse(CASES));
+
+    renderPage('/cases?inspect=case-c3');
+    await caseRows();
+
+    expect(await screen.findByRole('complementary', { name: 'Gamma Leak' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open investigation →' })).toHaveAttribute(
+      'href',
+      '/cases/case-c3',
+    );
+  });
+
+  it('walks the register with the arrow keys and selects with Enter', async () => {
+    installFetch(async () => jsonResponse(CASES));
+
+    renderRouted('/cases');
+    const all = await caseRows();
+
+    all[0]?.focus();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    expect(all[2]).toHaveFocus();
+
+    await userEvent.keyboard('{Enter}');
+
+    const panel = await screen.findByRole('complementary', { name: 'Gamma Leak' });
+    expect(panel).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/cases?inspect=case-c3');
+  });
+
+  it('closes the rail on Escape and returns focus to the register', async () => {    installFetch(async () => jsonResponse(CASES));
+
+    renderRouted('/cases');
+    await caseRows();
+
+    const row = (await caseRows())[0] as HTMLElement;
+    await userEvent.click(row);
+    await screen.findByRole('complementary', { name: 'Alpha Marketplace' });
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(rail()).toBeNull();
+    });
+    expect(screen.getByTestId('location')).not.toHaveTextContent('inspect');
+    // Focus came back to where it was, so the analyst is not dropped at the top.
+    expect(row).toHaveFocus();
   });
 });
 

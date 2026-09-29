@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, apiUrl, formatApiError } from '../api/client';
 import { CASE_PRIORITIES, CASE_SEVERITIES, CASE_STATUSES } from '../api/types';
@@ -14,6 +15,8 @@ import { useApi } from '../hooks/useApi';
 import { formatDateTime, shortId } from '../lib/format';
 import { Badge } from '../components/Badge';
 import type { Tone } from '../components/Badge';
+import { InspectorRail } from '../components/InspectorRail';
+import type { InspectorFact, InspectorStatus } from '../components/InspectorRail';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 
 const PRIORITY_TONE: Record<CasePriority, Tone> = {
@@ -82,6 +85,37 @@ const SLA_TEXT: Record<SlaState, string> = {
   at_risk: 'at risk',
   ok: 'on track',
   none: 'no deadline',
+};
+
+/** Rail pills carry the same four tones the badges use, minus 'info'. */
+const STATUS_RAIL_TONE: Record<CaseStatus, InspectorStatus['tone']> = {
+  open: 'muted',
+  active: 'ok',
+  on_hold: 'warn',
+  closed: 'muted',
+  archived: 'muted',
+};
+
+const PRIORITY_RAIL_TONE: Record<CasePriority, InspectorStatus['tone']> = {
+  low: 'muted',
+  medium: 'muted',
+  high: 'warn',
+  critical: 'danger',
+};
+
+const SEVERITY_RAIL_TONE: Record<CaseSeverity, InspectorStatus['tone']> = {
+  informational: 'muted',
+  low: 'muted',
+  medium: 'muted',
+  high: 'warn',
+  critical: 'danger',
+};
+
+const SLA_RAIL_TONE: Record<SlaState, InspectorStatus['tone']> = {
+  breached: 'danger',
+  at_risk: 'warn',
+  ok: 'ok',
+  none: 'muted',
 };
 
 const SLA_STATES: readonly SlaState[] = ['breached', 'at_risk', 'ok', 'none'];
@@ -168,7 +202,10 @@ function isSlaState(value: string | null): value is SlaState {
  * readers keep a missing column reading as "not reported" rather than as zero,
  * so the register cannot show a case as clean because the API said nothing.
  */
-function countOf(entry: CaseQueueEntry, key: 'evidence' | 'entities' | 'relationships' | 'contradictions' | 'recent_evidence'): number {
+function countOf(
+  entry: CaseQueueEntry,
+  key: 'evidence' | 'entities' | 'relationships' | 'contradictions' | 'recent_evidence' | 'assessments',
+): number {
   const value = (entry.counts as Readonly<Record<string, number | undefined>>)[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
@@ -427,6 +464,103 @@ function WhyPrioritised({ entry }: { entry: CaseQueueEntry }) {
   );
 }
 
+/** Which of the selected case's fields live in a tab panel rather than the fact list. */
+const RAIL_TABS = [
+  { id: 'priority', label: 'Priority' },
+  { id: 'counts', label: 'Counts' },
+] as const;
+
+/**
+ * Rail content for one register row.
+ *
+ * The reasons expansion is not re-implemented here: the rail renders the same
+ * {@link WhyPrioritised} block the inline row expansion renders, so "why is this
+ * case positioned here" cannot drift between the two places an analyst reads it.
+ */
+function caseRailProps(entry: CaseQueueEntry, onClose: () => void, activeTab: string, onTabChange: (id: string) => void) {
+  const state = slaStateOf(entry);
+  const attribution = attributionOf(entry);
+  const owner = entry.assigned_to === null ? 'unassigned' : shortId(entry.assigned_to, 8);
+
+  const status: InspectorStatus[] = [
+    { label: entry.status.replace('_', ' '), tone: STATUS_RAIL_TONE[entry.status] },
+    { label: entry.priority, tone: PRIORITY_RAIL_TONE[entry.priority] },
+    { label: entry.severity, tone: SEVERITY_RAIL_TONE[entry.severity] },
+    { label: SLA_TEXT[state], tone: SLA_RAIL_TONE[state] },
+  ];
+
+  const facts: InspectorFact[] = [
+    { label: 'Queue score', value: queueScoreOf(entry).toFixed(1), mono: true },
+    { label: 'Owner', value: owner, mono: entry.assigned_to !== null },
+    {
+      label: 'SLA',
+      value:
+        entry.sla_due_at === null
+          ? 'no deadline set'
+          : `due ${formatDateTime(entry.sla_due_at)}${entry.sla_overdue === true ? ' · overdue' : ''}`,
+    },
+    { label: 'Last activity', value: formatDateTime(lastActivityOf(entry) || null) },
+    { label: 'Case ID', value: entry.case_id, mono: true },
+  ];
+
+  const counts: InspectorFact[] = [
+    { label: 'Evidence', value: countOf(entry, 'evidence'), mono: true },
+    { label: 'New evidence', value: countOf(entry, 'recent_evidence'), mono: true },
+    { label: 'Entities', value: countOf(entry, 'entities'), mono: true },
+    { label: 'Relationships', value: countOf(entry, 'relationships'), mono: true },
+    { label: 'Contradictions', value: countOf(entry, 'contradictions'), mono: true },
+    { label: 'Assessments', value: countOf(entry, 'assessments'), mono: true },
+    {
+      label: 'Attribution',
+      value: attribution === null ? 'unscored' : `${Math.round(attribution * 1000) / 10}%`,
+    },
+  ];
+
+  const tabPanels: Record<string, ReactNode> = {
+    priority: <WhyPrioritised entry={entry} />,
+    counts: (
+      <dl className="insp-facts">
+        {counts.map((fact) => (
+          <div className="insp-facts__row" key={fact.label}>
+            <dt className="insp-facts__label">{fact.label}</dt>
+            <dd className={fact.mono === true ? 'insp-facts__value insp-facts__value--mono' : 'insp-facts__value'}>
+              {fact.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    ),
+  };
+
+  return {
+    open: true,
+    onClose,
+    title: entry.name,
+    subtitle: entry.tags.length === 0 ? 'Untagged investigation' : entry.tags.join(' · '),
+    status,
+    facts,
+    identifiers:
+      entry.assigned_to === null ? undefined : [{ kind: 'owner', value: entry.assigned_to }],
+    // Attribution is stored by the platform, not guessed at render time; the
+    // badge is what stops it reading as a model opinion.
+    confidence: attribution === null ? undefined : { value: attribution, kind: 'recorded' as const },
+    summary:
+      typeof entry.queue_reason === 'string' && entry.queue_reason !== ''
+        ? `Queue note: ${entry.queue_reason}`
+        : undefined,
+    tabs: RAIL_TABS,
+    activeTab,
+    onTabChange,
+    tabPanels,
+    actions: (
+      <Link className="btn btn--primary insp-rail__action" to={`/cases/${encodeURIComponent(entry.case_id)}`}>
+        Open investigation →
+      </Link>
+    ),
+    empty: 'No entity selected.',
+  };
+}
+
 /**
  * Investigations register.
  *
@@ -435,6 +569,10 @@ function WhyPrioritised({ entry }: { entry: CaseQueueEntry }) {
  * `?sla=at_risk`, `?sort=contradictions`), an analyst can paste a filtered
  * register into a handover note, and the browser back button steps through
  * filter changes the way an analyst expects it to.
+ *
+ * Selection behaves the same way: `?inspect={caseId}` is the selection, so the
+ * exact register view an analyst was looking at — filters, sort *and* the row
+ * under inspection — is one link.
  */
 export function CasesPage() {
   const [params, setParams] = useSearchParams();
@@ -453,16 +591,18 @@ export function CasesPage() {
   const dirParam = params.get('dir');
   const dir: 'asc' | 'desc' = dirParam === 'asc' || dirParam === 'desc' ? dirParam : ASCENDING.has(sort) ? 'asc' : 'desc';
   const expanded = params.get('row');
+  const inspect = params.get('inspect');
+  const [railTab, setRailTab] = useState('priority');
 
   /** Every filter change is a URL change; `replace` keeps typing out of history. */
-  const update = (patch: Readonly<Record<string, string | null>>, replace = true) => {
+  const update = useCallback((patch: Readonly<Record<string, string | null>>, replace = true) => {
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === '') next.delete(key);
       else next.set(key, value);
     }
     setParams(next, { replace });
-  };
+  }, [params, setParams]);
 
   const toggleSort = (key: SortKey) => {
     if (key === sort) update({ dir: dir === 'desc' ? 'asc' : 'desc' }, false);
@@ -495,6 +635,72 @@ export function CasesPage() {
   }, [data, query, status, priority, severity, tag, sla, overdueOnly, unassignedOnly, sort, dir]);
 
   const total = (data ?? []).length;
+
+  // Looked up in the unfiltered list, so narrowing the register while a case is
+  // under inspection does not silently empty the rail the analyst is reading.
+  const selectedEntry = useMemo(
+    () => (data ?? []).find((entry) => entry.case_id === inspect) ?? null,
+    [data, inspect],
+  );
+
+  const select = useCallback(
+    (caseId: string | null) => {
+      update({ inspect: caseId }, false);
+      setRailTab('priority');
+    },
+    [update],
+  );
+
+  /**
+   * Roving tabindex over the register.
+   *
+   * A grid of 200 cases must not be 200 tab stops: one stop enters the grid and
+   * the arrow keys move within it, which is what `role="grid"` promises.
+   */
+  const [focusIndex, setFocusIndex] = useState(0);
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
+
+  const moveFocus = (from: number, delta: number) => {
+    const next = Math.min(rows.length - 1, Math.max(0, from + delta));
+    setFocusIndex(next);
+    // Selected by attribute, not by sibling index: an expanded reasons row is a
+    // sibling `<tr>` in the same tbody and would shift every index below it.
+    const stops = bodyRef.current?.querySelectorAll<HTMLElement>('tr[aria-selected]');
+    const target = stops?.[next];
+    if (target !== undefined) target.focus();
+  };
+
+  const onRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, index: number, caseId: string) => {
+    switch (event.key) {
+      case 'Enter':
+      case ' ':
+        // Selecting never navigates; the case name link is the way in.
+        event.preventDefault();
+        select(caseId);
+        break;
+      case 'ArrowDown':
+        event.preventDefault();
+        moveFocus(index, 1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        moveFocus(index, -1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        moveFocus(index, -index);
+        break;
+      case 'End':
+        event.preventDefault();
+        moveFocus(index, rows.length - 1 - index);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const rail = selectedEntry === null ? null : caseRailProps(selectedEntry, () => select(null), railTab, setRailTab);
+
   const filtersActive =
     query.trim() !== '' ||
     status !== 'all' ||
@@ -683,11 +889,13 @@ export function CasesPage() {
       )}
 
       {!loading && error === null && total > 0 && (
+        <div className={rail === null ? 'insp-shell' : 'insp-shell has-rail'}>
         <div className="table-wrap">
-          <table className="inv-register">
+          <table className="inv-register" role="grid" aria-label="Investigations register">
             <caption className="sr-only">
               Investigations register: {rows.length} of {total} investigations, sorted by{' '}
-              {SORT_OPTIONS.find((option) => option.id === sort)?.label ?? sort}
+              {SORT_OPTIONS.find((option) => option.id === sort)?.label ?? sort}. Use the arrow keys to
+              move between rows and Enter to inspect a case without leaving the register.
             </caption>
             <thead>
               <tr>
@@ -722,7 +930,7 @@ export function CasesPage() {
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody ref={bodyRef}>
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={COLUMNS.length} className="data-table__empty">
@@ -733,13 +941,24 @@ export function CasesPage() {
                   </td>
                 </tr>
               )}
-              {rows.map((entry) => {
+              {rows.map((entry, index) => {
                 const state = slaStateOf(entry);
                 const isOpen = expanded === entry.case_id;
+                const isSelected = selectedEntry?.case_id === entry.case_id;
                 const reasonId = `inv-reasons-${entry.case_id}`;
                 return (
                   <Fragment key={entry.case_id}>
-                    <tr className={isOpen ? 'is-expanded' : undefined}>
+                    <tr
+                      className={[isOpen ? 'is-expanded' : '', isSelected ? 'insp-selected-row' : '']
+                        .filter(Boolean)
+                        .join(' ') || undefined}
+                      aria-selected={isSelected}
+                      tabIndex={index === focusIndex ? 0 : -1}
+                      onFocus={() => setFocusIndex(index)}
+                      onClick={() => select(entry.case_id)}
+                      onKeyDown={(event) => onRowKeyDown(event, index, entry.case_id)}
+                      style={{ cursor: 'pointer' }}
+                    >
                       {COLUMNS.map((column) => {
                       switch (column.key) {
                         case 'case':
@@ -751,7 +970,12 @@ export function CasesPage() {
                                   className="inv-expand"
                                   aria-expanded={isOpen}
                                   aria-controls={isOpen ? reasonId : undefined}
-                                  onClick={() => update({ row: isOpen ? null : entry.case_id }, false)}
+                                  onClick={(event) => {
+                                    // The row selects on click; the disclosure
+                                    // must not also steal the selection.
+                                    event.stopPropagation();
+                                    update({ row: isOpen ? null : entry.case_id }, false);
+                                  }}
                                 >
                                   <span aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
                                   <span className="sr-only">
@@ -761,6 +985,7 @@ export function CasesPage() {
                                 <Link
                                   className="inv-case-cell__name"
                                   to={`/cases/${encodeURIComponent(entry.case_id)}`}
+                                  onClick={(event) => event.stopPropagation()}
                                 >
                                   {entry.name}
                                 </Link>
@@ -880,7 +1105,7 @@ export function CasesPage() {
                     })}
                     </tr>
                     {isOpen && (
-                      <tr>
+                      <tr className="inv-reasons-row">
                         <td colSpan={COLUMNS.length} className="inv-reasons" id={reasonId}>
                           <WhyPrioritised entry={entry} />
                         </td>
@@ -891,6 +1116,8 @@ export function CasesPage() {
               })}
             </tbody>
           </table>
+        </div>
+          {rail !== null && <InspectorRail {...rail} />}
         </div>
       )}
 
