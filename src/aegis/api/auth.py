@@ -50,7 +50,11 @@ def _b64url_decode(segment: str) -> bytes:
 
 
 def _sign(payload: dict[str, object]) -> str:
-    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+    body = (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
     signature = hmac.new(settings.auth_secret.encode(), body.encode(), hashlib.sha256).hexdigest()
     return f"{_TOKEN_VERSION}.{body}.{signature}"
 
@@ -66,7 +70,9 @@ def validate_access_token(token: str) -> Identity | None:
         version, body, signature = token.split(".", 2)
         if version != _TOKEN_VERSION:
             return None
-        expected = hmac.new(settings.auth_secret.encode(), body.encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(
+            settings.auth_secret.encode(), body.encode(), hashlib.sha256
+        ).hexdigest()
         if not hmac.compare_digest(signature, expected):
             return None
         payload = json.loads(_b64url_decode(body).decode())
@@ -75,7 +81,7 @@ def validate_access_token(token: str) -> Identity | None:
         if payload["sub"] != settings.auth_email:
             return None
         return _identity()
-    except (ValueError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
         return None
 
 
@@ -83,8 +89,12 @@ def validate_access_token(token: str) -> Identity | None:
 def login(payload: LoginRequest) -> LoginResponse:
     email = payload.email.strip().lower()
     expected = settings.auth_email.strip().lower()
-    if not hmac.compare_digest(email, expected) or not hmac.compare_digest(payload.password, settings.auth_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid corporate credentials")
+    if not hmac.compare_digest(email, expected) or not hmac.compare_digest(
+        payload.password, settings.auth_password
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid corporate credentials"
+        )
     token, expires_at = issue_access_token()
     return LoginResponse(access_token=token, expires_at=expires_at, identity=_identity())
 

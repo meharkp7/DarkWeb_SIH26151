@@ -46,3 +46,19 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
 @pytest.fixture
 def db_available() -> bool:
     return _database_available()
+
+
+@pytest.fixture
+def auth_headers() -> dict[str, str]:
+    """A valid ``Authorization`` header for the application auth middleware.
+
+    Every route outside ``_PUBLIC_PATHS`` is gated by the middleware, so any
+    test that calls one must present a credential. Authenticating through the
+    real issuer rather than hard-coding a token keeps these tests honest: a
+    change to the token format fails them loudly instead of silently making
+    every protected-route test a 401 assertion.
+    """
+    from aegis.api.auth import issue_access_token
+
+    token, _expires_at = issue_access_token()
+    return {"Authorization": f"Bearer {token}"}
