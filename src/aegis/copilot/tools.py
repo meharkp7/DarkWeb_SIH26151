@@ -65,6 +65,7 @@ def _pack(
 
     return EvidencePack(tuple(packed))
 
+
 def search_evidence(
     ctx: CopilotToolContext,
     query: str,
@@ -120,11 +121,7 @@ def query_graph(
         max_hops=max_hops,
     )
 
-    evidence_ids = [
-        evidence_id
-        for edge in neighborhood.edges
-        for evidence_id in edge.evidence_ids
-    ]
+    evidence_ids = [evidence_id for edge in neighborhood.edges for evidence_id in edge.evidence_ids]
 
     return _pack(
         tool=ToolName.QUERY_GRAPH,
@@ -147,11 +144,7 @@ def get_actor(
     actor = ctx.graph.get_node(actor_id)
     neighborhood = ctx.graph.two_hop_neighborhood(actor_id, max_hops=1)
 
-    evidence_ids = [
-        evidence_id
-        for edge in neighborhood.edges
-        for evidence_id in edge.evidence_ids
-    ]
+    evidence_ids = [evidence_id for edge in neighborhood.edges for evidence_id in edge.evidence_ids]
 
     return _pack(
         tool=ToolName.GET_ACTOR,
@@ -177,11 +170,7 @@ def get_timeline(
     ]
     events.sort(key=lambda event: (event.observed_at, event.event_id))
 
-    evidence_ids = [
-        evidence_id
-        for event in events
-        for evidence_id in event.evidence_ids
-    ]
+    evidence_ids = [evidence_id for event in events for evidence_id in event.evidence_ids]
 
     return _pack(
         tool=ToolName.GET_TIMELINE,
@@ -222,9 +211,7 @@ def compare_hypotheses(
     wanted = {str(value) for value in hypothesis_ids}
 
     hypotheses = tuple(
-        hypothesis
-        for hypothesis in ctx.hypotheses
-        if str(hypothesis.hypothesis_id) in wanted
+        hypothesis for hypothesis in ctx.hypotheses if str(hypothesis.hypothesis_id) in wanted
     )
 
     if len(hypotheses) != len(wanted):

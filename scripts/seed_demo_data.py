@@ -246,7 +246,9 @@ def seed(db: Session, evidence_per_case: int) -> dict[str, object]:
                     kind="attribution",
                     status="supported" if final >= 0.72 else "candidate",
                     missing_evidence=[] if final >= 0.72 else ["independent corroboration"],
-                    analyst_disposition="Synthetic benchmark hypothesis; not a real-world attribution.",
+                    analyst_disposition=(
+                        "Synthetic benchmark hypothesis; not a real-world attribution."
+                    ),
                     metadata_json={"synthetic": True},
                 )
             )

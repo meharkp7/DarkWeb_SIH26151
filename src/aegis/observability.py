@@ -1,10 +1,10 @@
 """Thread-safe operational and ML observability primitives (Phase 26)."""
+
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,9 @@ class Metrics:
         self._counters: defaultdict[str, int] = defaultdict(int)
         self._latency_total: defaultdict[str, float] = defaultdict(float)
         self._latency_count: defaultdict[str, int] = defaultdict(int)
-        self._histograms: defaultdict[str, list[int]] = defaultdict(lambda: [0] * (len(self._BUCKETS) + 1))
+        self._histograms: defaultdict[str, list[int]] = defaultdict(
+            lambda: [0] * (len(self._BUCKETS) + 1)
+        )
         self._gauges: dict[str, float] = {}
         self._ml: dict[str, float] = {}
 
@@ -46,7 +48,10 @@ class Metrics:
         with self._lock:
             self._latency_total[name] += milliseconds
             self._latency_count[name] += 1
-            bucket = next((i for i, bound in enumerate(self._BUCKETS) if milliseconds <= bound), len(self._BUCKETS))
+            bucket = next(
+                (i for i, bound in enumerate(self._BUCKETS) if milliseconds <= bound),
+                len(self._BUCKETS),
+            )
             self._histograms[name][bucket] += 1
 
     def set_gauge(self, name: str, value: float) -> None:

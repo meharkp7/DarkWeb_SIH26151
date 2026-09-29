@@ -6,9 +6,9 @@ import csv
 import io
 import json
 import uuid
-from io import BytesIO
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 
 from aegis.copilot.types import Report
 
@@ -115,12 +115,15 @@ def export_pdf(report: Report, provenance: ReportProvenance) -> bytes:
     story = [Paragraph(report.title, styles["Title"]), Spacer(1, 12)]
     story.append(Paragraph(f"Case: {provenance.case_id}", styles["Normal"]))
     story.append(Paragraph(f"Query: {provenance.query}", styles["Normal"]))
-    story.append(Paragraph(f"Generated: {provenance.generated_at.astimezone(UTC).isoformat()}", styles["Normal"]))
+    generated_at = provenance.generated_at.astimezone(UTC).isoformat()
+    story.append(Paragraph(f"Generated: {generated_at}", styles["Normal"]))
     story.append(Spacer(1, 12))
     for section in report.sections:
         story.append(Paragraph(section.heading, styles["Heading2"]))
         for claim in section.claims:
-            citations = ", ".join(claim.citations) if claim.citations else "no direct evidence citation"
+            citations = (
+                ", ".join(claim.citations) if claim.citations else "no direct evidence citation"
+            )
             story.append(Paragraph(f"{claim.text} <i>[{citations}]</i>", styles["BodyText"]))
             story.append(Spacer(1, 5))
     document.build(story)

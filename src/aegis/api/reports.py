@@ -1,4 +1,5 @@
 """Case-scoped report builder and export API."""
+
 from __future__ import annotations
 
 import json
@@ -43,9 +44,7 @@ def build_case_report(db: Session, case_id: UUID) -> tuple[Report, ReportProvena
     # only as background attribution candidates; case-scoped assessments are
     # the authoritative case-bound model records below.
     _ = db.scalars(
-        select(AttributionHypothesisRecord).order_by(
-            AttributionHypothesisRecord.created_at.asc()
-        )
+        select(AttributionHypothesisRecord).order_by(AttributionHypothesisRecord.created_at.asc())
     ).all()
     assessments = db.scalars(
         select(AssessmentRecord)
@@ -134,11 +133,17 @@ def build_case_report(db: Session, case_id: UUID) -> tuple[Report, ReportProvena
 
 
 @router.get("/preview")
-def report_preview(
-    case_id: UUID, db: Annotated[Session, Depends(get_db)]
-) -> dict[str, object]:
+def report_preview(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> dict[str, object]:
     report, provenance = build_case_report(db, case_id)
-    return json.loads(export_json(report, provenance))
+    # ``export_json`` always serialises a JSON object (see
+    # ``reporting.export._payload``), so decoding it back is lossless. The
+    # round trip is what makes ``/preview`` byte-identical to ``/export``'s
+    # JSON body while still returning a structured dict; the guard narrows
+    # ``json.loads``'s ``Any`` to the real type instead of casting it away.
+    payload: object = json.loads(export_json(report, provenance))
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Report preview payload is not a JSON object")
+    return payload
 
 
 @router.get("/export")

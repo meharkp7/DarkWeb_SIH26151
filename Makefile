@@ -131,6 +131,9 @@ frontend-dev:
 frontend-build:
 	cd apps/frontend && npm run build
 
+frontend-test:
+	cd apps/frontend && npm run test
+
 ## ---------------------------------------------------------------- misc
 
 clean:

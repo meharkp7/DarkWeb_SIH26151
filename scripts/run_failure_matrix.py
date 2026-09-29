@@ -1,4 +1,5 @@
 """Controlled dependency-failure matrix for AEGIS service adapters."""
+
 from __future__ import annotations
 
 import json

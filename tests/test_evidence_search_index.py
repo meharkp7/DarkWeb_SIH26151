@@ -4,7 +4,7 @@ from unittest.mock import Mock
 from aegis.db.models import EvidenceRecord
 from aegis.evidence.search_index import EvidenceSearchIndexer, evidence_from_record
 from aegis.schemas.evidence import SourceType
-from aegis.search import IndexedDocument, IndexName
+from aegis.search import IndexedDocument, IndexName, SearchEngine
 
 
 def _record() -> EvidenceRecord:
@@ -39,7 +39,7 @@ def test_evidence_from_record_preserves_canonical_identity() -> None:
 
 
 def test_indexer_indexes_evidence_document() -> None:
-    search = Mock()
+    search = Mock(spec=SearchEngine)
     record = _record()
 
     EvidenceSearchIndexer(search).index(record)
@@ -53,7 +53,11 @@ def test_indexer_indexes_evidence_document() -> None:
 
 
 def test_indexer_indexes_many_records() -> None:
-    search = Mock()
+    # ``spec=SearchEngine`` keeps the fake faithful to the real contract: the
+    # protocol has no ``bulk_index``, so ``index_many`` must fall back to the
+    # per-document loop. A bare ``Mock()`` auto-creates ``bulk_index`` and
+    # would return a Mock instead of the engine's documented ``int``.
+    search = Mock(spec=SearchEngine)
     records = [_record(), _record()]
     records[1].evidence_id = "33333333-3333-4333-8333-333333333333"
 

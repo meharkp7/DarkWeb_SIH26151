@@ -44,6 +44,20 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*(?!settings\.|os\.|config\.|env\.)[\"']?[^\s\"']{12,}"
         ),
     ),
+    # `\b` will not match inside SCREAMING_SNAKE_CASE identifiers because `_`
+    # is a word character, so AWS_SECRET_ACCESS_KEY = "..." slips past the
+    # pattern above. This variant requires an upper-case identifier holding a
+    # quoted value, which is how env-var secrets are actually written. It
+    # stays deliberately narrow: a looser version also matched ordinary code
+    # such as `tokens = Counter()`.
+    (
+        "env-var-secret-assignment",
+        re.compile(
+            r"(?:^|[^A-Za-z0-9_])[A-Z0-9_]*"
+            r"(?:PASSWORD|PASSWD|SECRET|API_?KEY|TOKEN|CREDENTIALS?)"
+            r"[A-Z0-9_]*\s*[:=]\s*[\"'][^\"'\s]{12,}[\"']"
+        ),
+    ),
 )
 
 ALLOWLIST_MARKERS = ("example", "placeholder", "changeme", "your-", "xxx", "dummy")
@@ -101,6 +115,24 @@ def scan_secrets() -> list[Finding]:
     return findings
 
 
+def _installed_distributions() -> list[tuple[str, str]]:
+    """``(name, version)`` for every installed distribution, name lowercased.
+
+    Uses ``importlib.metadata`` rather than shelling out to ``pip``: this
+    project is managed by uv, whose environments do not ship pip, so
+    ``python -m pip list`` always failed and the dependency scan silently
+    skipped itself — reporting a warning and exiting 0 on every run.
+    """
+    from importlib.metadata import distributions
+
+    found: dict[str, str] = {}
+    for dist in distributions():
+        name = (dist.metadata["Name"] or "").strip().lower()
+        if name:
+            found[name] = dist.version or ""
+    return sorted(found.items())
+
+
 def scan_dependencies() -> list[Finding]:
     """Query OSV for known vulnerabilities in installed distributions."""
     try:
@@ -108,41 +140,49 @@ def scan_dependencies() -> list[Finding]:
     except ImportError:
         return [Finding("WARN", "deps", "-", "httpx unavailable; dependency scan skipped")]
 
-    try:
-        listing = subprocess.run(
-            [sys.executable, "-m", "pip", "list", "--format", "json"],
-            capture_output=True,
-            check=True,
-            text=True,
-            timeout=60,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return [Finding("WARN", "deps", "-", "pip list failed; dependency scan skipped")]
-
-    import json
-
-    packages = json.loads(listing)
-    names = [p["name"].lower() for p in packages if p.get("name")]
-    if not names:
-        return [Finding("WARN", "deps", "-", "no installed distributions found")]
+    installed = _installed_distributions()
+    if not installed:
+        return [
+            Finding(
+                "ERROR",
+                "deps",
+                "-",
+                "no installed distributions found; dependency scan did not run",
+            )
+        ]
 
     findings: list[Finding] = []
     try:
+        # The version is included so OSV only returns advisories that actually
+        # affect the installed release. Omitting it returns every advisory ever
+        # published for the name (SQLAlchemy's 2012 PYSEC entries, for example),
+        # which buries real findings under decades of already-fixed history and
+        # trains reviewers to ignore this gate.
         response = httpx.post(
             "https://api.osv.dev/v1/querybatch",
-            json={"queries": [{"package": {"name": n, "ecosystem": "PyPI"}} for n in names]},
+            json={
+                "queries": [
+                    {"package": {"name": n, "ecosystem": "PyPI"}, "version": v or None}
+                    for n, v in installed
+                ]
+            },
             timeout=30.0,
         )
         response.raise_for_status()
         results = response.json().get("results", [])
     except (httpx.HTTPError, ValueError) as exc:
-        return [Finding("WARN", "deps", "-", f"OSV query failed: {exc}")]
+        # A scan that could not run must not read as a clean result. WARN exits
+        # 0, so a transient OSV outage would otherwise turn this gate green
+        # while checking nothing.
+        return [Finding("ERROR", "deps", "-", f"OSV query failed: {exc}")]
 
-    for name, result in zip(names, results, strict=False):
+    for (name, version), result in zip(installed, results, strict=False):
         vulns = result.get("vulns", [])
         if vulns:
             ids = ", ".join(v.get("id", "?") for v in vulns[:5])
-            findings.append(Finding("ERROR", "deps", name, f"known vulnerabilities: {ids}"))
+            findings.append(
+                Finding("ERROR", "deps", f"{name}=={version}", f"known vulnerabilities: {ids}")
+            )
     return findings
 
 

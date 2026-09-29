@@ -63,6 +63,11 @@ jobs:
         run: PYTHONPATH=src uv run pytest -q --junitxml=reports/pytest.xml
         env:
           AEGIS_REQUIRE_DB: "1"
+          # torch/xgboost segfault under BLAS thread oversubscription on some
+          # runners. Pinned to 1 thread, matching docs/local-operations.md.
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -133,4 +138,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - name: Unit tests
+        run: npm run test
       - run: npm run build

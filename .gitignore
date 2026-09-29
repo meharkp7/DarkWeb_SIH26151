@@ -2,6 +2,9 @@
 .env
 .venv/
 venv/
+# uv cache; the Makefile keeps it in-tree for speed, so it must never be
+# committed or picked up by the sdist (it makes `uv build` fail outright).
+.uv-cache/
 
 # Python
 __pycache__/

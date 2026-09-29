@@ -41,6 +41,22 @@ make rehearsal
 trained model: use authorized labelled data, actor/temporal/platform-disjoint evaluation,
 calibration assessment, and a reviewed model registry before any deployment decision.
 
+## Running the full suite
+
+The GNN tests import torch and xgboost, which can segfault under BLAS thread
+oversubscription. Pin the thread counts or the run dies mid-suite:
+
+```bash
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 make test
+```
+
+Integration tests skip silently when PostgreSQL is unreachable. To fail
+instead of skipping — which is what CI does — set `AEGIS_REQUIRE_DB=1`:
+
+```bash
+AEGIS_REQUIRE_DB=1 make test-integration
+```
+
 ## Required release gates
 
 ```bash
@@ -48,6 +64,7 @@ make lint
 make typecheck
 make schema-check
 make test
+make frontend-test
 make security-scan
 make build
 ```

@@ -1,7 +1,10 @@
 """Optional OpenTelemetry tracing with a dependency-free fallback."""
+
 from __future__ import annotations
-from contextlib import contextmanager
+
 from collections.abc import Iterator
+from contextlib import contextmanager
+
 
 @contextmanager
 def span(name: str, **attributes: object) -> Iterator[None]:
