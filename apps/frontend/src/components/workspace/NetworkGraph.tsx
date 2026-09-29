@@ -31,8 +31,8 @@ const RECENCY: ReadonlyArray<{ id: Recency; label: string }> = [
 
 const W = 1120;
 const H = 620;
-const NODE_W = 168;
-const NODE_H = 52;
+const NODE_W = 132;
+const NODE_H = 30;
 const LANE_X = 16;
 const LANE_W = 108;
 
@@ -89,7 +89,6 @@ function columnLayout(
   const groups = groupByType(nodes);
   const types = [...groups.keys()].sort();
   const points = new Map<string, Point>();
-  const usable = W - LANE_X * 2;
   // A gap smaller than the card makes the column unreadable no matter how
   // tall the canvas is, so the card height is the floor.
   const gap = Math.min(84, Math.max(NODE_H + 12, 64));
@@ -100,10 +99,15 @@ function columnLayout(
     const list = [...(groups.get(type) ?? [])].sort(
       (left, right) => right.degree - left.degree || left.label.localeCompare(right.label),
     );
+    // Inset by half a node at each end. A node is drawn centred on `x` and
+    // translated by -NODE_W/2, so the first and last columns were hanging
+    // half off the canvas and being clipped.
+    const firstX = LANE_X + LANE_W;
+    const lastX = W - LANE_X - NODE_W / 2;
     const x =
-      LANE_X +
-      LANE_W +
-      (usable - LANE_W) * (types.length === 1 ? 0.5 : column / (types.length - 1));
+      types.length === 1
+        ? (firstX + lastX) / 2
+        : firstX + ((lastX - firstX) * column) / (types.length - 1);
     // Top-aligned, not vertically centred per column. Centring each column on
     // the canvas put a 15-node column and a 3-node column at different
     // starting heights, so nothing lined up across the top and the picture
@@ -531,16 +535,23 @@ export function NetworkGraph({ caseId, caseName }: NetworkGraphProps) {
                         }
                       }}
                     >
-                      <rect width={NODE_W} height={NODE_H} rx="7" className="inv-node__card" />
-                      <rect width={4} height={NODE_H} rx="2" className="inv-node__rail" />
-                      <text x="14" y="16" className="inv-node__type">
-                        {node.type.replaceAll('_', ' ')}
+                      <title>{`${node.label} — ${node.type.replaceAll('_', ' ')}, degree ${node.degree}, ${node.evidence_count} cited records, confidence ${formatPercent(node.confidence)}`}</title>
+                      {/* A dot and a name. The three-line card this replaced
+                          made every node a box, which at seventy nodes filled
+                          the canvas and buried the edges — the one thing a
+                          network view exists to show. Full detail is in the
+                          inspector, one click away. */}
+                      <circle
+                        cx={9}
+                        cy={NODE_H / 2}
+                        r={node.degree > 3 ? 6 : 4}
+                        className="inv-node__dot"
+                      />
+                      <text x={21} y={NODE_H / 2 + 4} className="inv-node__label">
+                        {clip(node.label, 15)}
                       </text>
-                      <text x="14" y="32" className="inv-node__label">
-                        {clip(node.label, 22)}
-                      </text>
-                      <text x="14" y="45" className="inv-node__meta">
-                        {`deg ${node.degree} · ${node.evidence_count} ev · ${formatPercent(node.confidence)}`}
+                      <text x={NODE_W - 6} y={NODE_H / 2 + 4} className="inv-node__deg">
+                        {node.degree}
                       </text>
                     </g>
                   );

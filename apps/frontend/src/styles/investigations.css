@@ -872,39 +872,39 @@ th[aria-sort='descending'] .inv-sort__arrow::after {
   cursor: pointer;
 }
 
-.inv-node__card {
-  fill: #171a1b;
-  stroke: #2f3436;
-  stroke-width: 1;
-}
-
-.inv-node__rail {
+/* A node is a dot sized by degree, with its name beside it. The three-line
+   card this replaced made every node a box: at seventy nodes the boxes filled
+   the canvas and the edges became an unreadable haze behind them, which is
+   the one thing a network view exists to show. Full detail — type, degree,
+   cited records, confidence, observation window — is in the inspector, one
+   click away and where an analyst actually reads it. */
+.inv-node__dot {
   fill: #7d8783;
 }
 
-.inv-node__type {
-  fill: #69716d;
-  font-family: var(--mono);
-  font-size: 7px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
 .inv-node__label {
-  fill: #d0d4d1;
-  font-size: 10px;
-  font-weight: 600;
+  fill: #c6cac7;
+  font-size: 10.5px;
 }
 
-.inv-node__meta {
+.inv-node__deg {
   fill: #5a625e;
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 9px;
+  text-anchor: end;
 }
 
-.inv-node.is-selected .inv-node__card {
-  fill: #1e2223;
-  stroke: #c3c7c0;
+.inv-node:hover .inv-node__label {
+  fill: var(--text);
+}
+
+.inv-node.is-selected .inv-node__dot {
+  fill: #c3c7c0;
+}
+
+.inv-node.is-selected .inv-node__label {
+  fill: #f2f0ea;
+  font-weight: 600;
 }
 
 .inv-node.is-dim {
