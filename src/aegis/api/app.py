@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Annotated
 from uuid import UUID
@@ -12,10 +13,10 @@ from starlette.middleware.base import RequestResponseEndpoint
 from aegis.api.analysis import run_synthetic_analysis
 from aegis.api.copilot import router as copilot_router
 from aegis.api.deps import get_db, get_evidence_service
-from aegis.api.reports import router as reports_router
 from aegis.api.live import router as live_router
-from aegis.api.workspace import router as workspace_router
+from aegis.api.reports import router as reports_router
 from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_guard
+from aegis.api.workspace import router as workspace_router
 from aegis.db.audit import AuditService
 from aegis.db.models import CaseRecord
 from aegis.db.session import engine
@@ -29,7 +30,10 @@ from aegis.schemas.analysis import (
 from aegis.schemas.evidence import (
     Case,
     CaseCreate,
+    CasePriority,
+    CaseSeverity,
     CaseStatus,
+    CaseUpdate,
     Evidence,
     EvidenceCreate,
     EvidenceProvenance,
@@ -44,13 +48,20 @@ _api_limiter = RequestRateLimiter()
 _guard = request_guard(_api_limiter, max_bytes=1_048_576)
 _metrics = Metrics()
 
+#: Paths reachable without the deployment-level API key. Unchanged from the
+#: original inline set — extracted only so the middleware line fits in 100
+#: columns. Do not widen without a deliberate access-control decision.
+_PUBLIC_PATHS = frozenset({"/health", "/docs", "/openapi.json", "/redoc"})
+
 _cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 if _cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        # GET/POST cover the original read + ingest surface; PATCH was added
+        # for PATCH /api/v1/cases/{id} (case triage). No other verbs are routed.
+        allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Content-Type", "Accept"],
     )
 
@@ -58,7 +69,7 @@ if _cors_origins:
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """Optional deployment-level API-key gate. Disabled by default for local development."""
-    if settings.enable_api_key_auth and request.url.path not in {"/health", "/docs", "/openapi.json", "/redoc"}:
+    if settings.enable_api_key_auth and request.url.path not in _PUBLIC_PATHS:
         supplied = request.headers.get("X-AEGIS-API-Key")
         if not settings.api_key or supplied != settings.api_key:
             return Response(status_code=401, content="authentication required")
@@ -85,7 +96,13 @@ def health() -> dict[str, str]:
 def metrics() -> dict[str, object]:
     """Operational snapshot; deploy behind operator authentication in production."""
     snapshot = _metrics.snapshot()
-    return {"counters": snapshot.counters, "latencies_ms": snapshot.latencies_ms, "histograms_ms": snapshot.histograms_ms, "gauges": snapshot.gauges, "ml": snapshot.ml}
+    return {
+        "counters": snapshot.counters,
+        "latencies_ms": snapshot.latencies_ms,
+        "histograms_ms": snapshot.histograms_ms,
+        "gauges": snapshot.gauges,
+        "ml": snapshot.ml,
+    }
 
 
 @app.get("/health/db")
@@ -101,7 +118,15 @@ def _case_schema(record: CaseRecord) -> Case:
         name=record.name,
         description=record.description,
         status=CaseStatus(record.status),
+        priority=CasePriority(record.priority),
+        severity=CaseSeverity(record.severity),
+        tags=tuple(record.tags or ()),
+        assigned_to=record.assigned_to,
+        sla_due_at=record.sla_due_at,
+        closed_at=record.closed_at,
+        closure_reason=record.closure_reason,
         created_at=record.created_at,
+        updated_at=record.updated_at,
     )
 
 
@@ -122,7 +147,15 @@ def create_case(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[None, Depends(_guard)],
 ) -> Case:
-    record = CaseRecord(name=payload.name, description=payload.description)
+    record = CaseRecord(
+        name=payload.name,
+        description=payload.description,
+        priority=payload.priority.value,
+        severity=payload.severity.value,
+        tags=list(payload.tags),
+        assigned_to=payload.assigned_to,
+        sla_due_at=payload.sla_due_at,
+    )
     db.add(record)
     db.flush()
     AuditService(db).record(
@@ -130,7 +163,7 @@ def create_case(
         case_id=record.case_id,
         entity_type="case",
         entity_id=str(record.case_id),
-        payload={"name": record.name},
+        payload={"name": record.name, "priority": record.priority},
     )
     db.commit()
     db.refresh(record)
@@ -142,6 +175,89 @@ def get_case(case_id: UUID, db: Annotated[Session, Depends(get_db)]) -> Case:
     record = db.get(CaseRecord, case_id)
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+    return _case_schema(record)
+
+
+@app.patch("/api/v1/cases/{case_id}", response_model=Case)
+def update_case(
+    case_id: UUID,
+    payload: CaseUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[None, Depends(_guard)],
+) -> Case:
+    """Partial triage update.
+
+    Only keys actually present in the request body are applied, so omitting a
+    field never clears it. ``tags`` replaces the whole list rather than
+    merging, which keeps "remove the last tag" expressible.
+
+    Closing a case requires a closure reason — supplied now, or already
+    stored from a previous close. The same rule is enforced independently by
+    the ``ck_cases_closure_reason`` CHECK constraint, so no code path can
+    produce a reasonless closed case.
+    """
+    record = db.get(CaseRecord, case_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
+
+    changes = payload.supplied()
+    if not changes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No updatable fields supplied",
+        )
+
+    previous_status = record.status
+
+    if "name" in changes and payload.name is not None:
+        record.name = payload.name
+    if "description" in changes:
+        record.description = payload.description
+    if "priority" in changes and payload.priority is not None:
+        record.priority = payload.priority.value
+    if "severity" in changes and payload.severity is not None:
+        record.severity = payload.severity.value
+    if "tags" in changes and payload.tags is not None:
+        record.tags = list(payload.tags)
+    if "assigned_to" in changes:
+        record.assigned_to = payload.assigned_to
+    if "sla_due_at" in changes:
+        record.sla_due_at = payload.sla_due_at
+    if "closure_reason" in changes:
+        record.closure_reason = payload.closure_reason
+
+    if "status" in changes and payload.status is not None:
+        new_status = payload.status.value
+        if new_status != previous_status:
+            if new_status == "closed":
+                reason = payload.closure_reason or record.closure_reason
+                if reason is None or not reason.strip():
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="closure_reason is required to close a case",
+                    )
+                record.closure_reason = reason
+                record.closed_at = datetime.now(UTC)
+            else:
+                # Re-opening clears the closure record so a later close has to
+                # state a fresh reason rather than inheriting a stale one.
+                record.closed_at = None
+                record.closure_reason = None
+        record.status = new_status
+
+    AuditService(db).record(
+        "case.updated",
+        case_id=record.case_id,
+        entity_type="case",
+        entity_id=str(record.case_id),
+        payload={
+            "changed": sorted(changes),
+            "from_status": previous_status,
+            "to_status": record.status,
+        },
+    )
+    db.commit()
+    db.refresh(record)
     return _case_schema(record)
 
 
@@ -175,8 +291,7 @@ def create_evidence(
         index_prefix=settings.opensearch_index_prefix,
         http_auth=(
             (settings.opensearch_username, settings.opensearch_password)
-            if settings.opensearch_username is not None
-            and settings.opensearch_password is not None
+            if settings.opensearch_username is not None and settings.opensearch_password is not None
             else None
         ),
     )

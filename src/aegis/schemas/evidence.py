@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from aegis.schemas.base import CanonicalModel, migrate
 
@@ -67,8 +67,31 @@ class CaseStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class CasePriority(StrEnum):
+    """Triage ordering. Independent of impact, which is :class:`CaseSeverity`."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class CaseSeverity(StrEnum):
+    """Impact band of the underlying activity if the case is not worked."""
+
+    INFORMATIONAL = "informational"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class Case(CanonicalModel):
-    """Canonical investigation case."""
+    """Canonical investigation case.
+
+    ``tags``/``updated_at`` were declared here before the persistence layer
+    caught up (migration 0004); they now round-trip for real.
+    """
 
     CURRENT_VERSION = "1.0"
 
@@ -76,13 +99,100 @@ class Case(CanonicalModel):
     name: str = Field(min_length=1, max_length=256)
     description: str | None = None
     status: CaseStatus = CaseStatus.OPEN
+    priority: CasePriority = CasePriority.MEDIUM
+    severity: CaseSeverity = CaseSeverity.MEDIUM
     tags: tuple[str, ...] = ()
+    assigned_to: UUID | None = None
+    sla_due_at: datetime | None = None
+    closed_at: datetime | None = None
+    closure_reason: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
     @classmethod
     def example(cls) -> Case:
         return cls(name="SIH-26151 synthetic rehearsal", tags=("rehearsal",))
+
+
+class CaseUpdate(CanonicalModel):
+    """Partial triage update for ``PATCH /api/v1/cases/{case_id}``.
+
+    Every field is optional; only the supplied keys are applied. ``tags``
+    replaces the whole list (it is not a merge) so that removing the last
+    tag is expressible.
+
+    Setting ``status='closed'`` requires ``closure_reason`` — the DB CHECK
+    constraint ``ck_cases_closure_reason`` enforces this independently of
+    the API, and a case already carrying a stored reason may be re-closed
+    without repeating it.
+    """
+
+    CURRENT_VERSION = "1.0"
+
+    name: str | None = Field(default=None, min_length=1, max_length=256)
+    description: str | None = None
+    status: CaseStatus | None = None
+    priority: CasePriority | None = None
+    severity: CaseSeverity | None = None
+    tags: tuple[str, ...] | None = None
+    assigned_to: UUID | None = None
+    sla_due_at: datetime | None = None
+    closure_reason: str | None = Field(default=None, max_length=4000)
+
+    #: Fields this payload is allowed to change; the only keys the PATCH
+    #: handler will ever apply.
+    UPDATABLE: ClassVar[frozenset[str]] = frozenset(
+        {
+            "name",
+            "description",
+            "status",
+            "priority",
+            "severity",
+            "tags",
+            "assigned_to",
+            "sla_due_at",
+            "closure_reason",
+        }
+    )
+
+    def supplied(self) -> set[str]:
+        """Updatable fields explicitly present in the request body.
+
+        ``schema_version`` is filtered out: :class:`CanonicalModel` injects
+        a default in a ``mode="before"`` validator, so it is always "set"
+        and would otherwise appear as a changed field. Anything not in
+        :attr:`UPDATABLE` is dropped so a payload can never ask the handler
+        to write an unlisted column.
+        """
+        fields = self.model_dump(exclude_unset=True)
+        return {key for key in fields if key in self.UPDATABLE}
+
+
+class CaseNoteCreate(CanonicalModel):
+    """API payload for appending an investigative note to a case."""
+
+    CURRENT_VERSION = "1.0"
+
+    body: str = Field(min_length=1, max_length=8000)
+    author_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _reject_blank(self) -> CaseNoteCreate:
+        if not self.body.strip():
+            raise ValueError("body must not be blank")
+        return self
+
+
+class CaseNote(CanonicalModel):
+    """An analyst-authored investigative note."""
+
+    CURRENT_VERSION = "1.0"
+
+    note_id: UUID = Field(default_factory=uuid4)
+    case_id: UUID
+    author_id: UUID | None = None
+    body: str
+    created_at: datetime | None = None
 
 
 class SourceCreate(CanonicalModel):
@@ -111,12 +221,21 @@ class SourceCreate(CanonicalModel):
 
 
 class CaseCreate(CanonicalModel):
-    """API payload for creating a case."""
+    """API payload for creating a case.
+
+    Triage fields are optional at intake: a case is routinely opened before
+    anyone has decided how urgent it is, and ``PATCH`` fills them in later.
+    """
 
     CURRENT_VERSION = "1.0"
 
     name: str = Field(min_length=1, max_length=256)
     description: str | None = None
+    priority: CasePriority = CasePriority.MEDIUM
+    severity: CaseSeverity = CaseSeverity.MEDIUM
+    tags: tuple[str, ...] = ()
+    assigned_to: UUID | None = None
+    sla_due_at: datetime | None = None
 
     @classmethod
     def example(cls) -> CaseCreate:

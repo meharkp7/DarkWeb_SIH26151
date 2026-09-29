@@ -4,9 +4,11 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Sequence,
     String,
     Text,
@@ -21,12 +23,91 @@ from aegis.db.base import Base
 
 
 class CaseRecord(Base):
+    """Investigation case with analyst triage fields (migration 0004).
+
+    ``priority``/``severity`` drive queue ordering, ``tags`` is persisted
+    JSONB (it was a dead schema field before 0004), and ``sla_due_at`` makes
+    response deadlines explicit. ``assigned_to`` is deliberately nullable:
+    a case can be opened before an owner is assigned.
+    """
+
     __tablename__ = "cases"
+    # Mirrors the CHECK constraints in migration 0004 so databases built from
+    # model metadata enforce the same invariants as migrated ones.
+    __table_args__ = (
+        CheckConstraint(
+            "priority IN ('low', 'medium', 'high', 'critical')", name="ck_cases_priority"
+        ),
+        CheckConstraint(
+            "severity IN ('informational', 'low', 'medium', 'high', 'critical')",
+            name="ck_cases_severity",
+        ),
+        CheckConstraint("jsonb_typeof(tags) = 'array'", name="ck_cases_tags_is_array"),
+        CheckConstraint(
+            "status <> 'closed' OR (closure_reason IS NOT NULL AND btrim(closure_reason) <> '')",
+            name="ck_cases_closure_reason",
+        ),
+        # Mirrors `ix_cases_status` in migration 0004. The queue is filtered by
+        # status, so without this every open-cases query is a sequential scan.
+        Index("ix_cases_status", "status"),
+    )
     case_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    priority: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
+    tags: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    assigned_to: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    sla_due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CaseNoteRecord(Base):
+    """Analyst-authored investigative note.
+
+    Distinct from :class:`AuditLogRecord`: notes are free-text working
+    commentary that analysts write during an investigation, whereas the audit
+    trail is system-generated, append-only and hash-chained. A note is tied
+    to a case (cascade-deleted with it) and optionally to an author.
+    """
+
+    __tablename__ = "case_notes"
+    __table_args__ = (
+        # Mirrors `ix_case_notes_case_id` in migration 0004. Composite rather
+        # than a bare `index=True` on case_id because the only read path is
+        # "notes for a case, newest first": the composite lets Postgres serve
+        # the filter and the ORDER BY from one index instead of sorting.
+        Index("ix_case_notes_case_id", "case_id", "created_at"),
+    )
+    note_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    case_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("cases.case_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    author_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.user_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class SourceRecord(Base):

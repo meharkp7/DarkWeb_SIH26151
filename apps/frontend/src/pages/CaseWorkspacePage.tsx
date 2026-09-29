@@ -1,24 +1,901 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { CaseWorkspace } from '../api/types';
+import { api, formatApiError } from '../api/client';
+import {
+  CASE_PRIORITIES,
+  CASE_SEVERITIES,
+  CASE_STATUSES,
+} from '../api/types';
+import type {
+  CaseHypothesis,
+  CaseNote,
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseWorkspace,
+  CaseUpdate,
+  InvestigationCase,
+  WorkspaceEntity,
+  WorkspaceRelationship,
+} from '../api/types';
 import { useApi } from '../hooks/useApi';
 import { useLive } from '../hooks/useLive';
+import { formatDateTime, formatPercent, scoreTone, shortId } from '../lib/format';
+import { Badge } from '../components/Badge';
+import type { Tone } from '../components/Badge';
+import { DataTable } from '../components/DataTable';
+import type { Column } from '../components/DataTable';
+import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { EvidenceDrawer } from '../components/EvidenceDrawer';
+import { EvidenceForm } from '../components/EvidenceForm';
+import { GraphView } from '../components/GraphView';
+import type { GraphEdge, GraphNode } from '../components/GraphView';
+import { Panel } from '../components/Panel';
+import { ScoreBars } from '../components/ScoreBars';
 
-function ScoreRing({ value }: { value:number }){const r=38,c=2*Math.PI*r,d=Math.max(0,Math.min(1,value))*c;return <div className="score-ring"><svg viewBox="0 0 100 100"><circle className="score-ring__track" cx="50" cy="50" r={r}/><circle className="score-ring__value" cx="50" cy="50" r={r} strokeDasharray={`${d} ${c-d}`}/></svg><div><b>{Math.round(value*100)}%</b><small>confidence</small></div></div>}
-function Graph({data}:{data:CaseWorkspace}){const nodes=data.entities.slice(0,24); const index=new Map(nodes.map((n,i)=>[n.entity_id,i])); const pos=nodes.map((_,i)=>({x:50+38*Math.cos(i*2.399),y:50+36*Math.sin(i*2.399)})); return <div className="graph-canvas"><svg viewBox="0 0 100 100" preserveAspectRatio="none">{data.relationships.slice(0,38).map((edge,i)=>{const a=index.get(edge.subject_entity_id);const b=index.get(edge.object_entity_id);if(a===undefined||b===undefined)return null;return <line key={i} x1={pos[a].x} y1={pos[a].y} x2={pos[b].x} y2={pos[b].y} className="graph-edge"/>})}{nodes.map((node,i)=><g key={node.entity_id} className={`graph-node ${node.type==='actor'?'graph-node--actor':''}`}><circle cx={pos[i].x} cy={pos[i].y} r={node.type==='actor'?2.5:1.6}/><text x={pos[i].x+2.2} y={pos[i].y+1.1}>{node.surface_form.slice(0,18)}</text></g>)}</svg><div className="graph-legend"><span><i className="legend-dot legend-dot--actor"/>Actors</span><span><i className="legend-dot"/>Entities</span><span>{data.relationships.length} relationships</span></div></div>}
-function SignalBars({signals}:{signals:Record<string,number>}){return <div className="signal-bars">{Object.entries(signals).map(([name,value])=><div key={name} className="signal-bar"><span>{name}</span><div><i style={{width:`${Math.round(value*100)}%`}}/></div><b>{value.toFixed(2)}</b></div>)}</div>}
-export function CaseWorkspacePage(){
- const {caseId=''}=useParams(); const {snapshot}=useLive(); const resource=useApi<CaseWorkspace>(caseId?`/api/v1/cases/${encodeURIComponent(caseId)}/workspace`:null); const [tab,setTab]=useState<'overview'|'evidence'|'network'|'timeline'|'assessment'>('overview');
- useEffect(()=>{if(snapshot?.server_time) resource.reload();},[snapshot?.server_time]);
- const data=resource.data; const assessment=data?.assessments[0]; const confidence=assessment?.calibrated_confidence??assessment?.raw_score??0;
- const timeline=useMemo(()=>data?.activity??[],[data]);
- if(!data)return <div className="page-stack"><div className="loading-block">Loading investigation workspace…</div></div>;
- return <div className="page-stack workspace-page"><header className="workspace-head"><div><div className="breadcrumbs"><Link to="/cases">Cases</Link><span>›</span><span>{data.case.name}</span></div><div className="title-line"><h1>{data.case.name}</h1><span className={`pill pill--${data.case.status}`}>{data.case.status}</span></div><p>{data.case.description}</p></div><div className="workspace-actions"><span className="synced"><i/> Live synced</span><button className="button">Export</button></div></header>
- <nav className="workspace-tabs">{(['overview','evidence','network','timeline','assessment'] as const).map(item=><button key={item} onClick={()=>setTab(item)} className={tab===item?'active':''}>{item}</button>)}</nav>
- {tab==='overview'&&<><section className="workspace-signal"><div><span className="eyebrow">Case signal</span><h2>Evidence-backed intelligence picture</h2><p>Derived from {data.counts.evidence} evidence records, {data.counts.entities} entities and {data.counts.relationships} observed relationships.</p></div><ScoreRing value={confidence}/><div className="signal-summary"><div><b>{data.counts.evidence}</b><span>evidence</span></div><div><b>{data.counts.entities}</b><span>entities</span></div><div><b>{data.counts.relationships}</b><span>links</span></div></div></section><section className="workspace-grid"><div className="surface surface--graph"><div className="surface-head"><div><span className="eyebrow">Network</span><h2>Relationship field</h2></div><button className="quiet-button" onClick={()=>setTab('network')}>Explore →</button></div><Graph data={data}/></div><div className="surface"><div className="surface-head"><div><span className="eyebrow">Assessment</span><h2>Signal composition</h2></div></div>{assessment?<SignalBars signals={assessment.signals}/>:<div className="empty-state">No assessment yet.</div>}</div></section><section className="workspace-grid workspace-grid--bottom"><div className="surface"><div className="surface-head"><div><span className="eyebrow">Latest</span><h2>Intelligence activity</h2></div><button className="quiet-button" onClick={()=>setTab('timeline')}>Full timeline →</button></div><div className="activity-list">{timeline.slice(0,6).map(row=><div className="activity-row" key={row.seq}><span className="activity-marker"/><div><strong>{String(row.payload.message??row.action)}</strong><small>{new Date(row.occurred_at).toLocaleString()}</small></div></div>)}</div></div><div className="surface"><div className="surface-head"><div><span className="eyebrow">Actors & entities</span><h2>Most connected</h2></div></div><div className="entity-list">{data.entities.filter(x=>x.type==='actor').slice(0,7).map((entity,i)=><div key={entity.entity_id}><span className="entity-rank">0{i+1}</span><strong>{entity.surface_form}</strong><span>{Math.round(entity.confidence*100)}%</span></div>)}</div></div></section></>}
- {tab==='evidence'&&<section className="surface"><div className="surface-head"><div><span className="eyebrow">Source ledger</span><h2>Evidence</h2></div><span className="surface-meta">{data.evidence.length} loaded</span></div><div className="evidence-table"><div className="evidence-row evidence-row--head"><span>Source</span><span>Observed</span><span>Reliability</span><span>Integrity</span></div>{data.evidence.slice(0,100).map(e=><div className="evidence-row" key={e.evidence_id}><span><b>{e.source_type}</b><small>{e.metadata.title ? String(e.metadata.title):e.evidence_id.slice(0,12)}</small></span><span>{e.observed_at?new Date(e.observed_at).toLocaleDateString():'—'}</span><span>{Math.round(e.reliability*100)}%</span><span className="mono">{e.sha256.slice(0,12)}…</span></div>)}</div></section>}
- {tab==='network'&&<section className="surface surface--network"><div className="surface-head"><div><span className="eyebrow">Entity graph</span><h2>Network investigation</h2></div><span className="surface-meta">{data.relationships.length} links</span></div><Graph data={data}/></section>}
- {tab==='timeline'&&<section className="surface"><div className="surface-head"><div><span className="eyebrow">Chronology</span><h2>Investigation timeline</h2></div></div><div className="timeline">{timeline.map(row=><div className="timeline-row" key={row.seq}><span>{new Date(row.occurred_at).toLocaleDateString()}</span><i/><div><b>{String(row.payload.message??row.action)}</b><small>{row.action} · seq {row.seq}</small></div></div>)}</div></section>}
- {tab==='assessment'&&<section className="assessment-grid"><div className="surface"><span className="eyebrow">Model assessment</span><h2>Evidence-weighted assessment</h2><div className="assessment-score"><ScoreRing value={confidence}/><div><b>{assessment?.model_id??'No model run'}</b><span>{assessment?.model_version??'—'}</span></div></div>{assessment?.explanations.map(x=><p className="assessment-note" key={x}>• {x}</p>)}</div><div className="surface"><span className="eyebrow">Limitations</span><h2>Read before acting</h2>{(assessment?.limitations??['No assessment limitations returned.']).map(x=><p className="assessment-note" key={x}>• {x}</p>)}<div className="caution">Model confidence is not identity certainty. Review supporting and contradictory evidence before any operational decision.</div></div></section>}
- </div>;
+type Tab = 'overview' | 'evidence' | 'network' | 'hypotheses' | 'notes';
+
+const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'evidence', label: 'Evidence' },
+  { id: 'network', label: 'Network' },
+  { id: 'hypotheses', label: 'Hypotheses' },
+  { id: 'notes', label: 'Notes' },
+];
+
+const STATUS_TONE: Record<CaseStatus, Tone> = {
+  open: 'info',
+  active: 'ok',
+  on_hold: 'warn',
+  closed: 'neutral',
+  archived: 'neutral',
+};
+
+const PRIORITY_TONE: Record<CasePriority, Tone> = {
+  low: 'neutral',
+  medium: 'info',
+  high: 'warn',
+  critical: 'danger',
+};
+
+const SEVERITY_TONE: Record<CaseSeverity, Tone> = {
+  informational: 'neutral',
+  low: 'neutral',
+  medium: 'info',
+  high: 'warn',
+  critical: 'danger',
+};
+
+/** GraphView lays nodes on one ring; beyond this it stops being readable. */
+const GRAPH_NODE_LIMIT = 20;
+const GRAPH_EDGE_LIMIT = 48;
+
+function ScoreRing({ value }: { value: number }) {
+  const radius = 38;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(1, value));
+  const dash = clamped * circumference;
+  return (
+    <div className="score-ring">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle className="score-ring__track" cx="50" cy="50" r={radius} />
+        <circle
+          className="score-ring__value"
+          cx="50"
+          cy="50"
+          r={radius}
+          strokeDasharray={`${dash} ${circumference - dash}`}
+        />
+      </svg>
+      <div>
+        <b>{Math.round(clamped * 100)}%</b>
+        <small>confidence</small>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Inline triage controls. Every edit is a single-key PATCH so an omitted
+ * field is never cleared as a side effect of changing something else.
+ */
+function TriageBar({
+  workspace,
+  onPatched,
+}: {
+  workspace: InvestigationCase & { sla_overdue: boolean };
+  onPatched: (updated: InvestigationCase) => void;
+}) {
+  const [busyField, setBusyField] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [slaInput, setSlaInput] = useState(() =>
+    workspace.sla_due_at === null ? '' : workspace.sla_due_at.slice(0, 16),
+  );
+  const [tagsInput, setTagsInput] = useState(() => workspace.tags.join(', '));
+
+  useEffect(() => {
+    setSlaInput(workspace.sla_due_at === null ? '' : workspace.sla_due_at.slice(0, 16));
+    setTagsInput(workspace.tags.join(', '));
+  }, [workspace.sla_due_at, workspace.tags]);
+
+  const patch = useCallback(
+    async (field: string, payload: CaseUpdate) => {
+      setBusyField(field);
+      setError(null);
+      try {
+        const updated = await api.updateCase(workspace.case_id, payload);
+        onPatched(updated);
+      } catch (err: unknown) {
+        setError(formatApiError(err));
+      } finally {
+        setBusyField(null);
+      }
+    },
+    [workspace.case_id, onPatched],
+  );
+
+  const commitStatus = async (next: CaseStatus) => {
+    if (next === workspace.status) return;
+    if (next === 'closed') {
+      const reason = window.prompt(
+        'Closing an investigation requires a closure reason. What was the outcome?',
+        workspace.closure_reason ?? '',
+      );
+      if (reason === null) return;
+      if (reason.trim() === '') {
+        setError('API 422 — a closure reason is required to close a case.');
+        return;
+      }
+      await patch('status', { status: next, closure_reason: reason.trim() });
+      return;
+    }
+    await patch('status', { status: next });
+  };
+
+  return (
+    <Panel
+      title="Triage"
+      description="Priority, severity, ownership and SLA. Closing requires a recorded reason."
+    >
+      <div className="triage-grid">
+        <div className="field">
+          <label htmlFor="tb-status">Status</label>
+          <select
+            id="tb-status"
+            value={workspace.status}
+            disabled={busyField === 'status'}
+            onChange={(event) => void commitStatus(event.target.value as CaseStatus)}
+          >
+            {CASE_STATUSES.map((value) => (
+              <option key={value} value={value}>
+                {value.replace('_', ' ')}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="tb-priority">Priority</label>
+          <select
+            id="tb-priority"
+            value={workspace.priority}
+            disabled={busyField === 'priority'}
+            onChange={(event) => void patch('priority', { priority: event.target.value as CasePriority })}
+          >
+            {CASE_PRIORITIES.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="tb-severity">Severity</label>
+          <select
+            id="tb-severity"
+            value={workspace.severity}
+            disabled={busyField === 'severity'}
+            onChange={(event) => void patch('severity', { severity: event.target.value as CaseSeverity })}
+          >
+            {CASE_SEVERITIES.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="tb-sla">SLA due</label>
+          <input
+            id="tb-sla"
+            type="datetime-local"
+            value={slaInput}
+            disabled={busyField === 'sla_due_at'}
+            onChange={(event) => setSlaInput(event.target.value)}
+            onBlur={() => {
+              const next =
+                slaInput === '' ? null : new Date(slaInput).toISOString();
+              if (next !== workspace.sla_due_at) {
+                void patch('sla_due_at', { sla_due_at: next });
+              }
+            }}
+          />
+        </div>
+        <div className="field field--wide">
+          <label htmlFor="tb-tags">Tags (comma separated)</label>
+          <div className="inline-form">
+            <input
+              id="tb-tags"
+              value={tagsInput}
+              disabled={busyField === 'tags'}
+              onChange={(event) => setTagsInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                const tags = tagsInput
+                  .split(',')
+                  .map((tag) => tag.trim())
+                  .filter((tag) => tag !== '');
+                void patch('tags', { tags });
+              }}
+              placeholder="financial, marketplace"
+            />
+            <button
+              type="button"
+              className="btn btn--ghost btn--small"
+              disabled={busyField === 'tags'}
+              onClick={() => {
+                const tags = tagsInput
+                  .split(',')
+                  .map((tag) => tag.trim())
+                  .filter((tag) => tag !== '');
+                void patch('tags', { tags });
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="triage-summary">
+        <Badge tone={STATUS_TONE[workspace.status]}>{workspace.status.replace('_', ' ')}</Badge>
+        <Badge tone={PRIORITY_TONE[workspace.priority]} title="Priority">
+          {workspace.priority}
+        </Badge>
+        <Badge tone={SEVERITY_TONE[workspace.severity]} title="Severity">
+          {workspace.severity}
+        </Badge>
+        {workspace.sla_overdue && <Badge tone="danger">SLA breached</Badge>}
+        {workspace.closed_at !== null && (
+          <Badge tone="neutral">closed {formatDateTime(workspace.closed_at)}</Badge>
+        )}
+        {workspace.assigned_to === null ? (
+          <Badge tone="warn">unassigned</Badge>
+        ) : (
+          <Badge tone="neutral">owner {shortId(workspace.assigned_to, 8)}</Badge>
+        )}
+      </div>
+
+      {workspace.closure_reason !== null && (
+        <p className="hint">
+          <strong>Closure reason:</strong> {workspace.closure_reason}
+        </p>
+      )}
+      {error !== null && <ErrorState message={error} />}
+    </Panel>
+  );
+}
+
+function NotesTab({ caseId }: { caseId: string }) {
+  const notes = useApi<CaseNote[]>(`/api/v1/cases/${encodeURIComponent(caseId)}/notes`);
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    const trimmed = body.trim();
+    if (trimmed === '') {
+      setError('A note cannot be blank.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createNote(caseId, { body: trimmed });
+      setBody('');
+      notes.reload();
+    } catch (err: unknown) {
+      setError(formatApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel
+      title="Investigative notes"
+      description="Analyst working commentary. The separate audit trail is on the Overview tab."
+      actions={
+        <span className="surface-meta">{notes.data?.length ?? 0} notes</span>
+      }
+    >
+      <div className="field">
+        <label htmlFor="note-body">Add a note</label>
+        <textarea
+          id="note-body"
+          rows={3}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="What did you observe, and what should the next analyst check?"
+        />
+      </div>
+      <div className="form-actions">
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => void submit()}
+          disabled={busy}
+        >
+          {busy ? 'Saving…' : 'Add note'}
+        </button>
+        <span className="hint">POST /api/v1/cases/{caseId}/notes</span>
+      </div>
+      {error !== null && <p className="status status--error">{error}</p>}
+
+      <div className="section-head">
+        <h2>Recorded notes</h2>
+        <button type="button" className="quiet-button" onClick={notes.reload}>
+          Refresh
+        </button>
+      </div>
+
+      {notes.loading && <LoadingState label="Loading notes…" />}
+      {notes.error !== null && <ErrorState message={notes.error} onRetry={notes.reload} />}
+      {!notes.loading && notes.error === null && (notes.data ?? []).length === 0 && (
+        <EmptyState
+          title="No notes yet"
+          message="Notes are the analyst's own record of what was checked and concluded. Nothing has been written for this investigation."
+          endpoint="GET /api/v1/cases/{id}/notes"
+        />
+      )}
+      <ul className="note-list">
+        {(notes.data ?? []).map((note) => (
+          <li key={note.note_id} className="note">
+            <p className="note__body">{note.body}</p>
+            <p className="note__meta">
+              {formatDateTime(note.created_at)}
+              {note.author_id !== null && <> · {shortId(note.author_id, 8)}</>}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+function HypothesesTab({ caseId }: { caseId: string }) {
+  const resource = useApi<CaseHypothesis[]>(
+    `/api/v1/cases/${encodeURIComponent(caseId)}/hypotheses`,
+  );
+  const rows = resource.data ?? [];
+
+  const columns: ReadonlyArray<Column<CaseHypothesis>> = [
+    {
+      key: 'hypothesis',
+      header: 'Hypothesis',
+      render: (row) => (
+        <>
+          <b>{row.kind}</b>
+          <small className="table-sub">
+            {shortId(row.subject_entity_id, 8)} → {shortId(row.object_entity_id, 8)}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => <Badge tone={row.status === 'accepted' ? 'ok' : 'neutral'}>{row.status}</Badge>,
+    },
+    {
+      key: 'confidence',
+      header: 'Confidence',
+      align: 'end',
+      render: (row) =>
+        row.calibrated_confidence === null ? (
+          <span className="hint">unscored</span>
+        ) : (
+          <span className={`bar bar--inline`}>
+            <span
+              className={`bar__fill bar__fill--${scoreTone(row.calibrated_confidence)}`}
+              style={{ width: `${Math.round(row.calibrated_confidence * 100)}%` }}
+            />
+            {formatPercent(row.calibrated_confidence)}
+          </span>
+        ),
+    },
+    {
+      key: 'missing',
+      header: 'Missing evidence',
+      render: (row) =>
+        row.missing_evidence.length === 0 ? (
+          <span className="hint">none</span>
+        ) : (
+          <span className="text-warn">{row.missing_evidence.length} gaps</span>
+        ),
+    },
+    {
+      key: 'updated',
+      header: 'Updated',
+      align: 'end',
+      render: (row) => formatDateTime(row.updated_at ?? row.created_at),
+    },
+  ];
+
+  return (
+    <Panel
+      title="Attribution hypotheses"
+      description="Scoped to this investigation only."
+      actions={<span className="surface-meta">{rows.length} hypotheses</span>}
+    >
+      {resource.loading && <LoadingState label="Loading hypotheses…" />}
+      {resource.error !== null && <ErrorState message={resource.error} onRetry={resource.reload} />}
+      {!resource.loading && resource.error === null && (
+        <DataTable
+          caption="Attribution hypotheses raised in this investigation"
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.hypothesis_id}
+          empty={
+            <EmptyState
+              title="No hypotheses"
+              message="No attribution hypotheses have been raised for this investigation."
+              endpoint="GET /api/v1/cases/{id}/hypotheses"
+            />
+          }
+        />
+      )}
+    </Panel>
+  );
+}
+
+
+export function CaseWorkspacePage() {
+  const { caseId = '' } = useParams();
+  const { snapshot } = useLive();
+  const resource = useApi<CaseWorkspace>(
+    caseId === '' ? null : `/api/v1/cases/${encodeURIComponent(caseId)}/workspace`,
+  );
+  const [tab, setTab] = useState<Tab>('overview');
+  const [openEvidence, setOpenEvidence] = useState<string | null>(null);
+  const [live, setLive] = useState<CaseWorkspace | null>(null);
+
+  useEffect(() => {
+    if (snapshot?.server_time !== undefined) resource.reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot?.server_time]);
+
+  useEffect(() => {
+    if (resource.data !== null) setLive(resource.data);
+  }, [resource.data]);
+
+  const data = live;
+  const refresh = resource.reload;
+
+  const assessment = data?.assessments[0];
+  const confidence = assessment?.calibrated_confidence ?? assessment?.raw_score ?? 0;
+
+  const { graphNodes, graphEdges, truncated } = useMemo(() => {
+    if (data === null) return { graphNodes: [] as GraphNode[], graphEdges: [] as GraphEdge[], truncated: 0 };
+
+    const actors = data.entities.filter((entity) => entity.type === 'actor');
+    const others = data.entities.filter((entity) => entity.type !== 'actor');
+    // Actors first so they occupy the leading ring positions.
+    const ordered: WorkspaceEntity[] = [...actors, ...others];
+    const visible = ordered.slice(0, GRAPH_NODE_LIMIT);
+    const visibleIds = new Set(visible.map((entity) => entity.entity_id));
+
+    const nodes: GraphNode[] = visible.map((entity) => ({
+      id: entity.entity_id,
+      label: entity.surface_form.slice(0, 18),
+    }));
+
+    const edges: GraphEdge[] = data.relationships
+      .filter(
+        (relationship) =>
+          visibleIds.has(relationship.subject_entity_id) &&
+          visibleIds.has(relationship.object_entity_id),
+      )
+      .slice(0, GRAPH_EDGE_LIMIT)
+      .map((relationship) => ({
+        source: relationship.subject_entity_id,
+        target: relationship.object_entity_id,
+        label: relationship.type,
+        tone: relationship.confidence >= 0.5 ? 'ok' : 'danger',
+      }));
+
+    return { graphNodes: nodes, graphEdges: edges, truncated: ordered.length - visible.length };
+  }, [data]);
+
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const setSelectedEntity = useCallback((nodeId: string) => {
+    setSelectedEntityId((current) => (current === nodeId ? null : nodeId));
+  }, []);
+  const selected =
+    data === null || selectedEntityId === null
+      ? null
+      : (data.entities.find((entity) => entity.entity_id === selectedEntityId) ?? null);
+
+  const evidenceColumns: ReadonlyArray<Column<CaseWorkspace['evidence'][number]>> = [
+    {
+      key: 'source',
+      header: 'Source',
+      render: (row) => (
+        <>
+          <b>{row.source_type}</b>
+          <small className="table-sub">
+            {row.metadata.title !== undefined ? String(row.metadata.title) : shortId(row.evidence_id, 12)}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'observed',
+      header: 'Observed',
+      render: (row) => formatDateTime(row.observed_at ?? row.collected_at),
+    },
+    {
+      key: 'reliability',
+      header: 'Reliability',
+      align: 'end',
+      render: (row) => formatPercent(row.reliability),
+    },
+    {
+      key: 'integrity',
+      header: 'Integrity',
+      render: (row) => <span className="mono">{shortId(row.sha256, 12)}</span>,
+    },
+  ];
+
+  if (caseId === '') {
+    return (
+      <div className="page-stack">
+        <EmptyState title="No case selected" message="Pick an investigation from the case list." />
+      </div>
+    );
+  }
+
+  if (resource.error !== null) {
+    return (
+      <div className="page-stack">
+        <ErrorState message={resource.error} onRetry={resource.reload} />
+      </div>
+    );
+  }
+
+  if (data === null) {
+    return (
+      <div className="page-stack">
+        <LoadingState label="Loading investigation workspace…" />
+      </div>
+    );
+  }
+
+  const relationships: WorkspaceRelationship[] = data.relationships;
+
+  return (
+    <div className="page-stack workspace-page">
+      <header className="workspace-head">
+        <div>
+          <div className="breadcrumbs">
+            <Link to="/cases">Cases</Link>
+            <span>›</span>
+            <span>{data.case.name}</span>
+          </div>
+          <div className="title-line">
+            <h1>{data.case.name}</h1>
+            <Badge tone={STATUS_TONE[data.case.status]}>
+              {data.case.status.replace('_', ' ')}
+            </Badge>
+            {data.case.sla_overdue && <Badge tone="danger">SLA breached</Badge>}
+          </div>
+          <p>{data.case.description ?? <span className="hint">No description</span>}</p>
+          {data.case.tags.length > 0 && (
+            <p className="tag-row">
+              {data.case.tags.map((tag) => (
+                <span className="tag" key={tag}>
+                  {tag}
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+        <div className="workspace-actions">
+          <span className="synced">
+            <i /> Live synced
+          </span>
+          <a className="button" href={api.reportExportUrl(caseId, 'json')}>
+            Export JSON
+          </a>
+          <a className="button button--dark" href={api.reportExportUrl(caseId, 'csv')}>
+            Export CSV
+          </a>
+        </div>
+      </header>
+
+      <nav className="workspace-tabs" aria-label="Workspace sections">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setTab(item.id)}
+            className={tab === item.id ? 'active' : ''}
+            aria-current={tab === item.id ? 'page' : undefined}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'overview' && (
+        <>
+          <section className="workspace-signal">
+            <div>
+              <span className="eyebrow">Case signal</span>
+              <h2>Evidence-backed intelligence picture</h2>
+              <p>
+                Derived from {data.counts.evidence} evidence records,{' '}
+                {data.counts.entities} entities and {data.counts.relationships} observed
+                relationships.
+              </p>
+            </div>
+            <ScoreRing value={confidence} />
+            <div className="signal-summary">
+              <div>
+                <b>{data.counts.evidence}</b>
+                <span>evidence</span>
+              </div>
+              <div>
+                <b>{data.counts.entities}</b>
+                <span>entities</span>
+              </div>
+              <div>
+                <b>{data.counts.relationships}</b>
+                <span>links</span>
+              </div>
+            </div>
+          </section>
+
+          <TriageBar
+            workspace={data.case}
+            onPatched={(updated) => {
+              setLive({ ...data, case: { ...data.case, ...updated } });
+            }}
+          />
+
+          <section className="workspace-grid">
+            <Panel
+              title="Relationship field"
+              actions={
+                <button type="button" className="quiet-button" onClick={() => setTab('network')}>
+                  Explore →
+                </button>
+              }
+            >
+              {graphNodes.length === 0 ? (
+                <EmptyState
+                  title="No entities"
+                  message="No entities have been extracted into this investigation yet."
+                />
+              ) : (
+                <div className="graph-canvas">
+                  <GraphView
+                    nodes={graphNodes}
+                    edges={graphEdges}
+                    label={`Relationship graph for ${data.case.name}`}
+                    onSelectNode={() => setTab('network')}
+                  />
+                  <div className="graph-legend">
+                    <span>
+                      <i className="legend-dot legend-dot--actor" /> Actors
+                    </span>
+                    <span>
+                      <i className="legend-dot" /> Other entities
+                    </span>
+                    <span>{graphEdges.length} relationships shown</span>
+                  </div>
+                </div>
+              )}
+            </Panel>
+
+            <Panel title="Signal composition">
+              {assessment === undefined ? (
+                <EmptyState
+                  title="No assessment"
+                  message="No model assessment has been produced for this investigation."
+                />
+              ) : (
+                <ScoreBars
+                  label="Assessment signal weights"
+                  rows={Object.entries(assessment.signals).map(([name, value]) => ({
+                    label: name,
+                    value,
+                    tone: scoreTone(value),
+                  }))}
+                />
+              )}
+            </Panel>
+          </section>
+
+          <section className="workspace-grid workspace-grid--bottom">
+            <Panel
+              title="Intelligence activity"
+              description="Immutable system audit trail."
+              actions={<span className="surface-meta">seq {data.activity[0]?.seq ?? 0}</span>}
+            >
+              {data.activity.length === 0 ? (
+                <EmptyState
+                  title="No activity"
+                  message="No audited events have been recorded for this investigation."
+                />
+              ) : (
+                <div className="activity-list">
+                  {data.activity.slice(0, 8).map((row) => (
+                    <div className="activity-row" key={row.seq}>
+                      <span className="activity-marker" />
+                      <div>
+                        <strong>{String(row.payload.message ?? row.action)}</strong>
+                        <small>{formatDateTime(row.occurred_at)}</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
+
+            <Panel title="Most connected entities">
+              {data.entities.length === 0 ? (
+                <EmptyState title="No entities" message="Nothing extracted yet." />
+              ) : (
+                <div className="entity-list">
+                  {data.entities
+                    .slice()
+                    .sort((a, b) => b.confidence - a.confidence)
+                    .slice(0, 7)
+                    .map((entity, index) => (
+                      <div key={entity.entity_id}>
+                        <span className="entity-rank">{String(index + 1).padStart(2, '0')}</span>
+                        <strong>{entity.surface_form}</strong>
+                        <span>{formatPercent(entity.confidence)}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </Panel>
+          </section>
+        </>
+      )}
+
+      {tab === 'evidence' && (
+        <>
+          <Panel
+            title="Evidence ledger"
+            description="Every record collected for this investigation."
+            actions={
+              <button type="button" className="btn btn--ghost btn--small" onClick={refresh}>
+                Refresh
+              </button>
+            }
+          >
+            {openEvidence !== null && (
+              <EvidenceDrawer
+                evidenceId={openEvidence}
+                onClose={() => setOpenEvidence(null)}
+                onLoaded={() => undefined}
+                onOpenEvidence={setOpenEvidence}
+              />
+            )}
+            <DataTable
+              caption="Evidence collected for this investigation"
+              columns={[
+                ...evidenceColumns,
+                {
+                  key: 'open',
+                  header: '',
+                  align: 'end' as const,
+                  render: (row: CaseWorkspace['evidence'][number]) => (
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => setOpenEvidence(row.evidence_id)}
+                    >
+                      Open
+                    </button>
+                  ),
+                },
+              ]}
+              rows={data.evidence}
+              rowKey={(row) => row.evidence_id}
+              empty={
+                <EmptyState
+                  title="No evidence"
+                  message="Nothing has been collected into this investigation yet."
+                  endpoint="GET /api/v1/cases/{id}/evidence"
+                />
+              }
+            />
+          </Panel>
+          <Panel title="Ingest evidence" description="New records attach to this investigation.">
+            <EvidenceForm caseId={caseId} onCreated={refresh} />
+          </Panel>
+        </>
+      )}
+
+      {tab === 'network' && (
+        <Panel
+          title="Network investigation"
+          description={`${graphNodes.length} entities, ${graphEdges.length} relationships shown.`}
+          actions={
+            <Link className="quiet-button" to="/graph">
+              Full graph →
+            </Link>
+          }
+        >
+          {graphNodes.length === 0 ? (
+            <EmptyState
+              title="No relationships"
+              message="No entities have been extracted into this investigation yet."
+            />
+          ) : (
+            <>
+              {truncated > 0 && (
+                <p className="caution">
+                  {truncated} further entities are not drawn — the graph shows the{' '}
+                  {GRAPH_NODE_LIMIT} most relevant and the first {GRAPH_EDGE_LIMIT} relationships.
+                </p>
+              )}
+              <div className="graph-canvas graph-canvas--tall">
+                <GraphView
+                  nodes={graphNodes}
+                  edges={graphEdges}
+                  label={`Relationship graph for ${data.case.name}`}
+                  onSelectNode={setSelectedEntity}
+                />
+                <div className="graph-legend">
+                  <span>
+                    <i className="legend-dot legend-dot--actor" /> Actors
+                  </span>
+                  <span>{relationships.length} relationships total</span>
+                </div>
+              </div>
+              {selected !== null && (
+                <dl className="kv">
+                  <dt>Entity</dt>
+                  <dd>{selected.surface_form}</dd>
+                  <dt>Type</dt>
+                  <dd>{selected.type}</dd>
+                  <dt>Normalized</dt>
+                  <dd className="mono">{selected.normalized_form}</dd>
+                  <dt>Confidence</dt>
+                  <dd>{formatPercent(selected.confidence)}</dd>
+                  <dt>Relationships</dt>
+                  <dd>
+                    {relationships.filter(
+                      (relationship) =>
+                        relationship.subject_entity_id === selected.entity_id ||
+                        relationship.object_entity_id === selected.entity_id,
+                    ).length}
+                  </dd>
+                </dl>
+              )}
+            </>
+          )}
+        </Panel>
+      )}
+
+      {tab === 'hypotheses' && <HypothesesTab caseId={caseId} />}
+
+      {tab === 'notes' && <NotesTab caseId={caseId} />}
+    </div>
+  );
 }

@@ -3,17 +3,19 @@
 The websocket is intentionally read-only: it streams derived operational state
 from PostgreSQL and never accepts commands from untrusted client content.
 """
+
 from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
+from aegis.api.case_triage import case_is_overdue
 from aegis.api.deps import get_db
 from aegis.db.models import (
     AssessmentRecord,
@@ -66,11 +68,14 @@ def _activity(db: Session, case_id: UUID | None = None, limit: int = 24) -> list
 
 def _snapshot(db: Session) -> dict[str, object]:
     counts = _counts(db)
-    critical = db.scalar(
-        select(func.count())
-        .select_from(AuditLogRecord)
-        .where(AuditLogRecord.action.in_(["alert.critical", "threat.critical"]))
-    ) or 0
+    critical = (
+        db.scalar(
+            select(func.count())
+            .select_from(AuditLogRecord)
+            .where(AuditLogRecord.action.in_(["alert.critical", "threat.critical"]))
+        )
+        or 0
+    )
     return {
         "type": "snapshot",
         "server_time": datetime.now(UTC).isoformat(),
@@ -88,30 +93,74 @@ def dashboard_summary(db: Annotated[Session, Depends(get_db)]) -> dict[str, obje
 
 @router.get("/api/v1/dashboard/cases")
 def dashboard_cases(db: Annotated[Session, Depends(get_db)]) -> list[dict[str, object]]:
+    """Per-case rollup for the case list.
+
+    All four child counts and the last-activity stamp are resolved with
+    grouped aggregate queries in a constant number of round trips. The
+    previous implementation issued five queries *per case* in a Python loop
+    (an N+1 that grew linearly with the number of investigations), which the
+    case-triage work made worse by adding more per-case fields.
+    """
     cases = db.scalars(select(CaseRecord).order_by(CaseRecord.created_at.desc())).all()
+    if not cases:
+        return []
+
+    case_ids = [case.case_id for case in cases]
+
+    def grouped(column: InstrumentedAttribute[Any]) -> dict[UUID, int]:
+        rows = db.execute(
+            select(column, func.count()).where(column.in_(case_ids)).group_by(column)
+        ).all()
+        return {cast(UUID, key): int(cast(Any, total)) for key, total in rows}
+
+    evidence_counts = grouped(EvidenceRecord.case_id)
+    entity_counts = grouped(EntityRecord.case_id)
+    relationship_counts = grouped(RelationshipRecord.case_id)
+    assessment_counts = grouped(AssessmentRecord.case_id)
+
+    # DISTINCT ON keeps the highest-seq audit row per case.
+    last_activity = {
+        cast(UUID, case_id): occurred_at
+        for case_id, occurred_at in db.execute(
+            select(AuditLogRecord.case_id, AuditLogRecord.occurred_at)
+            .where(AuditLogRecord.case_id.in_(case_ids))
+            .distinct(AuditLogRecord.case_id)
+            .order_by(AuditLogRecord.case_id, AuditLogRecord.seq.desc())
+        ).all()
+    }
+
+    now = datetime.now(UTC)
     result: list[dict[str, object]] = []
     for case in cases:
-        counts = {
-            "evidence": int(db.scalar(select(func.count()).select_from(EvidenceRecord).where(EvidenceRecord.case_id == case.case_id)) or 0),
-            "entities": int(db.scalar(select(func.count()).select_from(EntityRecord).where(EntityRecord.case_id == case.case_id)) or 0),
-            "relationships": int(db.scalar(select(func.count()).select_from(RelationshipRecord).where(RelationshipRecord.case_id == case.case_id)) or 0),
-            "assessments": int(db.scalar(select(func.count()).select_from(AssessmentRecord).where(AssessmentRecord.case_id == case.case_id)) or 0),
-        }
-        latest = db.scalar(
-            select(AuditLogRecord.occurred_at)
-            .where(AuditLogRecord.case_id == case.case_id)
-            .order_by(AuditLogRecord.seq.desc())
-            .limit(1)
+        result.append(
+            {
+                "case_id": str(case.case_id),
+                "name": case.name,
+                "description": case.description,
+                "status": case.status,
+                "priority": case.priority,
+                "severity": case.severity,
+                "tags": list(case.tags or []),
+                "assigned_to": str(case.assigned_to) if case.assigned_to else None,
+                "sla_due_at": case.sla_due_at.isoformat() if case.sla_due_at else None,
+                "closed_at": case.closed_at.isoformat() if case.closed_at else None,
+                "closure_reason": case.closure_reason,
+                "sla_overdue": case_is_overdue(case, now=now),
+                "created_at": case.created_at.isoformat() if case.created_at else None,
+                "updated_at": case.updated_at.isoformat() if case.updated_at else None,
+                "counts": {
+                    "evidence": evidence_counts.get(case.case_id, 0),
+                    "entities": entity_counts.get(case.case_id, 0),
+                    "relationships": relationship_counts.get(case.case_id, 0),
+                    "assessments": assessment_counts.get(case.case_id, 0),
+                },
+                "last_activity": (
+                    last_activity[case.case_id].isoformat()
+                    if case.case_id in last_activity
+                    else None
+                ),
+            }
         )
-        result.append({
-            "case_id": str(case.case_id),
-            "name": case.name,
-            "description": case.description,
-            "status": case.status,
-            "created_at": case.created_at.isoformat() if case.created_at else None,
-            "counts": counts,
-            "last_activity": latest.isoformat() if latest else None,
-        })
     return result
 
 
@@ -137,9 +186,7 @@ async def live_socket(websocket: WebSocket) -> None:
         while True:
             db = next(get_db())
             try:
-                latest_seq = int(
-                    db.scalar(select(func.max(AuditLogRecord.seq))) or 0
-                )
+                latest_seq = int(db.scalar(select(func.max(AuditLogRecord.seq))) or 0)
                 if latest_seq != last_seq:
                     await websocket.send_json(_snapshot(db))
                     last_seq = latest_seq

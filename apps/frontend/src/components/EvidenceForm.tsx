@@ -3,8 +3,17 @@ import type { FormEvent } from 'react';
 import { api, formatApiError } from '../api/client';
 import { SOURCE_TYPES } from '../api/types';
 import type { Evidence, EvidenceCreate, SourceType } from '../api/types';
+import { shortId } from '../lib/format';
 
 export interface EvidenceFormProps {
+  /**
+   * Attach the new record to this case.
+   *
+   * Without this the form posts no `case_id` at all, so evidence ingested
+   * "from" a case silently lands unassigned and never appears in that case's
+   * workspace. Pass `null` for standalone, case-less intake.
+   */
+  readonly caseId?: string | null;
   /** Called with the record returned by `POST /api/v1/evidence`. */
   readonly onCreated: (record: Evidence) => void;
 }
@@ -35,7 +44,7 @@ function nowLocalInput(): string {
  * Mirrors the required fields of `EvidenceCreate` in
  * `src/aegis/schemas/evidence.py`.
  */
-export function EvidenceForm({ onCreated }: EvidenceFormProps) {
+export function EvidenceForm({ caseId = null, onCreated }: EvidenceFormProps) {
   const [sourceId, setSourceId] = useState('');
   const [sourceType, setSourceType] = useState<SourceType>('synthetic');
   const [observedAt, setObservedAt] = useState('');
@@ -83,6 +92,7 @@ export function EvidenceForm({ onCreated }: EvidenceFormProps) {
     }
 
     const payload: EvidenceCreate = {
+      case_id: caseId,
       source_id: trimmed.sourceId,
       source_type: sourceType,
       observed_at: observedAt === '' ? null : new Date(observedAt).toISOString(),
@@ -111,6 +121,11 @@ export function EvidenceForm({ onCreated }: EvidenceFormProps) {
 
   return (
     <form className="form" onSubmit={handleSubmit}>
+      {caseId !== null && (
+        <p className="form-context">
+          Attaching to case <code className="mono">{shortId(caseId, 12)}</code>
+        </p>
+      )}
       <div className="form-grid">
         <div className="field">
           <label htmlFor="ev-source-id">Source ID (required)</label>
