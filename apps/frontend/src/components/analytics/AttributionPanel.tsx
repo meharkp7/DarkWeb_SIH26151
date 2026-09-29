@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { AttributionPosture } from '../../api/types';
+import { epistemicLabel } from '../../lib/explain';
 import { cx, formatPercent, scoreTone, shortId } from '../../lib/format';
 
 export interface AttributionPanelProps {
@@ -32,6 +33,19 @@ function signalTone(value: number): string {
 }
 
 /**
+ * What the confidence figure on this row actually is.
+ *
+ * An assessment with evidence cited behind it is a recorded score: the
+ * citations can be opened and argued with. One with nothing cited is a bare
+ * model output, which is an estimate and is labelled as one. The response does
+ * not distinguish a calibrated confidence from a raw model score, so the
+ * presence of citations is the only signal available here.
+ */
+function rowEpistemic(row: AttributionPosture): { label: string; kind: 'recorded' | 'estimate' } {
+  return epistemicLabel(row.supporting_signals > 0 ? 'assessment' : 'model');
+}
+
+/**
  * Attribution posture: the leading assessment per investigation, with the
  * evidence standing behind the number.
  *
@@ -50,6 +64,7 @@ export function AttributionPanel({ rows, label = 'Attribution posture by investi
       {rows.map((row) => {
         const confidence = clamp01(row.confidence);
         const signals = readSignals(row);
+        const epistemic = rowEpistemic(row);
         return (
           <li className="cc2-attr__row" key={row.case_id}>
             <div className="cc2-attr__head">
@@ -61,6 +76,16 @@ export function AttributionPanel({ rows, label = 'Attribution posture by investi
                 {row.case_name}
               </Link>
               <span className="mono cc2-attr__id">{shortId(row.case_id, 8)}</span>
+              <span
+                className={cx('db-kind', `db-kind--${epistemic.kind}`)}
+                title={
+                  epistemic.kind === 'recorded'
+                    ? 'Cited assessment: the evidence behind this figure is listed below it.'
+                    : 'Model output with no evidence cited on this row.'
+                }
+              >
+                {epistemic.label}
+              </span>
               <span className={cx('cc2-attr__confidence', `cc2-attr__confidence--${scoreTone(confidence)}`)}>
                 {formatPercent(confidence)}
               </span>
@@ -72,7 +97,7 @@ export function AttributionPanel({ rows, label = 'Attribution posture by investi
               aria-valuenow={Math.round(confidence * 100)}
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-label={`Attribution confidence for ${row.case_name}: ${formatPercent(confidence)}`}
+              aria-label={`Attribution confidence for ${row.case_name}: ${formatPercent(confidence)}, ${epistemic.label.toLowerCase()}`}
             >
               <span className={`bar__fill bar__fill--${scoreTone(confidence)}`} style={{ width: `${confidence * 100}%` }} />
             </span>

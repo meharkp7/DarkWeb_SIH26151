@@ -1,0 +1,225 @@
+/**
+ * Plain-language explanations for every figure the console puts on screen.
+ *
+ * A lead sentence here is a claim about how a number was produced, and it is
+ * held to the same standard as the number: if the backend changed its window,
+ * its denominator or its source, the sentence is wrong and has to be changed
+ * with it. The sources of truth are `src/aegis/api/dashboard_analytics.py`,
+ * `src/aegis/api/live.py` and `src/aegis/api/workspace.py`.
+ *
+ * Two things are deliberately absent from this file: adjectives and optimism.
+ * "Corroborated across independent sources" is a claim; "rich" and "powerful"
+ * are not, and an analyst who cannot check a sentence stops reading the ones
+ * they could.
+ */
+
+const EM_DASH = '—';
+
+/**
+ * Where a figure came from, in terms of how much weight it can carry.
+ *
+ * - `assessment` — a model assessment with evidence cited behind it. Recorded
+ *   because the citations exist and can be opened, not because the model is
+ *   right.
+ * - `model`      — a bare model output with nothing behind it on screen. An
+ *   estimate, always.
+ * - `analyst`    — a human disposition. Recorded, and attributable to whoever
+ *   made it.
+ * - `derived`    — arithmetic over rows in the store, recomputed on each read.
+ */
+export type EpistemicSource = 'assessment' | 'model' | 'analyst' | 'derived';
+
+export type EpistemicKind = 'recorded' | 'estimate';
+
+export interface EpistemicLabel {
+  readonly label: string;
+  readonly kind: EpistemicKind;
+}
+
+/**
+ * How a figure should be described in words.
+ *
+ * `derived` is classed as `recorded` because it is deterministic arithmetic over
+ * stored rows — a count of records collected in the last seven days is either
+ * true of the database or the query is wrong, which is a different failure from
+ * a model being wrong. The label still says "derived", because the figure was
+ * computed by the API rather than written down by anyone.
+ */
+export function epistemicLabel(source: EpistemicSource): EpistemicLabel {
+  switch (source) {
+    case 'assessment':
+      return { label: 'Recorded score', kind: 'recorded' };
+    case 'model':
+      return { label: 'Model estimate', kind: 'estimate' };
+    case 'analyst':
+      return { label: 'Analyst disposition', kind: 'recorded' };
+    case 'derived':
+      return { label: 'Derived from records', kind: 'recorded' };
+  }
+}
+
+/** Every metric this module can explain. Kept open so a panel can name its own. */
+export const METRICS = {
+  evidenceVelocity: 'evidence.velocity',
+  investigationPressure: 'investigation.pressure',
+  attributionPosture: 'attribution.posture',
+  priorityQueue: 'priority.queue',
+  commandPosture: 'command.posture',
+  activityFeed: 'activity.feed',
+  platformCounts: 'platform.counts',
+  signalMatrix: 'signal.matrix',
+  evidenceLedger: 'evidence.ledger',
+  caseTimeline: 'case.timeline',
+  caseGraph: 'case.graph',
+  hypothesisBoard: 'hypothesis.board',
+  competingHypotheses: 'hypotheses.competing',
+  evidenceProvenance: 'evidence.provenance',
+  caseMetrics: 'case.metrics',
+} as const;
+
+export type MetricName = (typeof METRICS)[keyof typeof METRICS];
+
+/**
+ * Context a lead may interpolate. Every key is optional and every key is
+ * checked before use: a lead that asserts "across 0 buckets" because the frame
+ * was partial is worse than one that omits the count.
+ *
+ * - `total`   — investigations in the register.
+ * - `buckets` — monthly buckets in the velocity series.
+ * - `limit`   — rows behind a lead assessment list.
+ * - `shown`   — rows a preview is actually rendering.
+ */
+export interface LeadContext {
+  readonly total?: number | null;
+  readonly buckets?: number | null;
+  readonly limit?: number | null;
+  readonly shown?: number | null;
+}
+
+/** The context with every key resolved, so no lead can print "undefined". */
+interface ResolvedContext {
+  readonly total: number | null;
+  readonly buckets: number | null;
+  readonly limit: number | null;
+  readonly shown: number | null;
+}
+
+/** A positive finite number, or null — the only context values worth printing. */
+function positive(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function readContext(context: Record<string, unknown> | undefined): ResolvedContext {
+  const source = context ?? {};
+  return {
+    total: positive(source['total']),
+    buckets: positive(source['buckets']),
+    limit: positive(source['limit']),
+    shown: positive(source['shown']),
+  };
+}
+
+type LeadBuilder = (context: ResolvedContext) => string;
+
+const LEADS: Readonly<Record<MetricName, LeadBuilder>> = {
+  'evidence.velocity': ({ buckets }) =>
+    `Evidence records per calendar month, counted by the date they were collected, in ${
+      buckets === null ? 'monthly buckets' : `${buckets} monthly bucket${buckets === 1 ? '' : 's'}`
+    } ending with the current month. A month with nothing collected is drawn as zero rather than left out, because "we collected nothing" is an answer and a missing point is not. The bar beneath each point is the signed change against the month before it; the first bucket has no earlier month, so it has no change to show.`,
+
+  'investigation.pressure': () =>
+    'Five platform-wide indicators, each scored 0–100 by dividing a recorded count by a fixed ceiling. The count and its ceiling are printed beside every score, so any figure here can be checked by hand. The headline index is the mean of the five, not a total. The windows differ: evidence and relationship growth count the last 7 days, novel infrastructure and contradictions are all-time, and SLA exposure counts investigations due within 12 hours that are not closed or archived.',
+
+  'attribution.posture': ({ limit }) =>
+    `The leading assessment for ${
+      limit === null
+        ? 'each investigation shown here, drawn from those that are not closed or archived'
+        : `up to ${limit} investigations that are not closed or archived`
+    }: the highest calibrated confidence available, or the raw model score where nothing has been calibrated. The percentage is a hypothesis under review, not a finding. Supporting signals counts the evidence cited behind it, modalities the distinct signal types, contradictions the citations that argue against it, and freshness the strongest single signal — which is not the age of the evidence.`,
+
+  'priority.queue': ({ total }) =>
+    `${
+      total === null ? 'Every investigation in the register' : `All ${total} investigations in the register`
+    }, ranked by the queue score the server computes. The score is the sum of signed contributions — priority, severity, deadline state, unresolved contradictions, evidence collected in the last 7 days, resolved links, and whether an analyst is assigned — capped at 100, so a saturated row's contributions will not add up to its score. Closed and archived investigations score 0. Open a row to see what produced its position.`,
+
+  'command.posture': ({ total }) =>
+    `Live counts across ${
+      total === null ? 'the register' : `the ${total} investigations in the register`
+    }. Active means status open or active. Critical and high count the priority field. SLA at risk counts investigations already past their deadline or due within the next 12 hours. New evidence counts records collected in the last 7 days. Unresolved contradictions counts assessments carrying at least one contradictory citation. Each tile opens the register filtered to that condition.`,
+
+  'activity.feed': ({ shown }) =>
+    `The most recent writes to the audit ledger, newest first.${
+      shown === null ? '' : ` The ${shown} most recent are listed here;`
+    } each entry records that the platform performed an action — a case created, evidence ingested, a link resolved — and carries no judgement about whether that action was right.`,
+
+  'platform.counts': () =>
+    'All-time totals held by the platform at the moment of this snapshot, with nothing filtered: every case, evidence record, entity, relationship and assessment in the store. Critical alerts counts audit entries recorded as critical over the same all-time period; it is a count of events that have happened, not a list of alerts still open.',
+
+  'signal.matrix': () =>
+    'Support, contradiction and freshness for each modality in this case, averaged over every assessment recorded here. A modality with no recorded signal is shown at a neutral 0.55 rather than at zero, so an absence is not read as a weak lead. Contradiction is 12% of the average number of contradictory citations per assessment, capped at 0.85. Bands: HIGH from 0.72, MEDIUM from 0.48, LOW below that.',
+
+  'evidence.ledger': () =>
+    'Every evidence record attached to this case, newest collection first, with the source it came from, the reliability recorded against that source, and the independence group it belongs to. Reliability is a property of the source, not a measurement of this record. Independence groups are what stop three feeds copying one press release from reading as three sources.',
+
+  'case.timeline': () =>
+    'Everything the platform recorded against this case, newest first, in four lanes: what happened, who it involved, the infrastructure it touched, and the money. Up to 80 audit entries and 30 evidence records are merged and ordered by when they occurred, so the lanes are interleaved by time rather than listed separately.',
+
+  'case.graph': () =>
+    "Entities in this case as nodes, and the relationships between them as edges. An edge is drawn only when both of its endpoints are entities belonging to this case, so a link reaching outside the case is absent here rather than shown as a node nothing can describe. Nodes are ordered by degree, so the most connected entities come first. An edge's confidence is the model's, and the evidence behind it is what makes it checkable.",
+
+  'hypothesis.board': () =>
+    'Every hypothesis raised in this case, highest calibrated confidence first. The confidence belongs to the best assessment attached to that hypothesis and is absent where nothing has been calibrated; the raw score is the uncalibrated model output of the same assessment, and the two are not interchangeable. Independent source groups counts the distinct groups behind the supporting links, not the number of citations.',
+
+  'hypotheses.competing': () =>
+    "This case's hypotheses as a matrix: one row per hypothesis, one column per modality, each cell the model's signal value for that pairing. A cell with no recorded signal is left empty rather than drawn as zero, so a modality nobody has measured is not read as a disconfirmed one. Confidence sits beside the number of supporting and contradictory citations and the number of independent source groups behind them, because the same percentage carried by one source and by four is not the same claim.",
+
+  'evidence.provenance': () =>
+    'Where one evidence record came from: its SHA-256 digest, the artifact URI it was ingested from, and the parent records it was derived from. The derivation count is the number of parents on file, so a count of zero means no parent is recorded — which is not the same as the record being original, only that nobody recorded the derivation.',
+
+  'case.metrics': () =>
+    'Counts for this case alone: evidence records, resolved relationships, entities, distinct sources, contradictory citations, hypotheses, and distinct independence groups. Attribution is the highest calibrated confidence among this case\'s assessments, and it is absent when nothing here has been assessed — which means missing, not zero.',
+};
+
+/**
+ * Said when a panel has no explanation registered for it. The point of the
+ * fallback is that an unexplained figure announces itself rather than passing
+ * as a self-evident one.
+ */
+const UNDOCUMENTED =
+  'No basis has been documented for this figure. Treat it as an unlabelled number and check it against the endpoint that produced it.';
+
+/**
+ * The lead sentence for a named metric.
+ *
+ * Never returns an empty string: a block with no lead is exactly the failure
+ * this module exists to remove.
+ */
+export function leadFor(metric: string, context?: Record<string, unknown>): string {
+  const builder = (LEADS as Readonly<Record<string, LeadBuilder | undefined>>)[metric];
+  if (builder === undefined) return UNDOCUMENTED;
+  return builder(readContext(context));
+}
+
+/**
+ * A count with its noun, or an em dash when the value was not returned.
+ *
+ * "0 links" and "not recorded" are different facts, and rendering an absent
+ * count as 0 collapses them into a false one. A missing value is a statement
+ * about the system, not about the case.
+ */
+export function formatCount(n: number | null | undefined, noun: string, plural?: string): string {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return EM_DASH;
+  const word = Math.abs(n) === 1 ? noun : (plural ?? `${noun}s`);
+  return `${n.toLocaleString('en-GB')} ${word}`;
+}
+
+/** Any optional value, formatted — or an em dash when it is absent. */
+export function formatOptional<T>(
+  value: T | null | undefined,
+  formatter?: (value: T) => string,
+): string {
+  if (value === null || value === undefined) return EM_DASH;
+  if (typeof value === 'string' && value.trim() === '') return EM_DASH;
+  if (typeof value === 'number' && !Number.isFinite(value)) return EM_DASH;
+  return formatter === undefined ? String(value) : formatter(value);
+}

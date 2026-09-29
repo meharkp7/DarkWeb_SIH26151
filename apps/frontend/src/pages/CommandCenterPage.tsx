@@ -6,7 +6,7 @@ import { PressurePanel } from '../components/analytics/PressurePanel';
 import { VelocityChart } from '../components/analytics/VelocityChart';
 import { Badge } from '../components/Badge';
 import type { Tone } from '../components/Badge';
-import { Panel } from '../components/Panel';
+import { DataBlock } from '../components/DataBlock';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { useApi } from '../hooks/useApi';
 import { useLive } from '../hooks/useLive';
@@ -18,6 +18,7 @@ import type {
   LiveActivity,
   SlaState,
 } from '../api/types';
+import { formatCount, formatOptional, leadFor } from '../lib/explain';
 import { cx, formatDateTime, shortId } from '../lib/format';
 import { useAuth } from '../store/auth';
 
@@ -126,45 +127,52 @@ function LiveStatus({
 interface PostureTile {
   readonly key: string;
   readonly label: string;
-  readonly value: number;
+  readonly value: number | null;
   /** The denominator or window that makes the figure readable on its own. */
   readonly qualifier: string;
   readonly tone: Tone;
   readonly to: string;
 }
 
-function postureTiles(posture: CommandPosture | null, total: number): PostureTile[] {
+/**
+ * A tile shows a dash when the posture block was not in the frame.
+ *
+ * The tiles used to substitute 0 for a missing figure, which reads as "nothing
+ * is wrong" — the one conclusion a blank dashboard must never invite.
+ */
+function postureTiles(posture: CommandPosture | null, total: number | null): PostureTile[] {
   const safe = posture;
-  const denominator = `${number(total)} investigation${total === 1 ? '' : 's'}`;
+  const denominator =
+    total === null ? 'register total not returned' : `of ${number(total)} investigation${total === 1 ? '' : 's'}`;
   return [
     {
       key: 'active',
       label: 'Active investigations',
-      value: safe?.active_investigations ?? 0,
-      qualifier: `of ${denominator}`,
+      value: safe?.active_investigations ?? null,
+      qualifier: denominator,
       tone: 'info',
       to: '/cases?status=active',
     },
     {
       key: 'critical',
       label: 'Critical',
-      value: safe?.critical ?? 0,
-      qualifier: `of ${denominator}`,
+      value: safe?.critical ?? null,
+      qualifier: denominator,
       tone: 'danger',
       to: '/cases?priority=critical',
     },
     {
       key: 'high',
       label: 'High priority',
-      value: safe?.high ?? 0,
-      qualifier: `of ${denominator}`,
+      value: safe?.high ?? null,
+      qualifier: denominator,
       tone: 'warn',
       to: '/cases?priority=high',
     },
     {
       key: 'sla',
       label: 'SLA at risk or breached',
-      value: safe?.sla_at_risk ?? 0,
+      value: safe?.sla_at_risk ?? null,
       qualifier: 'due within 12 hours',
       tone: 'warn',
       to: '/cases?sla=at_risk',
@@ -172,7 +180,7 @@ function postureTiles(posture: CommandPosture | null, total: number): PostureTil
     {
       key: 'evidence',
       label: 'New evidence',
-      value: safe?.new_evidence ?? 0,
+      value: safe?.new_evidence ?? null,
       qualifier: 'collected in 7 days',
       tone: 'ok',
       to: '/cases?sort=recent_evidence',
@@ -180,7 +188,7 @@ function postureTiles(posture: CommandPosture | null, total: number): PostureTil
     {
       key: 'contradictions',
       label: 'Unresolved contradictions',
-      value: safe?.unresolved_links ?? 0,
+      value: safe?.unresolved_links ?? null,
       qualifier: 'assessments still contradicted',
       tone: 'danger',
       to: '/cases?sort=contradictions',
@@ -188,7 +196,7 @@ function postureTiles(posture: CommandPosture | null, total: number): PostureTil
   ];
 }
 
-function PostureTiles({ posture, total }: { readonly posture: CommandPosture | null; readonly total: number }) {
+function PostureTiles({ posture, total }: { readonly posture: CommandPosture | null; readonly total: number | null }) {
   const tiles = postureTiles(posture, total);
   return (
     <section className="cc2-tiles" aria-label="Command posture">
@@ -197,11 +205,11 @@ function PostureTiles({ posture, total }: { readonly posture: CommandPosture | n
           key={tile.key}
           className="cc2-tile"
           to={tile.to}
-          aria-label={`${tile.label}: ${number(tile.value)}, ${tile.qualifier}. Opens the investigations register filtered to this queue.`}
+          aria-label={`${tile.label}: ${formatOptional(tile.value)}, ${tile.qualifier}. Opens the investigations register filtered to this queue.`}
         >
           <span className="cc2-tile__label">{tile.label}</span>
           <strong className={cx('cc2-tile__value', `cc2-tile__value--${tile.tone}`)}>
-            {number(tile.value)}
+            {formatOptional(tile.value)}
           </strong>
           <span className="cc2-tile__qualifier">{tile.qualifier}</span>
         </Link>
@@ -402,7 +410,7 @@ function PriorityQueue({ rows }: { readonly rows: readonly CaseQueueEntry[] }) {
       </div>
       {rows.length > visible.length && (
         <p className="cc2-queue__more">
-          Showing the {visible.length} highest-scoring of {number(rows.length)} investigations.{' '}
+          Showing the {visible.length} highest-scoring of {formatCount(rows.length, 'investigation')}.{' '}
           <Link to="/cases">Open the full register</Link>.
         </p>
       )}
@@ -449,28 +457,30 @@ function ActivityLedger({ rows }: { readonly rows: readonly LiveActivity[] }) {
 
 function PlatformStrip({ snapshot }: { readonly snapshot: DashboardSnapshot | null }) {
   const counts = block(snapshot, 'counts');
-  const items: ReadonlyArray<{ readonly key: string; readonly label: string; readonly value: number }> = [
-    { key: 'cases', label: 'Cases', value: counts?.cases ?? 0 },
-    { key: 'evidence', label: 'Evidence', value: counts?.evidence ?? 0 },
-    { key: 'entities', label: 'Entities', value: counts?.entities ?? 0 },
-    { key: 'relationships', label: 'Relationships', value: counts?.relationships ?? 0 },
-    { key: 'assessments', label: 'Assessments', value: counts?.assessments ?? 0 },
+  const items: ReadonlyArray<{ readonly key: string; readonly label: string; readonly value: number | null }> = [
+    { key: 'cases', label: 'Cases', value: counts?.cases ?? null },
+    { key: 'evidence', label: 'Evidence', value: counts?.evidence ?? null },
+    { key: 'entities', label: 'Entities', value: counts?.entities ?? null },
+    { key: 'relationships', label: 'Relationships', value: counts?.relationships ?? null },
+    { key: 'assessments', label: 'Assessments', value: counts?.assessments ?? null },
   ];
-  const alerts = snapshot?.critical_alerts ?? 0;
+  // `critical_alerts` is absent from a partial frame for the same reason the
+  // counts are: a frame that did not carry it did not measure it.
+  const alerts = snapshot === null ? null : snapshot.critical_alerts;
   return (
     <section className="cc2-strip" aria-label="Platform footprint">
       <ul className="cc2-strip__items">
         {items.map((item) => (
           <li className="cc2-strip__item" key={item.key}>
-            <span className="cc2-strip__value mono">{number(item.value)}</span>
+            <span className="cc2-strip__value mono">{formatOptional(item.value)}</span>
             <span className="cc2-strip__label">{item.label}</span>
           </li>
         ))}
-        <li className={cx('cc2-strip__item', alerts > 0 && 'cc2-strip__item--alert')}>
-          <span className="cc2-strip__value mono">{number(alerts)}</span>
+        <li className={cx('cc2-strip__item', (alerts ?? 0) > 0 && 'cc2-strip__item--alert')}>
+          <span className="cc2-strip__value mono">{formatOptional(alerts)}</span>
           <span className="cc2-strip__label">
-            Critical alert{alerts === 1 ? '' : 's'}
-            {alerts > 0 && ' — review now'}
+            Critical alert{(alerts ?? 0) === 1 ? '' : 's'}
+            {(alerts ?? 0) > 0 && ' — review now'}
           </span>
         </li>
       </ul>
@@ -502,7 +512,10 @@ export function CommandCenterPage() {
   );
 
   const posture = block(data, 'command_posture');
-  const total = posture?.total_investigations ?? queue.length;
+  // The register total is the posture block's own count. Falling back to the
+  // number of rows on screen would present a truncated queue as the whole
+  // register, and every "of N" tile with it.
+  const total = posture?.total_investigations ?? null;
   const velocity = block(data, 'evidence_velocity') ?? [];
   const pressure = block(data, 'investigation_pressure') ?? [];
   const attribution = block(data, 'attribution_posture') ?? [];
@@ -533,7 +546,7 @@ export function CommandCenterPage() {
     <div className="page-stack cc2-page">
       <header className="cc2-head">
         <div className="cc2-head__main">
-          <span className="eyebrow">AEGIS · intelligence operations</span>
+          <span className="eyebrow">Every figure states its basis</span>
           <h1 className="cc2-head__title">
             {greeting()}, {identity?.name ?? 'Analyst'}.
           </h1>
@@ -568,20 +581,30 @@ export function CommandCenterPage() {
 
       {!loading && error === null && (
         <>
-          <PostureTiles posture={posture} total={total} />
+          <DataBlock
+            title="Command posture"
+            eyebrow="State of the register"
+            lead={leadFor('command.posture', { total })}
+            dense
+            className="db--plain"
+          >
+            <PostureTiles posture={posture} total={total} />
+          </DataBlock>
 
-          <Panel
+          <DataBlock
             title="Priority queue"
-            description="Ranked by the server-computed queue score. Every row can be opened to show the signed contributions that produce it."
-            actions={<span className="surface-meta">{number(queue.length)} investigations</span>}
+            eyebrow="Derived, and auditable line by line"
+            lead={leadFor('priority.queue', { total })}
+            actions={<span className="surface-meta">{formatCount(queue.length, 'investigation')}</span>}
           >
             <PriorityQueue rows={queue} />
-          </Panel>
+          </DataBlock>
 
           <div className="cc2-split">
-            <Panel
+            <DataBlock
               title="Evidence velocity"
-              description="Records collected per period, with the signed change against the previous period beneath."
+              eyebrow="Collection rate, month by month"
+              lead={leadFor('evidence.velocity', { buckets: velocity.length })}
             >
               {velocity.length === 0 ? (
                 <EmptyState
@@ -608,11 +631,12 @@ export function CommandCenterPage() {
                   </ul>
                 </>
               )}
-            </Panel>
+            </DataBlock>
 
-            <Panel
+            <DataBlock
               title="Investigation pressure"
-              description="How close each queue dimension is to its ceiling, with the raw count the score was scaled from."
+              eyebrow="Scaled against declared ceilings"
+              lead={leadFor('investigation.pressure')}
             >
               {pressure.length === 0 && posture === null ? (
                 <EmptyState
@@ -623,25 +647,23 @@ export function CommandCenterPage() {
               ) : (
                 <PressurePanel indicators={pressure} pressureIndex={posture?.pressure_index ?? null} />
               )}
-            </Panel>
+            </DataBlock>
           </div>
 
-          <Panel
+          <DataBlock
             title="Attribution posture"
-            description="The leading assessment per investigation, with the signals, modalities and contradictions behind each confidence figure."
-            actions={
-              <span className="surface-meta">
-                {number(attribution.length)} case{attribution.length === 1 ? '' : 's'}
-              </span>
-            }
+            eyebrow="Estimates stay labelled"
+            lead={leadFor('attribution.posture', { limit: attribution.length })}
+            actions={<span className="surface-meta">{formatCount(attribution.length, 'case')}</span>}
           >
             <AttributionPanel rows={attribution} />
-          </Panel>
+          </DataBlock>
 
           <div className="cc2-split">
-            <Panel
+            <DataBlock
               title="Activity ledger"
-              description="The most recent writes to the platform, newest first."
+              eyebrow="What the platform recorded"
+              lead={leadFor('activity.feed', { shown: LEDGER_PREVIEW })}
               actions={
                 <Link className="btn btn--ghost btn--small" to="/threat-watch">
                   Threat watch
@@ -649,9 +671,13 @@ export function CommandCenterPage() {
               }
             >
               <ActivityLedger rows={activity} />
-            </Panel>
+            </DataBlock>
 
-            <Panel title="Platform footprint" description="Totals held by AEGIS at the time of this snapshot.">
+            <DataBlock
+              title="Platform footprint"
+              eyebrow="All-time totals, nothing filtered"
+              lead={leadFor('platform.counts')}
+            >
               <PlatformStrip snapshot={data} />
               {posture !== null && (
                 <dl className="kv kv--tight cc2-posture__facts">
@@ -661,7 +687,7 @@ export function CommandCenterPage() {
                   <dd>{number(posture.pressure_index)} of 100</dd>
                 </dl>
               )}
-            </Panel>
+            </DataBlock>
           </div>
         </>
       )}

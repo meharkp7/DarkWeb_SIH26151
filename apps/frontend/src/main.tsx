@@ -14,6 +14,8 @@ import './styles/investigations.css';
 import './styles/admin.css';
 import './styles/search.css';
 import './styles/inspector.css';
+import './styles/datablock.css';
+import './styles/export.css';
 // Cross-cutting accessibility rules load last so a component stylesheet cannot
 // accidentally win a specificity contest against the focus ring.
 import './styles/accessibility.css';

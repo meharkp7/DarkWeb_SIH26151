@@ -1,4 +1,5 @@
 import type { PressureIndicator } from '../../api/types';
+import { epistemicLabel, formatOptional } from '../../lib/explain';
 import { cx } from '../../lib/format';
 import type { Tone } from '../Badge';
 
@@ -32,22 +33,30 @@ export function PressurePanel({ indicators, pressureIndex = null }: PressurePane
   const index = pressureIndex === null ? null : clampScore(pressureIndex);
   const observed = indicators.reduce((total, indicator) => total + (Number.isFinite(indicator.observed) ? indicator.observed : 0), 0);
   const ceiling = indicators.reduce((total, indicator) => total + (Number.isFinite(indicator.ceiling) ? indicator.ceiling : 0), 0);
+  // The index is the mean of scores the API scaled from recorded counts, so it
+  // is arithmetic over the ledger rather than a model output.
+  const epistemic = epistemicLabel('derived');
 
   return (
     <div className="cc2-pressure">
       <div className="cc2-pressure__summary">
         <div>
-          <span className="cc2-pressure__summary-label">Platform pressure index</span>
+          <p className="db-figure">
+            <span className="cc2-pressure__summary-label">Platform pressure index</span>
+            <span className={cx('db-kind', `db-kind--${epistemic.kind}`)}>{epistemic.label}</span>
+          </p>
           <strong className="cc2-pressure__summary-value">
-            {index === null ? '—' : index}
-            <small>/ 100</small>
+            {formatOptional(index)}
+            {index !== null && <small>/ 100</small>}
           </strong>
         </div>
         <div className="cc2-pressure__summary-meta">
           <p className="hint">
             {index === null
               ? 'The API did not return a platform pressure index for this snapshot.'
-              : `Mean of ${indicators.length} pressure indicator${indicators.length === 1 ? '' : 's'}. A figure near 0 means the platform is within capacity; near 100 means the ceilings below are reached.`}
+              : indicators.length === 0
+                ? 'The API returned an index but no indicators behind it, so it cannot be checked against anything.'
+                : `Mean of ${indicators.length} pressure indicator${indicators.length === 1 ? '' : 's'}. A figure near 0 means the platform is within capacity; near 100 means the ceilings below are reached.`}
           </p>
           {ceiling > 0 && (
             <p className="hint">
@@ -69,7 +78,8 @@ export function PressurePanel({ indicators, pressureIndex = null }: PressurePane
                 <div className="cc2-pressure__row-head">
                   <span className="cc2-pressure__row-label">{indicator.label}</span>
                   <span className="cc2-pressure__row-raw mono">
-                    {indicator.observed.toLocaleString('en-GB')} / {indicator.ceiling.toLocaleString('en-GB')}
+                    {formatOptional(indicator.observed, (value) => value.toLocaleString('en-GB'))} /{' '}
+                    {formatOptional(indicator.ceiling, (value) => value.toLocaleString('en-GB'))}
                   </span>
                   <span className={cx('cc2-pressure__row-score', `cc2-pressure__row-score--${pressureTone(score)}`)}>
                     {score}

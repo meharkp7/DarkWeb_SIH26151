@@ -1,4 +1,5 @@
 import type { VelocityPoint } from '../../api/types';
+import { formatOptional } from '../../lib/explain';
 
 export interface VelocityChartProps {
   /** Evidence counts per bucket, oldest first, as the API returns them. */
@@ -44,6 +45,11 @@ function deltaText(delta: number | null): string {
   return delta > 0 ? `+${delta}` : String(delta);
 }
 
+/** A count that is missing says so; a malformed one is not printed as a number. */
+function countText(count: number): string {
+  return formatOptional(count, (value) => value.toLocaleString('en-GB'));
+}
+
 /**
  * Evidence velocity: an area + line chart of the collected count per bucket,
  * with the signed change against the previous bucket drawn as a diverging bar
@@ -53,7 +59,10 @@ function deltaText(delta: number | null): string {
  * climbing fast and a count that is climbing slowly look identical as area —
  * only the per-bucket change distinguishes a genuine surge from a plateau.
  */
-export function VelocityChart({ points, label = 'Evidence collected per period' }: VelocityChartProps) {
+export function VelocityChart({
+  points,
+  label = 'Evidence records collected per calendar month, ending with the current month',
+}: VelocityChartProps) {
   if (points.length === 0) return null;
 
   const counts = points.map((point) => Math.max(0, finite(point.count)));
@@ -96,9 +105,11 @@ export function VelocityChart({ points, label = 'Evidence collected per period' 
       <title>{label}</title>
       <desc>
         {points
-          .map((point) => `${point.label}: ${point.count} collected, change ${deltaText(point.delta)}`)
+          .map((point) => `${point.label}: ${countText(point.count)} collected, change ${deltaText(point.delta)}`)
           .join('. ')}
-        .
+        . Each point is a whole calendar month counted by the date the evidence was collected, and the
+        change is against the month before it. A month with nothing collected is drawn as zero, so a
+        flat section means nothing arrived rather than that the data is missing.
       </desc>
 
       {yTicks.map((tick) => (
@@ -158,7 +169,7 @@ export function VelocityChart({ points, label = 'Evidence collected per period' 
         return (
           <g key={`${point.label}-${index}`}>
             <circle className="cc2-velocity__dot" cx={x} cy={y} r={3}>
-              <title>{`${point.label}: ${point.count.toLocaleString('en-GB')} collected, change ${deltaText(point.delta)}`}</title>
+              <title>{`${point.label}: ${countText(point.count)} collected, change ${deltaText(point.delta)}`}</title>
             </circle>
             {index % stride === 0 && (
               <text className="cc2-velocity__label" x={x} y={PLOT_BOTTOM + 14} textAnchor="middle">

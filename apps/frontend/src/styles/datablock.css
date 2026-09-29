@@ -1,0 +1,143 @@
+/* --------------------------------------------------------------------------
+   DataBlock
+   -------------------------------------------------------------------------- */
+
+.db {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(22, 24, 26, 0.96), rgba(15, 17, 18, 0.96));
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  margin-bottom: 18px;
+  transition: border-color 0.18s ease;
+}
+.db--dense {
+  padding: 0;
+}
+.db__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px 0;
+}
+.db--dense .db__head {
+  padding: 14px 0 0;
+}
+.db__headings {
+  min-width: 0;
+}
+.db__eyebrow {
+  margin: 0 0 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+.db__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+/* The lead is the sentence the analyst reads first, so it stays legible prose
+   rather than a caption: larger than a label, quieter than the data, and
+   capped so a long sentence does not run the full width of a wide monitor. */
+.db__lead {
+  margin: 6px 0 0;
+  max-width: 78ch;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.db__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.db__body {
+  padding: 14px 20px 20px;
+}
+.db--dense .db__body {
+  padding: 14px 0 20px;
+}
+
+/* A block that labels a region already framed by the page — a tile row, a
+   strip — needs the words without a second card around them. */
+.db--plain {
+  border: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.db--plain .db__head {
+  padding: 0 0 12px;
+}
+.db--plain .db__body {
+  padding: 0;
+}
+
+/* A caption row for a single figure: its name, and what kind of number it is. */
+.db-figure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+/* The block is a landmark, not an interactive element, so the ring is applied
+   to whatever inside it can actually take focus. */
+.db :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* An epistemic claim attached to one figure rather than to a whole block:
+   recorded in the calm tone, estimated in the caution tone. */
+.db-kind {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.db-kind--recorded {
+  color: var(--green);
+  border-color: rgba(131, 212, 170, 0.24);
+  background: rgba(131, 212, 170, 0.06);
+}
+.db-kind--estimate {
+  color: var(--amber);
+  border-color: rgba(228, 184, 109, 0.26);
+  background: rgba(228, 184, 109, 0.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db,
+  .db * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .db__head {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
