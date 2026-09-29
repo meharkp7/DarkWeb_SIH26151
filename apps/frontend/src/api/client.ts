@@ -1,10 +1,12 @@
 import { parseSyntheticAnalysisResponse } from './parse';
 import type {
+  ActorIdentifier, ActorMarketplacePresence, ActorProfile, ActorQuery,
   AdjudicationResponse, AuditTrailResponse, CaseCreate, CaseGraph, CaseHypothesis, CaseMetrics,
   CaseNote, CaseNoteCreate, CaseQueueEntry, CaseTimeline, CaseUpdate, CaseWorkspace, CommandPosture,
   CopilotResponse, CreatedSource, DashboardSnapshot, Evidence, EvidenceCreate, EvidenceProvenance,
-  HealthResponse, InvestigationCase, LiveActivity, ModelRegistryResponse, PersonaFilters,
-  PersonaLinkage, PersonaLinkageDetail, PersonaLinkageSummary, PersonaScorableMethod,
+  HealthResponse, InfraCorrelateRequest, InfraCorrelateResponse, InfraFinding, InfraListFilters,
+  InfraMatch, InfraObservation, InfraSummary, InvestigationCase, LiveActivity, ModelRegistryResponse,
+  PersonaFilters, PersonaLinkage, PersonaLinkageDetail, PersonaLinkageCounts, PersonaScorableMethod,
   SearchResponse, SignalBand, SourceCreate, SyntheticAnalysisRequest, SystemHealth, TeamResponse,
 } from './types';
 
@@ -202,6 +204,8 @@ export const api = {
     return getJson<SearchResponse>(apiUrl(`/v1/search?${query}`), signal);
   },
   team: (signal?:AbortSignal) => getJson<TeamResponse>(apiUrl('/v1/admin/team'),signal),
+  /** URL form, for `useApi`. */
+  teamUrl: () => apiUrl('/v1/admin/team'),
   auditTrail: (params?:{limit?:number;offset?:number;action?:string;case_id?:string},signal?:AbortSignal) => {
     const query = new URLSearchParams();
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
@@ -279,7 +283,9 @@ export const api = {
     if (filters?.until) query.set('until', `${filters.until}T23:59:59Z`);
     return query;
   },
-  /** URLs rather than promises: `useApi` keys its effect on the URL string. */
+  /** Detail URL, for `useApi` in the inspector rail. */
+  getPersonaLinkageUrl: (id:string) => apiUrl(`/v1/personas/linkages/${encodeURIComponent(id)}`),
+  /** Register URL, for `useApi` and for anything that wants to key on the string. */
   personaLinkagesUrl: (filters?: PersonaFilters) => {
     const suffix = api.personaFilterParams(filters).toString();
     return apiUrl(`/v1/personas/linkages${suffix ? `?${suffix}` : ''}`);
@@ -288,7 +294,15 @@ export const api = {
     const suffix = api.personaFilterParams(filters).toString();
     return apiUrl(`/v1/personas/linkages/summary${suffix ? `?${suffix}` : ''}`);
   },
-  getPersonaLinkageUrl: (id:string) => apiUrl(`/v1/personas/linkages/${encodeURIComponent(id)}`),
+  /**
+   * The register under the server's filters, and the counts for the same view.
+   * They are fetched together by `usePersonaRegister` so the table and the
+   * block above it can never describe two different sets of rows.
+   */
+  personaLinkages: (filters?: PersonaFilters, signal?: AbortSignal) =>
+    getJson<PersonaLinkage[]>(api.personaLinkagesUrl(filters), signal),
+  personaLinkageSummary: (filters?: PersonaFilters, signal?: AbortSignal) =>
+    getJson<PersonaLinkageCounts>(api.personaSummaryUrl(filters), signal),
   getPersonaLinkage: (id:string,signal?:AbortSignal) =>
     getJson<PersonaLinkageDetail>(api.getPersonaLinkageUrl(id),signal),
   /**
@@ -311,6 +325,59 @@ export const api = {
     const query = api.personaFilterParams(filters);
     query.set('format', format);
     return apiUrl(`/v1/personas/export?${query}`);
+  },
+
+  // --- Tor hidden-service infrastructure ------------------------------------
+  // One serialiser for the filter set, used by the list URLs and the export
+  // URL, so a download is the table the analyst was looking at rather than the
+  // whole corpus with the filters applied afterwards. `since`/`until` are
+  // part of that set: querying across a chosen timeline is the requirement,
+  // and it has to be a server-side query rather than a client-side slice.
+  infraFilterParams(filters?: InfraListFilters): URLSearchParams {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries({
+      kind: filters?.kind,
+      severity: filters?.severity,
+      case_id: filters?.caseId,
+      subject: filters?.subject,
+      network: filters?.network,
+      since: filters?.since,
+      until: filters?.until,
+      min_confidence: filters?.minConfidence,
+      strongest_channel: filters?.strongestChannel,
+      min_overall: filters?.minOverall,
+      limit: filters?.limit,
+    })) {
+      if (value !== undefined && value !== null && String(value) !== '') query.set(key, String(value));
+    }
+    return query;
+  },
+  infraFindings: (filters?: InfraListFilters, signal?: AbortSignal) =>
+    getJson<InfraFinding[]>(apiUrl(`/v1/infrastructure/findings?${api.infraFilterParams(filters)}`), signal),
+  infraFinding: (id: string, signal?: AbortSignal) =>
+    getJson<InfraFinding>(apiUrl(`/v1/infrastructure/findings/${encodeURIComponent(id)}`), signal),
+  infraMatches: (filters?: InfraListFilters, signal?: AbortSignal) =>
+    getJson<InfraMatch[]>(apiUrl(`/v1/infrastructure/matches?${api.infraFilterParams(filters)}`), signal),
+  infraObservations: (filters?: InfraListFilters, signal?: AbortSignal) =>
+    getJson<InfraObservation[]>(apiUrl(`/v1/infrastructure/observations?${api.infraFilterParams(filters)}`), signal),
+  infraObservation: (id: string, signal?: AbortSignal) =>
+    getJson<InfraObservation>(apiUrl(`/v1/infrastructure/observations/${encodeURIComponent(id)}`), signal),
+  infraSummary: (
+    filters?: Pick<InfraListFilters, 'caseId' | 'since' | 'until'>,
+    signal?: AbortSignal,
+  ) => getJson<InfraSummary>(apiUrl(`/v1/infrastructure/summary?${api.infraFilterParams(filters)}`), signal),
+  /**
+   * The only writing route in the capability. It requires a `case_id` and a
+   * fully-stated threshold set: a correlation that silently used the library's
+   * defaults would read as a deliberate threshold choice to whoever read it.
+   */
+  infraCorrelate: (payload: InfraCorrelateRequest) =>
+    postJson<InfraCorrelateResponse>(apiUrl('/v1/infrastructure/correlate'), payload),
+  infraExportUrl: (format: 'csv' | 'json', filters?: InfraListFilters & { dataset?: string }) => {
+    const query = api.infraFilterParams(filters);
+    query.set('format', format);
+    if (filters?.dataset !== undefined) query.set('dataset', filters.dataset);
+    return apiUrl(`/v1/infrastructure/export?${query}`);
   },
 };
 

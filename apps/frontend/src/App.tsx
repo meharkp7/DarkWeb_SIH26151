@@ -5,6 +5,8 @@ import { CaseWorkspacePage } from './pages/CaseWorkspacePage';
 import { ActorProfilePage } from './pages/ActorProfilePage';
 import { ActorsPage } from './pages/ActorsPage';
 import { CasesPage } from './pages/CasesPage';
+import { InfrastructurePage } from './pages/InfrastructurePage';
+import { PersonasPage } from './pages/PersonasPage';
 import { CommandCenterPage } from './pages/CommandCenterPage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -60,6 +62,8 @@ function SessionGate() {
         <Route path="cases/:caseId" element={<CaseWorkspacePage />} />
         <Route path="actors" element={<ActorsPage />} />
         <Route path="actors/:actorId" element={<ActorProfilePage />} />
+        <Route path="infrastructure" element={<InfrastructurePage />} />
+        <Route path="personas" element={<PersonasPage />} />
         <Route path="threat-watch" element={<ThreatWatchPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="watch" element={<Navigate to="/threat-watch" replace />} />

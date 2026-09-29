@@ -904,7 +904,15 @@ export interface PersonaLinkageDetail extends PersonaLinkage {
   readonly scorer: string | null;
 }
 
-export interface PersonaLinkageSummary {
+/**
+ * Counts across the linkage register, for one filter set.
+ *
+ * Named `…Counts` rather than `…Summary` because the actor profile's linkage
+ * panel already declares a `PersonaLinkageSummary` for a single row: two
+ * interfaces with one name merge in TypeScript, which would require both
+ * shapes at once and break the endpoint that returns only this one.
+ */
+export interface PersonaLinkageCounts {
   readonly total: number;
   readonly by_status: Readonly<Record<string, number>>;
   readonly by_method: Readonly<Record<string, number>>;

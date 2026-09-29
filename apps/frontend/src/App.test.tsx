@@ -180,7 +180,6 @@ const RETIRED_ROUTES = [
   '/attribution',
   '/hypotheses',
   '/sources',
-  '/actors/actor-7f6d',
   '/reports',
 ] as const;
 
@@ -244,7 +243,7 @@ describe('App route table', () => {
 });
 
 describe('primary navigation', () => {
-  it('offers exactly the four spaces plus Administration', async () => {
+  it('offers exactly the six spaces plus Administration', async () => {
     installRouteFetch();
     renderRoute('/');
 
@@ -258,6 +257,8 @@ describe('primary navigation', () => {
       '⌂Command Center',
       '◎Investigations',
       '☗Actors',
+      '⛓Infrastructure',
+      '⚯Persona Linkage',
       '◉Threat Watch',
       '⚙Administration',
     ]);

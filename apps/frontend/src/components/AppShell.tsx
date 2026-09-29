@@ -28,6 +28,8 @@ const NAV = [
   { to: '/', label: 'Command Center', icon: '⌂', end: true },
   { to: '/cases', label: 'Investigations', icon: '◎', end: false },
   { to: '/actors', label: 'Actors', icon: '☗', end: false },
+  { to: '/infrastructure', label: 'Infrastructure', icon: '⛓', end: false },
+  { to: '/personas', label: 'Persona Linkage', icon: '⚯', end: false },
   { to: '/threat-watch', label: 'Threat Watch', icon: '◉', end: false },
 ];
 
@@ -37,6 +39,8 @@ const SYSTEM_NAV = [{ to: '/admin', label: 'Administration', icon: '⚙', end: f
 const SECTION_LABELS: Record<string, string> = {
   cases: 'Investigations',
   actors: 'Actors',
+  infrastructure: 'Infrastructure',
+  personas: 'Persona Linkage',
   'threat-watch': 'Threat Watch',
   watch: 'Threat Watch',
   // `/reports` is a redirect, not a destination: exporting an investigation is

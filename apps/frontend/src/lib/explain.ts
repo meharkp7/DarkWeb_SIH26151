@@ -81,6 +81,13 @@ export const METRICS = {
   personaLinkageRegister: 'persona.linkage.register',
   personaLinkageSummary: 'persona.linkage.summary',
   personaLinkageDetail: 'persona.linkage.detail',
+  infraSummary: 'infra.summary',
+  infraFindings: 'infra.findings',
+  infraMatches: 'infra.matches',
+  infraObservations: 'infra.observations',
+  infraBreakdown: 'infra.breakdown',
+  infraLimitations: 'infra.limitations',
+  infraTimeline: 'infra.timeline',
 } as const;
 
 export type MetricName = (typeof METRICS)[keyof typeof METRICS];
@@ -94,12 +101,16 @@ export type MetricName = (typeof METRICS)[keyof typeof METRICS];
  * - `buckets` — monthly buckets in the velocity series.
  * - `limit`   — rows behind a lead assessment list.
  * - `shown`   — rows a preview is actually rendering.
+ * - `single`  — correlations carried by exactly one channel.
+ * - `count`   — a count of things a lead is about, zero included.
  */
 export interface LeadContext {
   readonly total?: number | null;
   readonly buckets?: number | null;
   readonly limit?: number | null;
   readonly shown?: number | null;
+  readonly single?: number | null;
+  readonly count?: number | null;
 }
 
 /** The context with every key resolved, so no lead can print "undefined". */
@@ -108,11 +119,25 @@ interface ResolvedContext {
   readonly buckets: number | null;
   readonly limit: number | null;
   readonly shown: number | null;
+  readonly single: number | null;
+  readonly count: number | null;
 }
 
 /** A positive finite number, or null — the only context values worth printing. */
 function positive(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * A count that may legitimately be zero.
+ *
+ * `positive()` maps 0 to null because a zero *total* usually means the frame
+ * was partial. That is the wrong reading for a count of weak findings: "none
+ * of these correlations rests on a single channel" is a real and reassuring
+ * result, and rendering it as an em dash would lose it.
+ */
+function countable(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function readContext(context: Record<string, unknown> | undefined): ResolvedContext {
@@ -122,6 +147,8 @@ function readContext(context: Record<string, unknown> | undefined): ResolvedCont
     buckets: positive(source['buckets']),
     limit: positive(source['limit']),
     shown: positive(source['shown']),
+    single: countable(source['single']),
+    count: countable(source['count']),
   };
 }
 
@@ -203,6 +230,45 @@ const LEADS: Readonly<Record<MetricName, LeadBuilder>> = {
 
   'persona.linkage.summary': () =>
     'Counts over exactly the linkages the register beside it is showing. The two figures worth reading are the confirmations the scorer ranked below the stated threshold and the rejections it ranked at or above it. Those are the model\'s false-negative and false-positive rates as analysts have actually observed them, counted from the decisions rather than reported by the thing being measured, which is the only version of the number that can be checked. When nothing here has been adjudicated the block says so instead of printing a clean 0% over an empty denominator, because a scorer nobody has ever overruled has not been tested.',
+
+  'infra.summary': ({ single, total }) =>
+    `Counts over exactly the records the current filters return. The figure worth reading first is the ${formatCount(
+      single,
+      'match',
+      'matches',
+    )} whose score rests on a single channel: a correlation carried by one dimension is a weak finding, and a total that hid this would let it be read as a strong one.${
+      typeof single === 'number' && typeof total === 'number'
+        ? ` ${formatCount(total - single, 'match', 'matches')} are corroborated on more than one.`
+        : ''
+    } A shared fingerprint is counted as unscored rather than folded into a confidence average, because the platform declines to put a number on common control. Distinct onion services and clearnet hosts are counted separately from observations, since a service observed twice is one service.`,
+
+  'infra.findings': ({ shown, total }) =>
+    `Misconfigurations observed in Tor hidden services${
+      total === null ? '' : `, ${total} matching the current filters`
+    }${shown === null || total === null || shown === total ? '' : `, ${shown} shown`}. Each row carries its address, so a finding is actionable without a second lookup. Confidence is the detector's own score for how sure it is that the condition was present, not a probability that it means anything: an unscored detector reads as unscored and is excluded by a confidence filter rather than counted as zero. The limitations column is not a footnote — a status page, a clearnet certificate, a default banner and a shared fingerprint are each produced routinely by shared hosting, a CDN or a single scanner, and a finding rendered without that alternative is a false accusation with a bar next to it.`,
+
+  'infra.matches': ({ shown, total }) =>
+    `Candidate origin servers: hidden services paired with a clearnet host${
+      total === null ? '' : `, ${total} above the stated thresholds`
+    }${shown === null || total === null || shown === total ? '' : `, ${shown} shown`}. Overall is a weighted mean over the channels that were actually observable on both sides, not over a fixed denominator — a channel nobody measured is missing, not a zero. The bars are the per-channel scores, and the strongest channel is named rather than left for the reader to infer. A match whose score rests on one channel says so in the row: a 0.92 carried entirely by a shared certificate fingerprint is a weaker finding than the same score corroborated across certificate, TLS and content, and the two must not read alike.`,
+
+  'infra.observations': ({ shown, total }) =>
+    `The stored observations the correlations were computed from${
+      total === null ? '' : `, ${total} in range`
+    }${shown === null || total === null || shown === total ? '' : `, ${shown} shown`}. Each one holds the metadata that was actually captured — TLS version, cipher and client fingerprint, HTTP response shape, certificate identity, technology list, and the content fingerprint derived from the body — because a correlation is only as checkable as the features beside it.`,
+
+  'infra.breakdown': () =>
+    'One bar per channel, in the weight the score gave it. A channel with no bar was not observed on both sides and contributed nothing; it is left blank rather than drawn at zero, because a client that renders a missing measurement as 0 turns absent data into evidence against the correlation. Channels marked decisive are the ones that cleared their own cutoff — the certificate, content and HTTP cutoffs come from the rule this run was scored under, and the two commodity channels need to be near-identical to count. Temporal is never decisive: every observation has a time range, so counting it would give almost every pair a second voice, including two services with nothing in common that happened to be online at the same time.',
+
+  'infra.limitations': ({ count }) =>
+    `What this ${count === 1 ? 'finding does' : 'findings do'} not establish — ${formatCount(
+      count,
+      'note',
+      'notes',
+    )}, in the words of the detector that produced ${count === 1 ? 'it' : 'them'}. These are not hedges added after the fact. Shared hosting, a CDN terminating TLS, a migration between hosts and one scanner reused across a range all produce the same signals, and a register that showed only the detections would be counting coincidence as infrastructure.`,
+
+  'infra.timeline': () =>
+    'The window every figure on this page is drawn from. Findings are bounded by when they were detected, observations by when they were observed and matches by when the correlation was recorded, and the controls are in the address bar so a view of this timeline can be linked or handed over. An empty result inside a narrow window means nothing was recorded in that window — it does not mean the service was clean.',
 
   'persona.linkage.detail': () =>
     'One linkage. The three feature lists are named, not counted: which features agree, which disagree, and which could not be decided either way. Contested is not a synonym for weak support — it holds everything the analysis could not separate, including features measured on only one side and features the similarity function scores as perfect agreement only because both sides were zero. The limitations are what this analysis cannot see, generated by the scorer that produced the number: what a text sample leaves no trace of, what a behavioural profile cannot distinguish from a shared schedule, and which of the recorded metrics are not the model\'s output at all. Where no trained pairwise verifier was applied, the record says so rather than presenting a probability no model produced.',
