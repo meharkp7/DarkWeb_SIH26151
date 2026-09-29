@@ -26,7 +26,14 @@ jobs:
           python-version: "3.12"
       # ruff, mypy and pytest live in the `dev` *optional extra*, not a uv
       # dependency-group, so a bare `uv sync` would not install any of them.
-      - run: uv sync --extra dev
+      #
+      # `search` and `s3` are installed too. They are optional at *runtime* —
+      # the platform degrades when they are absent — but the adapters that
+      # import them are ordinary source that mypy must check, and a job that
+      # cannot resolve an import cannot typecheck the file that has it. CI is
+      # the only place the extras are present, so this is the only place the
+      # adapter code is verified at all.
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       - name: Ruff
         run: uv run ruff check src scripts tests
       - name: Mypy
@@ -60,7 +67,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       # The service container is empty, so this exercises every migration from
       # base. A migration that only applies to a database which already has the
       # object it alters fails here rather than against a developer's box.
@@ -97,7 +104,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       - name: Alembic upgrade head
         run: uv run alembic upgrade head
       # Without seed data the search and actor-register tests fail on
@@ -147,7 +154,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       # Neither file is executed anywhere, so a syntax error in either would
       # otherwise only surface at deploy time on Render/Vercel.
       - name: render.yaml and vercel.json must parse
@@ -163,7 +170,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       - name: Canonical schema + ontology validation
         run: PYTHONPATH=src uv run python scripts/validate_schemas.py
 
@@ -177,7 +184,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       - run: uv build
       - name: Verify the built wheel imports
         run: uv run --with dist/*.whl python -c "import aegis; print('imported', aegis.__name__)"
@@ -192,7 +199,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra search --extra s3 --extra report --extra telemetry
       - name: Dependency vulnerability scan
         run: uv run python scripts/security_scan.py --deps
       - name: Secret scan

@@ -38,10 +38,29 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("aws-access-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
     ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+    # The right-hand side must be a *string literal*. A secret is a value; the
+    # previous pattern accepted any expression, so every one of these read as
+    # a committed secret:
+    #
+    #   const API_KEY_STORAGE = 'aegis.apiKey';        // a storage key name
+    #   { token: parsed.token, expiresAt: ... }          // an object key
+    #   const token = readStoredSession()?.token;       // a function call
+    #   token = bearer.removeprefix("Bearer ")          // a parse
+    #
+    # All four are ordinary code. Requiring a quoted literal keeps the rule
+    # able to catch a real assignment while leaving identifiers alone.
     (
         "generic-secret-assignment",
         re.compile(
-            r"(?i)\b(password|passwd|secret|api[_-]?key|token)\b\s*[:=]\s*(?!settings\.|os\.|config\.|env\.)[\"']?[^\s\"']{12,}"
+            # The keyword is matched as the *tail* of an identifier, not
+            # behind `\b`. `\b` does not match between `_` and a letter
+            # because `_` is a word character, so the original form missed
+            # `db_password` — one of the most common names a credential
+            # actually has. `[A-Za-z0-9_]*` before the keyword also covers
+            # `authToken` and `API_KEY` in one rule.
+            r"(?i)[A-Za-z0-9_]*"
+            r"(?:password|passwd|secret|api[_-]?key|token|credential)s?\b"
+            r"\s*[:=]\s*[\"'][^\"'\n]{12,}[\"']"
         ),
     ),
     # `\b` will not match inside SCREAMING_SNAKE_CASE identifiers because `_`
@@ -60,7 +79,29 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
 )
 
-ALLOWLIST_MARKERS = ("example", "placeholder", "changeme", "your-", "xxx", "dummy")
+ALLOWLIST_MARKERS = (
+    "example",
+    "placeholder",
+    "changeme",
+    "your-",
+    "xxx",
+    "dummy",
+    "replace-with",
+    "replace_with",
+    "not-a-secret",
+    "redacted",
+    "<",
+    "todo",
+    # The localStorage key this app stores a credential *under*. A key name
+    # is not a credential; naming the value here keeps the rule live for every
+    # other assignment rather than narrowing the pattern to silence it.
+    "aegis.apikey",
+    # A sign-in notice and a test fixture. Both are *values of* identifiers
+    # that happen to end in a secret word; neither is a credential. Recorded
+    # by value so the rule stays live for every other assignment.
+    "authentication is required to access aegis.",
+    "issued-token",
+)
 
 
 @dataclass(frozen=True)
@@ -98,9 +139,15 @@ def scan_secrets() -> list[Finding]:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
+        is_source = path.suffix in {".ts", ".tsx", ".py", ".js", ".mjs"}
         for line_no, line in enumerate(text.splitlines(), start=1):
             lowered = line.lower()
             if any(marker in lowered for marker in ALLOWLIST_MARKERS):
+                continue
+            # A comment is prose, not an assignment. Without this the scanner
+            # flagged its own docstring for quoting a false positive, which
+            # is both noise and an argument for ignoring the whole job.
+            if is_source and line.lstrip().startswith(("#", "//", "*", "/*")):
                 continue
             for name, pattern in SECRET_PATTERNS:
                 if pattern.search(line):

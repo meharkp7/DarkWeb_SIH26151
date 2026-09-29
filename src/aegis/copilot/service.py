@@ -130,14 +130,17 @@ def _run_hypotheses(
     intent: ParsedIntent,
 ) -> EvidencePack:
     hypothesis_ids = tuple(
-        UUID(value)
+        UUID(value.split(":", 1)[1])
         for value in intent.query.subjects
         if value.startswith("hypothesis:")
-        for raw in (value.split(":", 1)[1],)
     )
-    if not hypothesis_ids:
-        return EvidencePack()
-
+    # No ids does NOT mean "no hypotheses". A natural-language question —
+    # "compare the competing hypotheses in this investigation" — names no ids,
+    # and returning an empty pack here made the agent answer "no
+    # evidence-backed findings were retrieved" for a case holding four
+    # hypotheses and thousands of records. `compare_hypotheses` already
+    # treats an empty id set as "every hypothesis in scope", which is what a
+    # human means by the question.
     return compare_hypotheses(ctx, hypothesis_ids)
 
 
