@@ -28,6 +28,22 @@ def canonical_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def _utc_isoformat(value: datetime) -> str:
+    """Render a timestamp as a UTC ISO-8601 string.
+
+    Hashing must not depend on the host timezone. ``TIMESTAMPTZ`` comes back
+    from Postgres in whatever zone the session is set to, so a row written as
+    ``...+00:00`` reads back as ``...+05:30`` on a host in IST. Those are the
+    same instant but different strings, so hashing the raw value would make
+    ``verify_chain`` report tampering for every entry on any non-UTC host.
+    """
+    if value.tzinfo is None:
+        # A naive value cannot be placed without guessing; the column is
+        # TIMESTAMPTZ, so treat it as already-UTC rather than shifting it.
+        return value.replace(tzinfo=UTC).isoformat()
+    return value.astimezone(UTC).isoformat()
+
+
 def compute_entry_hash(
     prev_hash: str | None,
     occurred_at: datetime,
@@ -40,7 +56,7 @@ def compute_entry_hash(
     material = "|".join(
         (
             prev_hash or "GENESIS",
-            occurred_at.isoformat(),
+            _utc_isoformat(occurred_at),
             action,
             entity_type or "",
             entity_id or "",
