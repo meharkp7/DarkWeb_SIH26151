@@ -12,6 +12,7 @@ from sqlalchemy import (
     Sequence,
     String,
     Text,
+    TypeDecorator,
     UniqueConstraint,
     func,
 )
@@ -20,6 +21,45 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from aegis.db.base import Base
+
+
+class UUIDList(TypeDecorator[Any]):
+    """A ``list[UUID]`` stored in a JSONB column.
+
+    psycopg serialises JSONB with the standard library encoder, which has no
+    idea what a ``UUID`` is — so a plain ``Mapped[list[UUID]]`` raises
+    ``TypeError: Object of type UUID is not JSON serializable`` at flush time,
+    not at import or declaration time. Every writer would have to remember to
+    stringify first, and every reader would have to remember that it is
+    looking at strings.
+
+    Doing it in the type keeps the annotation honest in both directions:
+    callers pass and receive ``UUID`` objects, and the column holds canonical
+    strings. Rows written before this type existed already hold strings, so
+    they read back unchanged.
+    """
+
+    impl = JSONB
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        return [str(item) if isinstance(item, UUID) else item for item in value]
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if value is None:
+            return None
+        parsed: list[Any] = []
+        for item in value:
+            try:
+                parsed.append(item if isinstance(item, UUID) else UUID(str(item)))
+            except (TypeError, ValueError, AttributeError):
+                # A malformed element is dropped rather than failing the whole
+                # read: evidence-id lists are advisory annotations on a record,
+                # and one bad entry must not make a case unreadable.
+                continue
+        return parsed
 
 
 class CaseRecord(Base):
@@ -330,7 +370,7 @@ class RelationshipRecord(Base):
     valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     evidence_ids: Mapped[list[UUID]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default="[]"
+        UUIDList, nullable=False, default=list, server_default="[]"
     )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
@@ -410,10 +450,10 @@ class AssessmentRecord(Base):
         JSONB, nullable=False, default=dict, server_default="{}"
     )
     supporting_evidence_ids: Mapped[list[UUID]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default="[]"
+        UUIDList, nullable=False, default=list, server_default="[]"
     )
     contradictory_evidence_ids: Mapped[list[UUID]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default="[]"
+        UUIDList, nullable=False, default=list, server_default="[]"
     )
     explanations: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"

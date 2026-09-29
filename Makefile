@@ -1,7 +1,7 @@
 .PHONY: install bootstrap test lint typecheck build run infra-up infra-down up down \
 	migrate revision data-generate data-validate train-baselines train-graph \
 	evaluate adversarial-evaluate benchmark rehearsal report security-scan schema-check precommit frontend-install \
-	frontend-dev frontend-build scale-test failure-matrix demo-data clean
+	frontend-dev frontend-build scale-test failure-matrix demo-data demo-reset clean
 
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
 PY ?= UV_CACHE_DIR=$(UV_CACHE_DIR) uv run
@@ -142,4 +142,11 @@ clean:
 
 
 demo-data:
-	PYTHONPATH=src $(PY) scripts/seed_demo_data.py --evidence-per-case 650 --index
+	PYTHONPATH=src $(PY) scripts/seed_demo_data.py --evidence-per-case 620 --index
+
+# Rebuild the demo dataset from scratch. Every table the seeder owns is
+# truncated first, so a failed earlier run cannot leave a half-seeded world
+# behind. `audit_logs` is append-only by trigger, which is why this is
+# TRUNCATE rather than DELETE.
+demo-reset:
+	PYTHONPATH=src $(PY) scripts/seed_demo_data.py --reset --evidence-per-case 620
