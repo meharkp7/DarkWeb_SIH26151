@@ -904,3 +904,96 @@ class PersonaLinkageRecord(Base):
             name="ck_persona_linkage_adjudicated",
         ),
     )
+
+
+class ActorLinkRecord(Base):
+    """A directed edge between two tracked actors.
+
+    The problem statement's second capability is "mapping threat actors
+    across multiple marketplaces into a single relationship graph of handles,
+    PGP keys, wallets and **trust links**". Identifiers and marketplaces are
+    rows on an actor; the links *between* actors had nowhere to live, so the
+    graph the statement asks for did not exist.
+
+    Two decisions are load-bearing:
+
+    * **Trust is directed.** A trusts B is not B trusts A — a vendor vouches
+      for a buyer far more often than the reverse, and a symmetric edge
+      would erase the asymmetry that makes the relation worth recording.
+      `work_with` and `disputes` are recorded with the same table and their
+      own direction rule, so one query answers "who does this actor deal
+      with, and in what capacity".
+
+    * **Every link must state its basis.** A trust edge with no recorded
+      reason is an assertion. `basis` is free text precisely because the
+      basis is frequently a sentence a human wrote, and forcing it into an
+      enum would mean either losing the detail or refusing to record the
+      link at all.
+    """
+
+    __tablename__ = "actor_links"
+
+    link_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    subject_actor_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("actors.actor_id"), nullable=False, index=True
+    )
+    object_actor_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("actors.actor_id"), nullable=False, index=True
+    )
+    #: trusts, works_with, sells_to, mentions, disputes, shares_identifier
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    #: What the trust is evidenced by, in a sentence. Nullable only because a
+    #: link proposed by a model before analyst review has none yet, which is
+    #: exactly what `analyst_recorded` distinguishes.
+    basis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: What would make this link wrong, or what it does not establish.
+    limitations: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("sources.source_id"), nullable=True
+    )
+    case_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("cases.case_id"), nullable=True, index=True
+    )
+    evidence_ids: Mapped[list[UUID]] = mapped_column(
+        UUIDList, nullable=False, default=list, server_default="[]"
+    )
+    #: True once a human has ruled on it. Mirrors `persona_linkages` for the
+    #: same reason: a model proposal and an analyst finding are different
+    #: things and must never be presented as one.
+    analyst_recorded: Mapped[bool] = mapped_column(nullable=False, default=False)
+    recorded_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.user_id"), nullable=True
+    )
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "subject_actor_id <> object_actor_id", name="ck_actor_link_distinct_actors"
+        ),
+        CheckConstraint(
+            "kind IN ('trusts', 'works_with', 'sells_to', 'mentions', 'disputes',"
+            " 'shares_identifier')",
+            name="ck_actor_link_kind",
+        ),
+        CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
+            name="ck_actor_link_confidence_range",
+        ),
+        # A recorded link must say who ruled and when. A decision with no
+        # author is indistinguishable from a model output, which is the
+        # distinction `analyst_recorded` exists to preserve.
+        CheckConstraint(
+            "NOT analyst_recorded OR (recorded_by IS NOT NULL AND recorded_at IS NOT NULL"
+            " AND basis IS NOT NULL)",
+            name="ck_actor_link_recorded",
+        ),
+        Index("ix_actor_links_subject_kind", "subject_actor_id", "kind"),
+    )

@@ -10,6 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from starlette.middleware.base import RequestResponseEndpoint
 
+from aegis.api.actor_links import router as actor_links_router
 from aegis.api.actors import router as actors_router
 from aegis.api.admin import router as admin_router
 from aegis.api.analysis import run_synthetic_analysis
@@ -387,6 +388,11 @@ app.include_router(reports_router)
 app.include_router(live_router)
 app.include_router(workspace_router)
 app.include_router(admin_router)
+# BEFORE the actor router, not after. FastAPI matches in registration order,
+# so `/actors/{actor_id}` swallows `/actors/graph` and `/actors/links` if it
+# is registered first — and a path parameter that fails to parse as a UUID
+# yields 422, not the 200 the link endpoints are supposed to return.
+app.include_router(actor_links_router)
 app.include_router(actors_router)
 app.include_router(search_router)
 app.include_router(infrastructure_router)

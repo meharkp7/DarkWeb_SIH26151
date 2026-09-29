@@ -56,6 +56,7 @@ from aegis.api.security import hash_password
 from aegis.db.audit import AuditService
 from aegis.db.models import (
     ActorIdentifierRecord,
+    ActorLinkRecord,
     ActorMarketplaceRecord,
     ActorRecord,
     ArtifactRecord,
@@ -103,6 +104,7 @@ BATCH = 400
 #: the dataset: leaving them behind would leave actors pointing at sources a
 #: reset has already removed.
 DEMO_TABLES: tuple[str, ...] = (
+    "actor_links",
     "persona_linkages",
     "infrastructure_matches",
     "infrastructure_findings",
@@ -2859,6 +2861,11 @@ def seed(
     registry = seed_actor_registry(db, sources, users, rng, now)
     totals.update(registry)
 
+    # After the registry: `actor_links` references actors on both ends.
+    if registry.get("actors", 0):
+        seeded_actors = list(db.scalars(select(ActorRecord).order_by(ActorRecord.handle)).all())
+        totals.update(seed_actor_links(db, seeded_actors, users, rng, now))
+
     # After the registry: `persona_linkages.actor_id` is a foreign key onto it.
     # The counts add rather than replace, so the total covers every row in the
     # table regardless of which stage produced it.
@@ -2937,5 +2944,165 @@ def main() -> None:
             print({"indexed": EvidenceSearchIndexer(search).index_many(rows)})
 
 
+# ---------------------------------------------------------------------------
+# Actor trust links
+# ---------------------------------------------------------------------------
+
+#: The stated basis for each kind, in the words an analyst would use. Every
+#: recorded link must carry one: a trust edge with no stated reason is an
+#: assertion, and a graph of them looks like a map while being a guess.
+TRUST_BASIS: dict[str, tuple[str, ...]] = {
+    "trusts": (
+        "Named the other vendor as a reference in three escrow disputes.",
+        "Escrowed a shared bond; both forfeited on the same settlement.",
+        "Publicly vouched for the other's reputation after a seizure.",
+        "Reused a PGP key across both personas, which no two vendors do by accident.",
+    ),
+    "works_with": (
+        "Listed joint operations in two threads within the same week.",
+        "Operated on the same venue under different handles across one quarter.",
+        "Co-signed the same escrow terms with a matching bond structure.",
+    ),
+    "sells_to": (
+        "Buyer named the vendor in a dispute opened against them.",
+        "Repeated purchase pattern on one venue with matching delivery addresses.",
+    ),
+    "mentions": (
+        "Named in the same thread as a source of a listing.",
+        "Referenced in a warning post within the same session window.",
+    ),
+    "disputes": (
+        "Publicly accused the other of running a honeypot.",
+        "Opened a claim that the other's escrow never released.",
+    ),
+    "shares_identifier": (
+        "Two personas reused one wallet address across separate venues.",
+        "Same PGP fingerprint published under three different handles.",
+    ),
+}
+
+#: What a link of each kind does *not* establish. Recorded so the graph never
+#: asserts more than the evidence carries.
+TRUST_LIMITATIONS: dict[str, tuple[str, ...]] = {
+    "trusts": (
+        "Trust is not control: a trusted party is not necessarily the operator.",
+        "Co-occurrence on one venue is not proof of a working relationship.",
+    ),
+    "works_with": ("A shared operation does not establish a durable association."),
+    "sells_to": (
+        "A purchase does not identify the buyer, and a dispute may be theatre.",
+    ),
+    "mentions": ("Mentioning is the weakest signal here and carries no relationship claim."),
+    "disputes": ("A public accusation is evidence of friction, not of wrongdoing."),
+    "shares_identifier": (
+        "A shared identifier may be a reseller, a shared operator, or a stolen handle.",
+    ),
+}
+
+#: Weighted toward `trusts` and `works_with`, because a graph of only weak
+#: relations tells an analyst nothing and would understate what the registry
+#: actually contains.
+LINK_KIND_WEIGHTS: dict[str, float] = {
+    "trusts": 0.28,
+    "works_with": 0.26,
+    "shares_identifier": 0.18,
+    "sells_to": 0.12,
+    "mentions": 0.10,
+    "disputes": 0.06,
+}
+
+
+def seed_actor_links(
+    db: Session,
+    actors: list[ActorRecord],
+    users: dict[str, UserRecord],
+    rng: random.Random,
+    now: datetime,
+) -> dict[str, int]:
+    """Directed trust and association links between registry actors.
+
+    The problem statement asks for "a single relationship graph of handles,
+    PGP keys, wallets and **trust links**". Identifiers and marketplaces are
+    rows on an actor; these are the edges between actors, and without them
+    the graph the statement describes does not exist.
+
+    A deliberate minority are **not** analyst-recorded. A graph in which
+    every edge is confirmed is a graph nobody has reviewed, and the
+    distinction between a model proposal and a human finding is the whole
+    point of the ``analyst_recorded`` column.
+    """
+    if len(actors) < 4:
+        return {"actor_links": 0, "actor_links_recorded": 0}
+
+    total_actors = len(actors)
+    analyst = users.get("lead_analyst") or next(iter(users.values()), None)
+    kinds = list(LINK_KIND_WEIGHTS)
+    populations = [LINK_KIND_WEIGHTS[kind] for kind in kinds]
+
+    rows: list[ActorLinkRecord] = []
+    seen: set[tuple[UUID, UUID, str]] = set()
+    target = int(total_actors * 1.6)
+
+    attempts = 0
+    while len(rows) < target and attempts < target * 12:
+        attempts += 1
+        subject = actors[rng.randrange(total_actors)]
+        obj = actors[rng.randrange(total_actors)]
+        if subject.actor_id == obj.actor_id:
+            continue
+        # A trust claim between two actors in the same niche is far more
+        # plausible than one across unrelated ones, so bias the pairing
+        # rather than drawing uniformly. The graph should look like a
+        # community with a long tail, not a uniform mesh.
+        if subject.category != obj.category and rng.random() < 0.72:
+            continue
+        kind = rng.choices(kinds, weights=populations, k=1)[0]
+        key = (subject.actor_id, obj.actor_id, kind)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        recorded = rng.random() < 0.55
+        basis_pool = TRUST_BASIS[kind]
+        limitation_pool = TRUST_LIMITATIONS[kind]
+        age_days = rng.randint(20, 320)
+        last_seen = now - timedelta(days=rng.randint(0, age_days), hours=rng.randint(0, 23))
+        rows.append(
+            ActorLinkRecord(
+                link_id=sid(f"actor_link:{subject.actor_id}:{obj.actor_id}:{kind}"),
+                subject_actor_id=subject.actor_id,
+                object_actor_id=obj.actor_id,
+                kind=kind,
+                # An unrecorded proposal has no basis, and the column says so
+                # rather than being given a plausible one.
+                basis=rng.choice(basis_pool) if recorded else None,
+                limitations=list(limitation_pool[: rng.randint(1, len(limitation_pool))]),
+                confidence=round(
+                    rng.uniform(0.42, 0.78) if not recorded else rng.uniform(0.55, 0.95), 3
+                ),
+                first_seen=last_seen - timedelta(days=rng.randint(5, 240)),
+                last_seen=last_seen,
+                # Recorded links must name who ruled; the database constraint
+                # rejects the row otherwise, which is the constraint working.
+                analyst_recorded=recorded,
+                recorded_by=analyst.user_id if (recorded and analyst) else None,
+                recorded_at=last_seen if recorded else None,
+                metadata_json={
+                    "synthetic": True,
+                    "schema_version": SCHEMA_VERSION,
+                },
+            )
+        )
+
+    _flush_batches(db, rows)
+    return {
+        "actor_links": len(rows),
+        "actor_links_recorded": sum(1 for row in rows if row.analyst_recorded),
+    }
+
+
+# The entry point is last so every seeder above is defined before `main()`
+# runs. A stage function defined after this guard would raise NameError at
+# call time rather than at import, which is a confusing way to find out.
 if __name__ == "__main__":
     main()
