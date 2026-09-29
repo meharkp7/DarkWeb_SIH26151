@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Annotated
@@ -28,7 +29,7 @@ from aegis.api.security import SECURITY_HEADERS, RequestRateLimiter, request_gua
 from aegis.api.workspace import router as workspace_router
 from aegis.db.audit import AuditService
 from aegis.db.models import CaseRecord
-from aegis.db.session import engine
+from aegis.db.session import assert_postgres, engine
 from aegis.evidence.search_index import EvidenceSearchIndexer
 from aegis.evidence.service import EvidenceService
 from aegis.observability import registry as _metrics
@@ -71,16 +72,50 @@ _PUBLIC_PATHS = frozenset(
     }
 )
 
+
+@app.on_event("startup")
+def _verify_database() -> None:
+    """Refuse to serve against a database that cannot support the platform.
+
+    The audit chain takes a Postgres advisory lock, several analytics queries
+    use DISTINCT ON and window functions, and the metadata columns are JSONB
+    with containment queries. On another engine those fail at call time, deep
+    inside a write, with an error that names a data structure rather than the
+    cause — so the check happens here, once, and says what is wrong.
+    """
+    try:
+        assert_postgres()
+    except RuntimeError:
+        logger.exception("Refusing to start: the configured database is not usable")
+        raise
+
+
+logger = logging.getLogger(__name__)
+
 _cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
 if _cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins,
-        allow_credentials=False,
-        # GET/POST cover the original read + ingest surface; PATCH was added
-        # for PATCH /api/v1/cases/{id} (case triage). No other verbs are routed.
-        allow_methods=["GET", "POST", "PATCH"],
+        # Required for the split deployment: the console is served from Vercel
+        # and calls this API on Render, so every request is cross-origin and
+        # carries `credentials: "include"` alongside its Authorization header.
+        #
+        # Safe here because the allowlist is explicit. Credentials with a
+        # wildcard origin is the dangerous combination, and Starlette rejects
+        # it anyway — the origins have to be named, which is the property that
+        # makes this safe rather than a blanket "allow everything".
+        allow_credentials=True,
+        # GET/POST cover the read + ingest surface, PATCH covers case triage.
+        # OPTIONS is required for the preflight that a cross-origin request
+        # with an Authorization header triggers; Starlette handles it, but the
+        # verb has to be permitted for the preflight to be answered.
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=["Content-Type", "Accept", "Authorization", "X-AEGIS-API-Key"],
+        # The console polls the health endpoint, and a cached 401 from a
+        # preflight failure is indistinguishable from an expired session.
+        expose_headers=["Retry-After"],
+        max_age=600,
     )
 
 

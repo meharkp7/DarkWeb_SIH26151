@@ -1,0 +1,80 @@
+# AEGIS — production deployment.
+#
+# Free tier, three services:
+#
+#   Supabase   managed PostgreSQL  (Neon or Supabase both work; the schema uses
+#                                     JSONB, advisory locks, window functions,
+#                                     DISTINCT ON and a BEFORE UPDATE OR DELETE
+#                                     trigger, so a Postgres-compatible host is
+#                                     required — SQLite is not an option)
+#   Render     the FastAPI app + websocket
+#   Vercel     the built frontend
+#
+# Two things about the free tier you should know before you rely on it:
+#
+#   * Render free services **sleep after ~15 minutes of inactivity**. The
+#     console degrades correctly — it falls back to REST and the sidebar says
+#     "Reconnecting" — but the first request after a pause takes ~30s. Keep
+#     the service awake for a walkthrough, or demo locally.
+#   * OpenSearch and Neo4j are **not deployed**. Neither is on the live path:
+#     search falls back to Postgres and the graph uses the in-process store.
+#     Leave the optional adapters unset; Administration reports them as
+#     "unavailable", which is advisory rather than an outage.
+#
+# Local equivalent:
+#
+#   make infra-up && make migrate
+#   uv run python scripts/seed_demo_data.py --reset
+#   uv run uvicorn aegis.api.app:app --host 0.0.0.0 --port 8000
+#   cd apps/frontend && npm run dev
+
+services:
+  - type: web
+    name: aegis-api
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: pip install uv && uv sync --frozen
+    startCommand: >
+      uv run alembic upgrade head &&
+      uv run uvicorn aegis.api.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    # Uvicorn's default timeout is 30s, which Render's router will not wait
+    # past for a WebSocket upgrade. The socket polls every 2s, so a 100s
+    # timeout is generous without holding a dead connection open.
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12
+      # Neon, Supabase, or any other host. SSL is required in production:
+      # the audit chain and the session tokens both travel over this link.
+      - key: AEGIS_DATABASE_URL
+        sync: false
+      - key: AEGIS_ENVIRONMENT
+        value: production
+      # Sessions are 15 minutes by default. A long session on a shared screen
+      # is a risk, and the sign-in throttle is per-process so it resets on
+      # every deploy.
+      - key: AEGIS_AUTH_SESSION_TTL_S
+        value: 1800
+      - key: AEGIS_ENABLE_API_KEY_AUTH
+        value: "false"
+      - key: AEGIS_APP_NAME
+        value: AEGIS Intelligence
+      # The console is served from Vercel and calls this API on Render, so
+      # every request is cross-origin. Explicit origins only: credentials plus
+      # a wildcard is the combination that would make this unsafe, and the
+      # middleware rejects it anyway.
+      - key: AEGIS_CORS_ORIGINS
+        value: https://aegis-console.vercel.app
+      # Uncomment to pin the analyst account's password rather than letting it
+      # come from AEGIS_AUTH_PASSWORD.
+      # - key: AEGIS_AUTH_EMAIL
+      #   value: analyst@aegis-intelligence.com
+      # - key: AEGIS_AUTH_PASSWORD
+      #   sync: false
+      # Optional adapters. Unset in production; the platform reports them as
+      # unavailable rather than failing.
+      # - key: AEGIS_OPENSEARCH_URL
+      #   value: ""
