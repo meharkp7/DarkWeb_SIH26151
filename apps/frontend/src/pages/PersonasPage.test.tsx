@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -403,8 +403,25 @@ describe('PersonasPage', () => {
 
     // And the server's own refusal, when it is asked, is shown rather than
     // swallowed — "could not be analysed" must not look like "found nothing".
-    await userEvent.type(within(dialog).getByPlaceholderText(/Posts already attributed/), 'lorem '.repeat(150));
-    await userEvent.type(within(dialog).getByPlaceholderText(/Posts collected from the candidate/), 'ipsum '.repeat(150));
+    //
+    // Set the long samples with `fireEvent.change`, not 1800 keystrokes.
+    // `userEvent.type` re-renders the component per character, and this
+    // dialog sits inside a 629-line page, so `'lorem '.repeat(150)` on each
+    // side is 1800 full re-renders to express one fact: the field holds at
+    // least 120 words. It cost 2.8s on a laptop and 5.0s on a 2-vCPU Linux
+    // runner, which is 8ms over vitest's 5s default — green locally, red on
+    // CI, and indistinguishable from a real regression in the log.
+    //
+    // `fireEvent.change` is also the more honest simulation: nobody types 150
+    // words, they paste them. The short realistic typing above stays on
+    // `userEvent`, because per-keystroke behaviour is what that part is
+    // testing.
+    fireEvent.change(within(dialog).getByPlaceholderText(/Posts already attributed/), {
+      target: { value: 'lorem '.repeat(150) },
+    });
+    fireEvent.change(within(dialog).getByPlaceholderText(/Posts collected from the candidate/), {
+      target: { value: 'ipsum '.repeat(150) },
+    });
     await userEvent.click(within(dialog).getByRole('button', { name: 'Propose linkage' }));
     expect(await within(dialog).findByText(/no score was computed/)).toBeInTheDocument();
   });

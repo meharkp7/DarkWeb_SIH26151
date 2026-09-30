@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { EvidenceForm } from './EvidenceForm';
@@ -7,6 +7,37 @@ import { installFetch, jsonResponse } from '../test/mockFetch';
 const CASE_ID = 'case_00000000000000000000000000000001';
 const EVIDENCE_ID = 'ev_00000000000000000000000000000001';
 const SHA256 = 'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0';
+
+/**
+ * Fill the form with a complete, valid record.
+ *
+ * `fireEvent.change` rather than `userEvent.type`, and the reason is cost.
+ * These are request-shape tests, and the six fields total ~163 characters.
+ * `userEvent.type` re-renders the form on every keystroke and awaits a
+ * `setTimeout(0)` between them, so the same assertion cost 633ms in
+ * isolation and then timed out at vitest's 5s default under the full suite on
+ * a 2-vCPU Linux runner — failing about two runs in three, and only on CI.
+ * Being first in the file's order, it was also the test that paid for
+ * everyone else's headroom.
+ *
+ * `change` fires the same handler a real edit does, so the value still has to
+ * travel through the form's state to reach the POST body — which is the
+ * entire point of these tests. Per-keystroke behaviour is not what is under
+ * test, so simulating it bought nothing except the flake.
+ */
+async function fillEveryField(): Promise<void> {
+  const fields: ReadonlyArray<readonly [RegExp, string]> = [
+    [/Source ID/, 'src_00000000000000000000000000000001'],
+    [/Raw artifact URI/, 's3://aegis/evidence/item.json'],
+    [/SHA-256/, SHA256],
+    [/Collector name/, 'synthetic'],
+    [/Collector version/, '0.1.0'],
+    [/Independence group/, 'platform:forum_alpha'],
+  ];
+  for (const [label, value] of fields) {
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  }
+}
 
 /**
  * Regression guard for the historic `case_id` bug: the form used to build its
@@ -40,12 +71,7 @@ describe('EvidenceForm', () => {
     const onCreated = vi.fn();
 
     render(<EvidenceForm caseId={CASE_ID} onCreated={onCreated} />);
-    await user.type(screen.getByLabelText(/Source ID/), 'src_00000000000000000000000000000001');
-    await user.type(screen.getByLabelText(/Raw artifact URI/), 's3://aegis/evidence/item.json');
-    await user.type(screen.getByLabelText(/SHA-256/), SHA256);
-    await user.type(screen.getByLabelText(/Collector name/), 'synthetic');
-    await user.type(screen.getByLabelText(/Collector version/), '0.1.0');
-    await user.type(screen.getByLabelText(/Independence group/), 'platform:forum_alpha');
+    await fillEveryField();
 
     await user.click(screen.getByRole('button', { name: 'Create evidence' }));
 
@@ -72,12 +98,7 @@ describe('EvidenceForm', () => {
     render(<EvidenceForm caseId={null} onCreated={vi.fn()} />);
     expect(screen.queryByText(/Attaching to case/)).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/Source ID/), 'src_00000000000000000000000000000001');
-    await user.type(screen.getByLabelText(/Raw artifact URI/), 's3://aegis/evidence/item.json');
-    await user.type(screen.getByLabelText(/SHA-256/), SHA256);
-    await user.type(screen.getByLabelText(/Collector name/), 'synthetic');
-    await user.type(screen.getByLabelText(/Collector version/), '0.1.0');
-    await user.type(screen.getByLabelText(/Independence group/), 'platform:forum_alpha');
+    await fillEveryField();
 
     await user.click(screen.getByRole('button', { name: 'Create evidence' }));
     await screen.findByRole('status');
@@ -97,12 +118,7 @@ describe('EvidenceForm', () => {
     );
 
     render(<EvidenceForm onCreated={vi.fn()} />);
-    await user.type(screen.getByLabelText(/Source ID/), 'src_00000000000000000000000000000001');
-    await user.type(screen.getByLabelText(/Raw artifact URI/), 's3://aegis/evidence/item.json');
-    await user.type(screen.getByLabelText(/SHA-256/), SHA256);
-    await user.type(screen.getByLabelText(/Collector name/), 'synthetic');
-    await user.type(screen.getByLabelText(/Collector version/), '0.1.0');
-    await user.type(screen.getByLabelText(/Independence group/), 'platform:forum_alpha');
+    await fillEveryField();
 
     await user.click(screen.getByRole('button', { name: 'Create evidence' }));
 
