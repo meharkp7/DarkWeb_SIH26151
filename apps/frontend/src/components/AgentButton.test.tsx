@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AgentButton } from './AgentButton';
 import { agentSuggestions, setAgentContext } from './agent-context';
@@ -135,6 +135,48 @@ describe('AgentButton', () => {
 
     expect(await screen.findByText(/Findings:/)).toBeInTheDocument();
     expect(screen.queryByText(/prompt-injection indicator/)).not.toBeInTheDocument();
+  });
+
+  it('renders the generated report as a document, not as answer prose', async () => {
+    // `generate_report` used to appear in the tool breadcrumb with nothing
+    // behind it, so the console showed a tool that had not run.
+    setAgentContext({ place: 'Command Center' });
+    stubCopilot(
+      copilotResponse({
+        tools_run: ['search_evidence', 'generate_report'],
+        report: {
+          title: 'create a report',
+          sections: [
+            { heading: 'Evidence retrieved', claims: ['A claim'] },
+            { heading: 'Timeline', claims: ['A handle appeared', 'Another handle appeared'] },
+          ],
+          evidence_ids: ['e1', 'e2'],
+          generated_by: 'aegis.copilot',
+        },
+      }),
+    );
+
+    render(<AgentButton />);
+    await userEvent.click(screen.getByRole('button', { name: /Ask the AEGIS Agent/ }));
+    await userEvent.click(screen.getByRole('button', { name: /What changed recently\?/ }));
+
+    const report = await screen.findByRole('region', { name: 'Report' });
+    expect(within(report).getByText('Evidence retrieved')).toBeInTheDocument();
+    expect(within(report).getByText('A handle appeared')).toBeInTheDocument();
+    // The section headings are what make it a brief rather than a list.
+    expect(within(report).getByText('Timeline')).toBeInTheDocument();
+  });
+
+  it('renders no report block when nothing was validated', async () => {
+    setAgentContext({ place: 'Command Center' });
+    stubCopilot(copilotResponse({ report: null }));
+
+    render(<AgentButton />);
+    await userEvent.click(screen.getByRole('button', { name: /Ask the AEGIS Agent/ }));
+    await userEvent.click(screen.getByRole('button', { name: /What changed recently\?/ }));
+
+    expect(await screen.findByText(/Findings:/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Report' })).not.toBeInTheDocument();
   });
 
   it('does not announce a stage the request has not reached', async () => {
