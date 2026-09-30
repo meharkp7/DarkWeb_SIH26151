@@ -62,3 +62,9 @@ class CopilotQueryResponse(BaseModel):
     dropped_claims: list[dict[str, object]]
     text: str
     report: CopilotReport | None = None
+    #: Which engine answered, when the configured one was not available.
+    #: Empty when the configured adapter served the question, because a
+    #: working index is not news. The deployment does not run OpenSearch, so
+    #: this is the normal case there and the analyst is entitled to know that
+    #: "the top 10" means the top 10 of a bounded window.
+    search: str = ""

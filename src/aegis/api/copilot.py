@@ -1,7 +1,12 @@
 """Analyst Copilot API boundary."""
 
+from __future__ import annotations
+
+import logging
+import time
 from dataclasses import replace
 from typing import Annotated, cast
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -15,6 +20,7 @@ from aegis.copilot.context import (
     load_hypotheses,
     load_timeline,
 )
+from aegis.copilot.postgres_search import PostgresEvidenceSearch
 from aegis.copilot.service import run_copilot
 from aegis.copilot.tools import CopilotToolContext
 from aegis.copilot.types import Report, ValidatedClaim
@@ -25,6 +31,8 @@ from aegis.schemas.copilot import (
 )
 from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
 
@@ -37,6 +45,17 @@ router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
 #: and 20 is still several times a human reading rate.
 _QUERY_LIMITER = RequestRateLimiter(limit=20, window_seconds=60.0)
 _copilot_guard = request_guard(_QUERY_LIMITER, max_bytes=65_536)
+
+#: Cached OpenSearch reachability. ``None`` means "not probed yet".
+#:
+#: The deployment does not run OpenSearch at all, so without this every copilot
+#: question would pay a refused connection before falling back — turning a
+#: missing optional adapter into a per-request stall. The TTL exists so a
+#: cluster that is started later is picked up rather than ignored for the life
+#: of the process.
+_PROBE_TTL_S = 30.0
+_opensearch_available: bool | None = None
+_opensearch_checked_at: float = 0.0
 
 
 def get_copilot_context(
@@ -54,6 +73,15 @@ def get_copilot_context(
     An unscoped request therefore gets search only, which is the honest
     capability set: a platform-wide graph over a large deployment is tens of
     thousands of nodes, and a two-hop expansion of it is not an answer.
+
+    The engine itself is a *lazy fallback*. The adapter is constructed
+    unconditionally and is the preferred path, but OpenSearch is optional
+    and absent unless someone ran `docker compose up`. When it is, the
+    default route — the one every plain question takes — returned nothing at
+    all, which is what left the agent looking broken in the default
+    deployment while its tests passed against a stubbed engine. The handler
+    swaps in a PostgreSQL-backed engine when the adapter reports itself
+    unavailable, and the response says which one answered.
     """
     username = settings.opensearch_username
     password = settings.opensearch_password
@@ -101,6 +129,60 @@ def _report_dict(report: Report | None) -> dict[str, object] | None:
     }
 
 
+def _use_postgres_fallback(
+    context: CopilotToolContext, db: Session, case_id: UUID | None
+) -> tuple[CopilotToolContext, str]:
+    """Swap in the PostgreSQL engine when OpenSearch is not there.
+
+    Returns the context to use and a short note for the response. The note is
+    empty when the configured adapter answered, because a working index is not
+    news.
+
+    A *probe* rather than a `try` around the query. Wrapping the query would
+    also catch a genuine query rejection — a malformed query, a filter the
+    index refuses — and silently re-run it against different data, which turns
+    a bug in the adapter into a quiet difference in the answer. Probing
+    separates "there is no cluster" from "the cluster did not like this".
+
+    The probe result is memoised for the process, because a question arriving
+    on a box with no OpenSearch should not pay a connection timeout every
+    time. A short TTL keeps a cluster that comes back from being ignored for
+    the life of the process.
+    """
+    global _opensearch_available, _opensearch_checked_at
+    if _opensearch_available is None or time.monotonic() - _opensearch_checked_at > _PROBE_TTL_S:
+        _opensearch_available = _probe_opensearch(context.search)
+        _opensearch_checked_at = time.monotonic()
+
+    if _opensearch_available:
+        return context, ""
+
+    fallback = replace(context, search=PostgresEvidenceSearch(db, case_id=case_id))
+    scope = "this investigation" if case_id is not None else "the platform"
+    return fallback, (
+        f"Searched with PostgreSQL: the OpenSearch adapter is not reachable, so "
+        f"results cover the most recent records in {scope}."
+    )
+
+
+def _probe_opensearch(engine: object) -> bool:
+    """Whether the configured search engine can actually answer.
+
+    The adapter raises `SearchError` for both a missing package and a refused
+    connection, which are the two cases the deployment says to expect.
+    """
+    if not isinstance(engine, OpenSearchAdapter):
+        # Anything injected rather than configured — a test double, or a
+        # caller that supplied its own engine. Leave it alone.
+        return True
+    try:
+        engine.client.cluster.health()
+    except Exception as error:  # noqa: BLE001 - any failure means "unavailable"
+        logger.info("OpenSearch unavailable; the copilot will search PostgreSQL: %s", error)
+        return False
+    return True
+
+
 @router.post("/query", response_model=CopilotQueryResponse)
 def copilot_query(
     payload: CopilotQueryRequest,
@@ -122,7 +204,17 @@ def copilot_query(
             timeline=load_timeline(db, case_id=payload.case_id),
             hypotheses=load_hypotheses(db, case_id=payload.case_id),
             leading_assessment=lead.assessment_id if lead is not None else None,
+            case_id=payload.case_id,
         )
+
+    # The engine swap happens last, once the case is known, because the
+    # fallback is scoped to it. A probe is used rather than a bare try: the
+    # adapter reports a transport failure as a `SearchError`, and catching
+    # that around the *query* would also swallow a genuine query rejection,
+    # which is a different thing and should not silently change engines.
+    engine_note = ""
+    context, engine_note = _use_postgres_fallback(context, db, payload.case_id)
+
     answer = run_copilot(payload.question, context, limit=payload.limit)
 
     return CopilotQueryResponse(
@@ -137,5 +229,6 @@ def copilot_query(
         unsupported_claims=[_claim_dict(entry) for entry in answer.validation.unsupported],
         dropped_claims=[_claim_dict(entry) for entry in answer.validation.dropped],
         text=answer.text,
+        search=engine_note,
         report=cast("CopilotReport | None", _report_dict(answer.report)),
     )
