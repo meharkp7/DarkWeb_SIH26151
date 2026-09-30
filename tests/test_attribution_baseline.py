@@ -74,6 +74,13 @@ def test_logistic_requires_both_classes_and_is_deterministic() -> None:
 
 
 def test_xgboost_requires_both_classes() -> None:
+    # The guard below is inside the baseline's own `fit`, so without xgboost
+    # this test asserted the wrong exception: it failed on the missing
+    # dependency before ever reaching the class-balance check it is about.
+    # xgboost is in the `ml` extra, which the integration job does not
+    # install; the `backend` job does, so this runs there.
+    pytest.importorskip("xgboost", reason="XgboostAttributionBaseline needs the `ml` extra")
+
     model = XgboostAttributionBaseline(estimators=5)
     with pytest.raises(ValueError, match="both positive and negative"):
         model.fit([AttributionExample("only-negative", _signals(), 0)])
@@ -87,6 +94,8 @@ def test_xgboost_dmatrix_constrains_its_own_openmp_team(monkeypatch: pytest.Monk
     allocated by the other runtime and segfaults. params["nthread"] throttles
     the booster only, so DMatrix needs its own nthread.
     """
+    pytest.importorskip("xgboost", reason="the OpenMP guard is an xgboost behaviour")
+
     import xgboost
 
     recorded: list[object] = []

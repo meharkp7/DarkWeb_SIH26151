@@ -522,6 +522,8 @@ def test_logistic_regression_separates_and_is_deterministic() -> None:
 
 
 def test_xgboost_separates_and_is_deterministic() -> None:
+    pytest.importorskip("xgboost", reason="XgboostBaseline needs the `ml` extra")
+
     pairs = _separable_pairs()
     first, second = XgboostBaseline(), XgboostBaseline()
     first.fit(pairs)
@@ -542,7 +544,6 @@ def test_xgboost_separates_and_is_deterministic() -> None:
 
 def test_xgboost_dmatrix_constrains_its_own_openmp_team(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the invariant that stops the full suite dying with SIGSEGV.
-
     torch and xgboost wheels each ship their own LLVM libomp under different
     install names, so dyld loads both and an OpenMP team xgboost forks reads a
     kmp_info allocated by the other runtime. Setting ``params["nthread"]`` is
@@ -551,6 +552,8 @@ def test_xgboost_dmatrix_constrains_its_own_openmp_team(monkeypatch: pytest.Monk
     is the only way to guard this, because a regression segfaults the process
     instead of failing an assertion.
     """
+    pytest.importorskip("xgboost", reason="the OpenMP guard is an xgboost behaviour")
+
     import xgboost
 
     recorded: list[object] = []
@@ -625,7 +628,18 @@ def test_build_interaction_graph_structure() -> None:
 
 @pytest.fixture(scope="module")
 def frozen_report() -> ResolutionReport:
-    """One default-corpus run, shared by the report-consuming tests."""
+    """One default-corpus run, shared by the report-consuming tests.
+
+    `evaluate_baselines` always fits `XgboostBaseline` — it is one of the five
+    baselines the report is *about*, and a report that silently omitted one
+    because the dependency was missing would be a different report. So this
+    fixture genuinely requires xgboost, and the four tests consuming it skip
+    without it rather than comparing against a reduced baseline set.
+
+    Skipping here rather than at each use site: the four are a package around
+    one expensive run, and the requirement belongs to the run.
+    """
+    pytest.importorskip("xgboost", reason="the default baseline report includes xgboost")
     return evaluate_baselines()
 
 
@@ -719,6 +733,8 @@ def test_exclude_handle_features_ablation(frozen_report: ResolutionReport) -> No
 
 
 def test_evaluate_baselines_deterministic_on_small_corpus() -> None:
+    pytest.importorskip("xgboost", reason="the default baseline set includes xgboost")
+
     corpus = SyntheticCorpusBuilder(seed=99, actor_count=30, post_count=300).build()
     first = evaluate_baselines(corpus)
     second = evaluate_baselines(corpus)

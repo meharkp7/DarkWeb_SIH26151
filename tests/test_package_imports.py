@@ -86,11 +86,19 @@ def test_the_numeric_gnn_core_imports_without_torch() -> None:
 def test_the_torch_backed_exports_still_resolve_when_torch_is_present() -> None:
     """Laziness must not change the public surface.
 
-    Every name in `__all__` has to be importable exactly as before. A lazy
+    Every name in `__all__` has to be importable exactly as before.     A lazy
     `__getattr__` that missed an export would turn a working import into an
     `AttributeError` at first use — much harder to trace than an import
     error, and invisible to a test that only touches the numpy side.
+
+    Skipped without torch, which is the point: this is the one test here
+    that needs the `ml` extra. The `backend` job installs it so this runs;
+    the integration job does not, so it must skip rather than fail. Without
+    the guard it traded one collection error in that job for a test failure
+    — the same mistake, one layer down.
     """
+    pytest.importorskip("torch", reason="torch-backed exports need the `ml` extra")
+
     import aegis.gnn
 
     for name in aegis.gnn.__all__:
@@ -148,7 +156,12 @@ def test_the_export_map_has_no_stale_entries() -> None:
     The map is data, so nothing checks it for you. An entry naming a symbol
     that was renamed would otherwise surface as an `AttributeError` from
     inside the library rather than as a test failure here.
+
+    Needs torch, because resolving an entry means importing the module that
+    defines it. Skipped without the `ml` extra, as above.
     """
+    pytest.importorskip("torch", reason="verifying the export map imports the torch modules")
+
     import importlib
 
     import aegis.gnn
