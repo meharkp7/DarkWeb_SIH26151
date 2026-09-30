@@ -720,14 +720,22 @@ def test_build_body_filter_only_uses_match_all() -> None:
 
 
 def test_build_body_hybrid_adds_fuzzy_should_clause() -> None:
+    """Hybrid: a fuzzy clause alongside the lexical one, each boosted.
+
+    The boost lives *inside* each clause. This test used to read
+    `lexical["boost"]` at the top level of the clause, which asserted the
+    malformed form as though it were the contract — so it passed while every
+    hybrid query was rejected by the cluster. See
+    `test_hybrid_boosts_live_inside_their_clause`.
+    """
     body = build_search_body(SearchQuery(text="alpha beta", retrieval_mode=RetrievalMode.HYBRID))
 
     hybrid = body["query"]["bool"]["must"][0]["bool"]
     assert hybrid["minimum_should_match"] == 1
     lexical, fuzzy = hybrid["should"]
-    assert lexical["boost"] == pytest.approx(0.7)
+    assert lexical["multi_match"]["boost"] == pytest.approx(0.7)
     assert fuzzy["multi_match"]["fuzziness"] == "AUTO"
-    assert fuzzy["boost"] == pytest.approx(0.3)
+    assert fuzzy["multi_match"]["boost"] == pytest.approx(0.3)
 
 
 def test_build_body_rejects_tokenless_text() -> None:
@@ -914,3 +922,108 @@ def test_opensearchpy_not_imported_at_module_import() -> None:
     # Constructing the adapter (without touching .client) stays import-free.
     OpenSearchAdapter(hosts="http://localhost:9200")
     assert "opensearchpy" not in sys.modules
+
+
+def test_hybrid_boosts_live_inside_their_clause() -> None:
+    """`boost` is a field of a clause, not a sibling of one.
+
+    ``{"multi_match": {...}, "boost": 0.7}`` is not valid OpenSearch DSL. The
+    cluster rejects the entire request::
+
+        [multi_match] malformed query, expected [END_OBJECT] but found [FIELD_NAME]
+
+    which the adapter surfaced as a `SearchError` and the copilot degraded
+    straight past — so hybrid retrieval never ran a single query against a
+    perfectly healthy index. Every evidence search returned nothing while the
+    cluster reported 325 matching documents.
+
+    Hybrid is the *default* retrieval mode, and no test had ever built a
+    hybrid body: every other body test uses the default `LEXICAL` mode, which
+    takes a different branch and was never wrong.
+    """
+    body = build_search_body(
+        SearchQuery(text="alpha beta", retrieval_mode=RetrievalMode.HYBRID)
+    )
+
+    should = body["query"]["bool"]["must"][0]["bool"]["should"]
+    assert len(should) == 2
+    for clause in should:
+        # A sibling `boost` is the bug: exactly one key, and that key is the
+        # query type.
+        assert len(clause) == 1, f"boost must not be a sibling: {clause}"
+        (query_type, inner) = next(iter(clause.items()))
+        assert query_type == "multi_match"
+        assert "boost" in inner, f"boost must be inside the clause: {clause}"
+
+    # Both halves present, and the weights are the ones the constants define.
+    boosts = {next(iter(c.values()))["boost"] for c in should}
+    assert boosts == {0.7, 0.3}
+    # And the semantic half is still the fuzzy one.
+    assert any(next(iter(c.values())).get("fuzziness") == "AUTO" for c in should)
+
+
+def test_hybrid_is_rejected_by_a_live_cluster_only_if_boost_is_sibling() -> None:
+    """The DSL shape, asserted the way a parser sees it.
+
+    `test_hybrid_boosts_live_inside_their_clause` checks the structure. This
+    pins the *reason*: `boost` is not a member of a query object, so its
+    presence at the top level of a clause is what a strict parser rejects.
+    """
+    body = build_search_body(
+        SearchQuery(text="alpha", retrieval_mode=RetrievalMode.HYBRID)
+    )
+    for clause in body["query"]["bool"]["must"][0]["bool"]["should"]:
+        for key in clause:
+            assert key != "boost"
+
+
+def test_case_filter_targets_the_keyword_subfield() -> None:
+    """A `terms` clause needs `keyword`; against `text` it silently matches nothing.
+
+    `fields.case_id` is mapped as `text`, so the standard analyzer splits a
+    UUID into tokens and a `terms` lookup of the whole value never matches.
+    Measured against the live index: 450 documents for
+    `fields.case_id.keyword`, 0 for `fields.case_id`. The failure mode is the
+    dangerous one — the filter reads as "this investigation has no evidence".
+    """
+    filters = build_search_body(
+        SearchQuery(text="alpha", case_ids=("case-1", "case-2"))
+    )["query"]["bool"]["filter"]
+
+    assert {"terms": {"fields.case_id.keyword": ["case-1", "case-2"]}} in filters
+
+
+def test_a_case_filter_narrows_the_in_process_engine_too() -> None:
+    """Both engines must agree, or the copilot differs by deployment.
+
+    The OpenSearch adapter and the in-process engine are interchangeable
+    behind one protocol, and the deployment docs promise a Postgres-backed
+    fallback. A filter that works on one and silently returns the whole corpus
+    on the other would make the same question answer differently depending on
+    which adapter happens to be up.
+    """
+    engine = InProcessSearchEngine()
+    for case in ("case-a", "case-b", "case-c"):
+        engine.index(
+            IndexedDocument(
+                index=IndexName.EVIDENCE,
+                doc_id=case,
+                fields={"case_id": case, "collector": "alpha"},
+            )
+        )
+    # Unfiled evidence carries no case and must not appear in a case-scoped
+    # answer: it belongs to no investigation.
+    engine.index(
+        IndexedDocument(
+            index=IndexName.EVIDENCE,
+            doc_id="unfiled",
+            fields={"case_id": "", "collector": "alpha"},
+        )
+    )
+
+    hits = engine.search(SearchQuery(text="alpha", case_ids=("case-a",), limit=10))
+
+    assert [h.document.doc_id for h in hits.hits] == ["case-a"]
+
+    everything = engine.search(SearchQuery(text="alpha", limit=10))
+    assert len(everything.hits) == 4, "an unscoped search must still see every record"

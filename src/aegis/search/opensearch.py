@@ -115,6 +115,14 @@ def _filter_clauses(query: SearchQuery) -> list[dict[str, Any]]:
         clauses.append({"terms": {"source": list(query.sources)}})
     if query.entity_ids:
         clauses.append({"terms": {"entity_ids": list(query.entity_ids)}})
+    if query.case_ids:
+        # `.keyword` is load-bearing, and getting it wrong fails *silently*.
+        # `fields.case_id` is mapped as `text`, so a `terms` clause against it
+        # compares against analysed tokens; a UUID is split by the standard
+        # analyzer and nothing ever matches, so the filter reads as "this case
+        # has no evidence" rather than as an error. Measured against the live
+        # index: 450 documents with `fields.case_id.keyword`, 0 without it.
+        clauses.append({"terms": {"fields.case_id.keyword": list(query.case_ids)}})
     return clauses
 
 
@@ -145,6 +153,31 @@ def _lexical_clause(query: SearchQuery, text_fields: Sequence[str]) -> dict[str,
     }
 
 
+def _boosted(clause: dict[str, Any], boost: float) -> dict[str, Any]:
+    """Put ``boost`` *inside* a query clause.
+
+    ``{"multi_match": {...}, "boost": 0.7}`` is not valid OpenSearch DSL:
+    ``boost`` is a field of the clause, not a sibling of it. The cluster
+    rejects the whole request with::
+
+        [multi_match] malformed query, expected [END_OBJECT] but found [FIELD_NAME]
+
+    which the adapter reported as a ``SearchError`` and the copilot degraded
+    past — so a hybrid search never ran a single query. The failure is silent
+    in the worst way: not an error anyone sees, just a search that always
+    returns nothing while the index is healthy and fully populated.
+
+    Merging into the clause body works for every shape ``_lexical_clause``
+    returns, because each is a single-key dict.
+    """
+    if len(clause) != 1:
+        raise ValueError(f"expected a single-key query clause, got {sorted(clause)}")
+    ((name, body),) = clause.items()
+    if not isinstance(body, dict):
+        raise ValueError(f"query clause {name!r} must carry an object body")
+    return {name: {**body, "boost": boost}}
+
+
 def build_search_body(
     query: SearchQuery, *, text_fields: Sequence[str] = DEFAULT_TEXT_FIELDS
 ) -> dict[str, Any]:
@@ -171,8 +204,8 @@ def build_search_body(
             core = {
                 "bool": {
                     "should": [
-                        {**core, "boost": _HYBRID_LEXICAL_BOOST},
-                        {**fuzzy, "boost": _HYBRID_SEMANTIC_BOOST},
+                        _boosted(core, _HYBRID_LEXICAL_BOOST),
+                        _boosted(fuzzy, _HYBRID_SEMANTIC_BOOST),
                     ],
                     "minimum_should_match": 1,
                 }
