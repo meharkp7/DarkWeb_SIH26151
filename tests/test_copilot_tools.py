@@ -140,3 +140,61 @@ def test_compare_hypotheses_is_deterministic() -> None:
 def test_missing_dependencies_fail_closed() -> None:
     with pytest.raises(RuntimeError):
         get_actor(CopilotToolContext(), "actor")
+
+
+def test_every_tool_produces_a_readable_summary_and_a_data_region() -> None:
+    """No tool may fall back to the positional template or an empty data region.
+
+    `_pack` has a default summary of ``"<tool> returned <Type> record <id>"`` and
+    an empty ``data_text`` when a tool passes neither ``describe`` nor
+    ``render``. `search_evidence` and `get_timeline` — the two tools the default
+    and timeline routes actually use — did exactly that, so the most common
+    answers in the product were a list of uuids with no content beside them.
+    Nothing caught it because the pack was structurally valid.
+
+    This asserts the property for the tools that need no database, which is
+    where the regression is cheapest to reintroduce.
+    """
+    events = (
+        TimelineEvent(
+            "ev-1",
+            "actor-1",
+            TimelineEventKind.HANDLE,
+            datetime(2026, 1, 2, tzinfo=UTC),
+            "handle-b appeared on a new forum",
+            ("e1",),
+        ),
+    )
+    packs = {
+        "get_timeline": get_timeline(CopilotToolContext(timeline=events), "actor-1"),
+        "compare_hypotheses": compare_hypotheses(
+            CopilotToolContext(
+                hypotheses=(
+                    Hypothesis(
+                        case_id=uuid4(),
+                        hypothesis_id=uuid4(),
+                        kind=HypothesisKind.SAME_ACTOR,
+                        subject_entity_id=uuid4(),
+                        object_entity_id=uuid4(),
+                        links=(
+                            HypothesisEvidenceLink(
+                                evidence_id=uuid4(),
+                                role=EvidenceRole.SUPPORTING,
+                                modality="handle",
+                                independence_group="source-a",
+                            ),
+                        ),
+                    ),
+                )
+            ),
+            (),
+        ),
+    }
+
+    for tool, pack in packs.items():
+        assert pack.items, f"{tool} returned nothing to describe"
+        for item in pack.items:
+            assert " returned " not in item.summary, f"{tool} fell back to the template"
+            assert item.summary.strip() != "", f"{tool} produced an empty summary"
+            assert item.data_text.strip() != "", f"{tool} produced an empty data region"
+            assert " object at 0x" not in item.data_text, f"{tool} leaked a Python repr"

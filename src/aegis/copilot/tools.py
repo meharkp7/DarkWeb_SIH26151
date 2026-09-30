@@ -124,6 +124,20 @@ def _render(record: object) -> str:
     )
 
 
+def _first_str(record: object, attributes: tuple[str, ...]) -> str | None:
+    """The first non-empty string among `attributes`, trimmed.
+
+    Search hits and timeline events both carry the same information under
+    different names depending on which producer wrote them, and an empty string
+    is a value that must not win over a real one further down the list.
+    """
+    for name in attributes:
+        value = getattr(record, name, None)
+        if isinstance(value, str) and value.strip() != "":
+            return value.strip()
+    return None
+
+
 def _cite_by(*attributes: str) -> Callable[[object], Sequence[str]]:
     """Cite a record by its own identity, not by its position in the pack.
 
@@ -175,10 +189,43 @@ def search_evidence(
     for hit in result.hits:
         evidence_ids.append(str(hit.document.doc_id))
 
+    def describe(hit: object) -> str:
+        """Name the evidence record in the analyst's vocabulary.
+
+        Without this the default route — the one a plain question takes —
+        produced "search_evidence returned SearchHit record <uuid>" and an
+        empty data region, which is what made the agent look broken. The whole
+        answer body was a list of those lines.
+        """
+        document = getattr(hit, "document", None)
+        title = _first_str(document, ("title", "name", "subject", "summary"))
+        if title is not None:
+            return f"{title} — {getattr(hit, 'source_type', 'evidence')}"
+        return f"Evidence record {getattr(document, 'doc_id', '?')}"
+
+    def render(hit: object) -> str:
+        document = getattr(hit, "document", None)
+        lines = [
+            f"doc_id={getattr(document, 'doc_id', '?')}",
+            f"source_type={getattr(document, 'source_type', '?')}",
+            f"collected_at={getattr(document, 'collected_at', '?')}",
+        ]
+        body = _first_str(document, ("summary", "body", "text", "content"))
+        if body is not None:
+            lines.append(f"content={body}")
+        # The score is the retrieval engine's own ranking, not a recorded
+        # confidence, so it is labelled as one of the two.
+        score = getattr(hit, "score", None)
+        if score is not None:
+            lines.append(f"relevance={score}")
+        return "\n".join(lines)
+
     return _pack(
         tool=ToolName.SEARCH_EVIDENCE,
         items=result.hits,
         evidence_ids=evidence_ids,
+        describe=describe,
+        render=render,
         explanation=f"Retrieved {len(result.hits)} evidence records.",
     )
 
@@ -258,10 +305,36 @@ def get_timeline(
 
     evidence_ids = [evidence_id for event in events for evidence_id in event.evidence_ids]
 
+    def describe(event: object) -> str:
+        """Name the event and when it happened.
+
+        The previous fallback printed "get_timeline returned TimelineEvent
+        record <uuid>" with an empty data region, so the timeline — one of the
+        agent's own suggested questions — answered in a form no one could read.
+        """
+        kind = getattr(event, "kind", "activity")
+        when = getattr(event, "observed_at", None)
+        detail = _first_str(event, ("summary", "description", "detail", "label"))
+        head = f"{kind} at {when}" if when is not None else str(kind)
+        return f"{head} — {detail}" if detail is not None else head
+
+    def render(event: object) -> str:
+        return "\n".join(
+            f"{key}={value}"
+            for key, value in vars(event).items()
+            if not key.startswith("_") and isinstance(value, (str, int, float, bool, type(None)))
+        )
+
     return _pack(
         tool=ToolName.GET_TIMELINE,
         items=events,
         evidence_ids=evidence_ids,
+        describe=describe,
+        render=render,
+        # No `cite`: a timeline entry is asserted *about* its evidence, and
+        # the pack's ids are what claim validation checks citations against.
+        # Citing the event's own id would make every timeline claim look
+        # uncited.
         explanation=f"Returned {len(events)} timeline events for {subject_id}.",
     )
 
