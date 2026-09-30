@@ -40,6 +40,15 @@ from aegis.infrastructure.correlate import correlate_all
 from aegis.infrastructure.extract import extract_features, extract_observation
 from aegis.infrastructure.types import CorrelationThresholds, SimilarityBreakdown
 
+#: Every test in this module writes observations, findings and matches, so
+#: every one of them needs PostgreSQL. Without this marker the `backend` job —
+#: which deliberately runs no service container — collects them, fails to open
+#: a session in the fixture, and errors 19 times. `pytest_runtest_setup` reads
+#: this before any fixture is instantiated, so the skip happens first and
+#: `AEGIS_REQUIRE_DB=1` in the `integration` job still turns the absence into
+#: a failure rather than a silently reduced run.
+pytestmark = pytest.mark.integration
+
 NOW = datetime.now(UTC)
 WINDOW_START = NOW - timedelta(days=6)
 WINDOW_END = NOW - timedelta(days=1)

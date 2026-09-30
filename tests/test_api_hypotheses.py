@@ -16,6 +16,13 @@ from fastapi.testclient import TestClient
 from aegis.api.app import app
 from aegis.db.session import SessionLocal
 
+#: Both workflows are read-modify-write against seeded cases, so the whole
+#: module needs PostgreSQL. See the note in `test_api_infrastructure.py` for
+#: why the marker has to be module-level rather than a guard inside each test:
+#: the module-scoped `seeded_case` fixture opens a session before any test
+#: body could reach its own `db_available` check.
+pytestmark = pytest.mark.integration
+
 
 def _client() -> TestClient:
     return TestClient(app)
