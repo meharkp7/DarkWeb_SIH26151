@@ -1,26 +1,11 @@
 # AEGIS --- Attribution & Evidence Graph Intelligence
 
-```{=html}
-<p align="center">
-```
-`<strong>`{=html}Provenance-aware · Temporal · Multimodal ·
-Evidence-first Intelligence`</strong>`{=html}`<br/>`{=html}
-`<sub>`{=html}Models produce hypotheses. Evidence supports claims.
-Analysts make findings.`</sub>`{=html}
-```{=html}
-</p>
-```
-```{=html}
-<p align="center">
-```
 [![CI](https://github.com/meharkp7/DarkWeb_SIH26151/actions/workflows/ci.yml/badge.svg)](https://github.com/meharkp7/DarkWeb_SIH26151/actions/workflows/ci.yml)
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/System%20of%20Record-PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![React](https://img.shields.io/badge/Console-React-61DAFB?logo=react&logoColor=111827)](https://react.dev/)
 [![Synthetic](https://img.shields.io/badge/Data-Synthetic%20Only-7C3AED)](#scope-and-safety)
-```{=html}
-</p>
-```
+
 > **Live Demo:** https://dark-web-sih-26151.vercel.app/
 
 > **Demo credentials**\
