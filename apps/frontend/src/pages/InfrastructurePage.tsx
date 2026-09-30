@@ -118,8 +118,10 @@ export function InfrastructurePage(): JSX.Element {
   const untilParam = until === '' ? undefined : `${until}T23:59:59Z`;
 
   // `view` is the workspace's own union, which this page is not part of, so
-  // only the place is published.
-  usePublishAgentContext({ place: `Infrastructure · ${tab}` });
+  // only the place is published. The place is the shell's own section label
+  // with the tab appended, so the agent's suggestion table — which is keyed on
+  // those labels — still matches on the section prefix.
+  usePublishAgentContext({ place: `Infrastructure · ${tab}`, caseId: caseId === '' ? undefined : caseId });
 
   const filters = useMemo(
     () => ({
@@ -184,13 +186,24 @@ export function InfrastructurePage(): JSX.Element {
       ).toString(),
     [filters],
   );
+  // Every URL on this page goes through `apiUrl`, never a literal `/api/v1/…`.
+  // The console is served from Vercel while the API runs on Render, so a
+  // same-origin literal resolves against the static host and 404s — the route
+  // exists, the request just never reaches it. `apiUrl` is the single place
+  // the base is decided, so a literal here is a production-only outage.
   const summary = useApi<InfraSummary>(
-    `/api/v1/infrastructure/summary${summaryQuery === '' ? '' : `?${summaryQuery}`}`,
+    apiUrl(`/v1/infrastructure/summary${summaryQuery === '' ? '' : `?${summaryQuery}`}`),
   );
 
-  const findings = useApi<InfraFinding[]>(`/api/v1/infrastructure/findings${findingQuery === '' ? '' : `?${findingQuery}`}`);
-  const matches = useApi<InfraMatch[]>(`/api/v1/infrastructure/matches${matchQuery === '' ? '' : `?${matchQuery}`}`);
-  const observations = useApi<InfraObservation[]>(`/api/v1/infrastructure/observations${observationQuery === '' ? '' : `?${observationQuery}`}`);
+  const findings = useApi<InfraFinding[]>(
+    apiUrl(`/v1/infrastructure/findings${findingQuery === '' ? '' : `?${findingQuery}`}`),
+  );
+  const matches = useApi<InfraMatch[]>(
+    apiUrl(`/v1/infrastructure/matches${matchQuery === '' ? '' : `?${matchQuery}`}`),
+  );
+  const observations = useApi<InfraObservation[]>(
+    apiUrl(`/v1/infrastructure/observations${observationQuery === '' ? '' : `?${observationQuery}`}`),
+  );
 
   // Only the active tab's data is rendered, but the counts on the other tabs
   // come from the summary so the tab strip is not a guess.
@@ -347,7 +360,7 @@ export function InfrastructurePage(): JSX.Element {
           <EmptyState
             title="No summary returned"
             message="The summary endpoint returned nothing for these filters."
-            endpoint="/api/v1/infrastructure/summary"
+            endpoint={apiUrl('/v1/infrastructure/summary')}
           />
         ) : (
           <>
@@ -461,7 +474,7 @@ export function InfrastructurePage(): JSX.Element {
             <EmptyState
               title="No misconfigurations in this window"
               message="Nothing was filed for these filters. A narrow timeline excludes records that exist outside it; an empty result is not a clean service."
-              endpoint="/api/v1/infrastructure/findings"
+              endpoint={apiUrl('/v1/infrastructure/findings')}
             />
           ) : (
             <FindingsTable
@@ -494,7 +507,7 @@ export function InfrastructurePage(): JSX.Element {
             <EmptyState
               title="No candidate origin servers in this window"
               message="No stored observation pair cleared the thresholds the last run was scored under. That is an absence of matches, not an absence of shared infrastructure."
-              endpoint="/api/v1/infrastructure/matches"
+              endpoint={apiUrl('/v1/infrastructure/matches')}
             />
           ) : (
             <MatchesTable
@@ -527,7 +540,7 @@ export function InfrastructurePage(): JSX.Element {
             <EmptyState
               title="No observations in this window"
               message="Nothing was recorded for these filters. The timeline above may be narrower than the data."
-              endpoint="/api/v1/infrastructure/observations"
+              endpoint={apiUrl('/v1/infrastructure/observations')}
             />
           ) : (
             <ObservationsTable
