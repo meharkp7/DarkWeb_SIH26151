@@ -198,6 +198,29 @@ export function AgentButton() {
                   <span>{answer.evidence_ids.length} evidence references</span>
                   <span>{answer.claims.length} supported claims</span>
                 </div>
+                {/* `generate_report` used to appear in the tool breadcrumb
+                    above with nothing behind it. The brief is now real, and
+                    it is built only from the supported claims — so every line
+                    in it is a line the citation check passed. */}
+                {answer.report ? (
+                  <section className="agent-report" aria-label="Report">
+                    <h3>{answer.report.title}</h3>
+                    {answer.report.sections.map((section) => (
+                      <div key={section.heading}>
+                        <h4>{section.heading}</h4>
+                        <ul>
+                          {section.claims.map((text) => (
+                            <li key={text}>{text}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                    <small>
+                      {answer.report.sections.reduce((total, section) => total + section.claims.length, 0)} claims ·{' '}
+                      {answer.report.evidence_ids.length} cited records
+                    </small>
+                  </section>
+                ) : null}
               </div>
             )}
             <form

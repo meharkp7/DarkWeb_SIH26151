@@ -1394,3 +1394,14 @@
 .agent-answer__claims ul{margin:7px 0 0;padding-left:16px;color:var(--muted);line-height:1.6}
 .agent-answer__claims li{margin-bottom:6px}
 .agent-answer__claims small{display:block;color:var(--faint);font-size:8px;margin-top:2px}
+
+/* The generated brief. Rendered as a document rather than as answer prose so
+ * it is visually distinct from the chat reply — an analyst has to be able to
+ * tell at a glance which text is a finding they may act on and which is the
+ * agent talking about findings. */
+.agent-report{margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+.agent-report h3{font-size:11px;font-weight:600;margin:0 0 9px;color:var(--text)}
+.agent-report h4{font-size:8px;text-transform:uppercase;letter-spacing:.11em;color:var(--faint);margin:11px 0 5px}
+.agent-report ul{margin:0;padding-left:15px;color:#c2c7c4;font-size:10px;line-height:1.6}
+.agent-report li{margin-bottom:4px}
+.agent-report small{display:block;margin-top:11px;color:var(--faint);font-size:8px}

@@ -27,6 +27,25 @@ class CopilotQueryRequest(BaseModel):
     context: str | None = Field(default=None, max_length=500)
 
 
+class CopilotReportSection(BaseModel):
+    heading: str
+    claims: list[str]
+
+
+class CopilotReport(BaseModel):
+    """A brief assembled only from citation-validated claims.
+
+    ``None`` when nothing survived validation, which is a different state from
+    a report with no sections: the first means the question could not be
+    answered to a citable standard, the second would be a document.
+    """
+
+    title: str
+    sections: list[CopilotReportSection]
+    evidence_ids: list[str]
+    generated_by: str
+
+
 class CopilotQueryResponse(BaseModel):
     question: str
     #: Echoed so the console can show which screen an answer was produced for.
@@ -42,3 +61,4 @@ class CopilotQueryResponse(BaseModel):
     unsupported_claims: list[dict[str, object]]
     dropped_claims: list[dict[str, object]]
     text: str
+    report: CopilotReport | None = None

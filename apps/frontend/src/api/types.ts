@@ -181,6 +181,13 @@ export interface CopilotClaim {
   reason?: string | null;
 }
 
+export interface CopilotReport {
+  title: string;
+  sections: ReadonlyArray<{ heading: string; claims: string[] }>;
+  evidence_ids: string[];
+  generated_by: string;
+}
+
 export interface CopilotResponse {
   question: string;
   /** The screen the question was asked from, as the API received it. */
@@ -189,6 +196,12 @@ export interface CopilotResponse {
   flagged_evidence_ids: string[]; claims: CopilotClaim[];
   unsupported_claims: CopilotClaim[]; dropped_claims: CopilotClaim[];
   text: string;
+  /**
+   * A brief built only from citation-validated claims. `null` when nothing
+   * survived validation, which is a different state from a report with no
+   * sections — see the backend `CopilotReport` docstring.
+   */
+  report?: CopilotReport | null;
 }
 
 // ---------------------------------------------------------------------------
