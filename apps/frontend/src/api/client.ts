@@ -267,11 +267,16 @@ export const api = {
    * parameter would mean repeating it in two places and being able to
    * contradict one with the other.
    */
-  copilot: (question: string, limit = 10, caseId?: string) =>
+  copilot: (question: string, limit = 10, caseId?: string, context?: string) =>
     postJson<CopilotResponse>(apiUrl('/v1/copilot/query'), {
       question,
       limit,
       ...(caseId ? { case_id: caseId } : {}),
+      // `context` is a field, never concatenated onto `question`. The API
+      // routes on substrings, so appending "viewing assessment" to a question
+      // routed every question on that tab to the assessment tool with no
+      // subject, and made the grounding words into AND-ed search terms.
+      ...(context ? { context } : {}),
     }),
 
   // --- actor registry ------------------------------------------------------

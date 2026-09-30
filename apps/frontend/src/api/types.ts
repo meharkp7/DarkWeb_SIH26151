@@ -172,11 +172,22 @@ export interface CaseWorkspace {
 // Copilot
 // ---------------------------------------------------------------------------
 
+export interface CopilotClaim {
+  text: string;
+  citations: string[];
+  status: string;
+  /** Which tool produced the claim, and what was dropped, when it was. */
+  origin?: string;
+  reason?: string | null;
+}
+
 export interface CopilotResponse {
-  question: string; intent: string; rule: string; tools_run: string[]; evidence_ids: string[];
-  flagged_evidence_ids: string[]; claims: Array<{ text: string; citations: string[]; status: string }>;
-  unsupported_claims: Array<{ text: string; citations: string[]; status: string }>;
-  dropped_claims: Array<{ text: string; citations: string[]; status: string }>;
+  question: string;
+  /** The screen the question was asked from, as the API received it. */
+  context?: string | null;
+  intent: string; rule: string; tools_run: string[]; evidence_ids: string[];
+  flagged_evidence_ids: string[]; claims: CopilotClaim[];
+  unsupported_claims: CopilotClaim[]; dropped_claims: CopilotClaim[];
   text: string;
 }
 

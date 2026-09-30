@@ -54,20 +54,27 @@ function getSnapshot(): AgentContext {
 export function usePublishAgentContext(context: AgentContext | null): void {
   const place = context?.place;
   const view = context?.view;
+  // `caseId` is part of the published state, not decoration. Dropping it here
+  // means every case-scoped question is answered from an unscoped context, and
+  // the graph / hypothesis / timeline / assessment tools stay empty for the
+  // whole console — the feature works in tests and never works in use.
+  const caseId = context?.caseId;
   // Depend on the fields, not the object: call sites build a fresh literal
   // every render and an identity dep would thrash the store.
   useEffect(() => {
-    current = place ? { place, view } : DEFAULT_CONTEXT;
+    current = place ? { place, view, caseId } : DEFAULT_CONTEXT;
     emit();
     return () => {
       // Only clear if nothing else has claimed the context in the meantime;
-      // on a route change the next page's effect may already have run.
-      if (current.place === place && current.view === view) {
+      // on a route change the next page's effect may already have run. The
+      // guard compares `caseId` too, or navigating between two cases would
+      // leave the first case's id published on the second.
+      if (current.place === place && current.view === view && current.caseId === caseId) {
         current = DEFAULT_CONTEXT;
         emit();
       }
     };
-  }, [place, view]);
+  }, [place, view, caseId]);
 }
 
 export function useAgentContext(): AgentContext {
@@ -113,6 +120,15 @@ const VIEW_SUGGESTIONS: Record<WorkspaceView, readonly string[]> = {
   notes: ['Summarize the analyst notes', 'What is still unresolved?'],
 };
 
+/**
+ * Prompts worth asking from here, keyed by the section label the shell
+ * actually renders.
+ *
+ * `AppShell.sectionLabel` produces these strings, so the keys are the app's
+ * own vocabulary rather than a parallel list that drifts from it. Any section
+ * missing here falls through to the generic pair below, which is the exact
+ * "bolted-on copilot" failure this module exists to prevent.
+ */
 const SPACE_SUGGESTIONS: Record<string, readonly string[]> = {
   'Command Center': [
     'What changed recently?',
@@ -124,6 +140,26 @@ const SPACE_SUGGESTIONS: Record<string, readonly string[]> = {
     'Show me the most overdue investigation',
     'Why is the top case prioritised?',
   ],
+  Actors: [
+    'Which actor is most active?',
+    'What evidence links to this actor?',
+    'Which actors are still uncorroborated?',
+  ],
+  Infrastructure: [
+    'Which hidden services are exposed?',
+    'Which correlation rests on a single channel?',
+    'What does this misconfiguration not prove?',
+  ],
+  'Persona Linkage': [
+    'Which persona link is weakest?',
+    'Why is this linkage rejected?',
+    'Which personas share writing style?',
+  ],
+  Collection: [
+    'Which collection run failed?',
+    'What sources are configured?',
+    'What is the collection status?',
+  ],
   'Threat Watch': ['What should I care about?', 'Show the newest critical alerts'],
   Reports: ['What reports exist for the last week?', 'Summarize the latest assessment'],
   Administration: [
@@ -132,9 +168,26 @@ const SPACE_SUGGESTIONS: Record<string, readonly string[]> = {
   ],
 };
 
+const GENERIC_SUGGESTIONS: readonly string[] = [
+  'What changed recently?',
+  'Show me the latest activity',
+];
+
 export function agentSuggestions(context: AgentContext): readonly string[] {
-  if (context.view) return VIEW_SUGGESTIONS[context.view];
-  return SPACE_SUGGESTIONS[context.place] ?? ['What changed recently?', 'Show me the latest activity'];
+  if (context.view !== undefined) return VIEW_SUGGESTIONS[context.view] ?? GENERIC_SUGGESTIONS;
+  const direct = SPACE_SUGGESTIONS[context.place];
+  if (direct !== undefined) return direct;
+  // Pages publish a qualified place — `Infrastructure · findings`,
+  // `Threat Watch · alerts` — so a whole-section fallback is tried before the
+  // generic pair. An exact-match-only table meant five of the seven top-level
+  // destinations silently got the generic prompts, which is the bolted-on
+  // feeling this module exists to remove.
+  const label = Object.keys(SPACE_SUGGESTIONS).find(
+    (section) => context.place === section || context.place.startsWith(`${section} ·`),
+  );
+  // `label` is a key that came from this table, so the lookup cannot miss;
+  // the fallback is only for the impossible case, and keeps the return typed.
+  return (label !== undefined ? SPACE_SUGGESTIONS[label] : undefined) ?? GENERIC_SUGGESTIONS;
 }
 
 /** The one-line grounding note appended to every question sent to the API. */

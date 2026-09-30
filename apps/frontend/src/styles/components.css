@@ -1382,3 +1382,15 @@
 }
 
 .auth-notice[id] { scroll-margin-top: 12px; }
+
+/* Copilot containment disclosure.
+ * The injection screen runs on every answer; this is where its verdict reaches
+ * the analyst. A quarantined citation the analyst cannot see is indistinguishable
+ * from one that was never checked. */
+.agent-answer__warn{margin:9px 0 0;padding:8px 10px;border:1px solid rgba(228,184,109,.34);border-radius:7px;background:rgba(228,184,109,.06);color:var(--amber);font-size:9px;line-height:1.55}
+.agent-answer__claims{margin:9px 0 0;font-size:9px}
+.agent-answer__claims summary{cursor:pointer;color:var(--muted);text-transform:uppercase;letter-spacing:.09em;padding:4px 0}
+.agent-answer__claims summary:hover{color:var(--text)}
+.agent-answer__claims ul{margin:7px 0 0;padding-left:16px;color:var(--muted);line-height:1.6}
+.agent-answer__claims li{margin-bottom:6px}
+.agent-answer__claims small{display:block;color:var(--faint);font-size:8px;margin-top:2px}
