@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -22,6 +22,7 @@ from aegis.schemas.hypothesis import (
     HypothesisKind,
 )
 from aegis.search import IndexedDocument, InProcessSearchEngine
+from aegis.search.types import IndexName
 from aegis.timeline.types import TimelineEvent, TimelineEventKind
 
 
@@ -230,3 +231,53 @@ def _seeded_search() -> InProcessSearchEngine:
     search = InProcessSearchEngine()
     search.index(IndexedDocument.from_evidence(Evidence.example()))
     return search
+
+
+def test_a_search_is_scoped_to_the_case_the_question_was_asked_from() -> None:
+    """A case-scoped question must not be answered from other investigations.
+
+    `search_evidence` had no case filter at all, so "What changed in this
+    investigation?" returned the ten most relevant records platform-wide.
+    Nothing in the answer reveals it: the claims are real, the citations
+    resolve, and the evidence belongs to a different case.
+    """
+    engine = InProcessSearchEngine()
+    wanted = "11111111-1111-1111-1111-111111111111"
+    for doc_id, case in (
+        ("in-case-a", wanted),
+        ("in-case-b", wanted),
+        ("elsewhere-a", "22222222-2222-2222-2222-222222222222"),
+        ("elsewhere-b", "33333333-3333-3333-3333-333333333333"),
+    ):
+        engine.index(
+            IndexedDocument(
+                index=IndexName.EVIDENCE,
+                doc_id=doc_id,
+                fields={"case_id": case, "collector": "forum"},
+            )
+        )
+
+    pack = search_evidence(
+        CopilotToolContext(search=engine, case_id=UUID(wanted)),
+        "forum",
+    )
+
+    assert {item.item_id for item in pack.items} == {"in-case-a", "in-case-b"}
+
+
+def test_an_unscoped_question_still_searches_everywhere() -> None:
+    """No case in context means the platform-wide question, not a broken one."""
+    engine = InProcessSearchEngine()
+    for doc_id, case in (
+        ("a", "11111111-1111-1111-1111-111111111111"),
+        ("b", "22222222-2222-2222-2222-222222222222"),
+    ):
+        engine.index(
+            IndexedDocument(
+                index=IndexName.EVIDENCE, doc_id=doc_id, fields={"case_id": case, "collector": "x"}
+            )
+        )
+
+    pack = search_evidence(CopilotToolContext(search=engine), "x")
+
+    assert {item.item_id for item in pack.items} == {"a", "b"}

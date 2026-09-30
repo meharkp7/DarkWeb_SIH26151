@@ -40,6 +40,15 @@ class CopilotToolContext:
     #: the case; the tool itself must not reach for "the newest" and start
     #: answering about a different investigation's assessment.
     leading_assessment: UUID | None = None
+    #: The investigation this question is scoped to.
+    #:
+    #: Carried explicitly because the copilot otherwise has no way to say
+    #: "this investigation": `search_evidence` had no case filter at all, so
+    #: "What changed in this investigation?" returned the ten most relevant
+    #: records platform-wide — confidently, and from other cases. An analyst
+    #: cannot tell that from the answer, which is why the scope travels with
+    #: the context instead of being inferred at the tool.
+    case_id: UUID | None = None
 
 
 def _pack(
@@ -201,6 +210,10 @@ def search_evidence(
             since=since,
             until=until,
             entity_ids=tuple(entity_ids),
+            # Scoped to the investigation the analyst is looking at. Absent
+            # when the question was platform-wide, in which case searching
+            # everything is the correct behaviour rather than a gap.
+            case_ids=(str(ctx.case_id),) if ctx.case_id is not None else (),
             match_mode=MatchMode.TERMS,
             retrieval_mode=RetrievalMode.HYBRID,
         )

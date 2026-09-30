@@ -312,6 +312,17 @@ class SearchQuery:
     until: datetime | None = None
     sources: tuple[str, ...] = ()
     entity_ids: tuple[str, ...] = ()
+    #: Restrict to these investigations.
+    #:
+    #: Separate from ``entity_ids`` on purpose. An entity filter asks "which
+    #: artefacts mention this thing", which crosses case boundaries by
+    #: design — that is how an analyst finds an artefact they did not know was
+    #: filed elsewhere. A case filter asks "what happened *here*", and
+    #: answering that with another investigation's records is not a weaker
+    #: answer, it is a different one. The copilot needed the distinction: it
+    #: had no way to say "this investigation", so "What changed in this
+    #: investigation?" returned records from all of them.
+    case_ids: tuple[str, ...] = ()
     limit: int = 20
 
     def __post_init__(self) -> None:
@@ -330,7 +341,7 @@ class SearchQuery:
             "retrieval_mode",
             _coerce_enum(RetrievalMode, self.retrieval_mode, error_cls=InvalidQueryError),
         )
-        for name in ("sources", "entity_ids"):
+        for name in ("sources", "entity_ids", "case_ids"):
             value = getattr(self, name)
             if isinstance(value, str):
                 raise InvalidQueryError(f"{name} must be a sequence of ids, not a bare string")

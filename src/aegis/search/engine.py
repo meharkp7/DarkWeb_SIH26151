@@ -265,13 +265,21 @@ def _passes_filters(
     until: datetime | None,
     sources: frozenset[str],
     entity_ids: frozenset[str],
+    case_ids: frozenset[str] = frozenset(),
 ) -> bool:
-    """Time / source / entity filtering.
+    """Time / source / entity / case filtering.
 
     A document without a timestamp fails any time filter (mirroring how
     a missing field fails an OpenSearch ``range`` clause); source and
     entity filters are any-of intersections and exclude documents that
     carry no such anchor.
+
+    The case filter reads ``fields['case_id']`` for the same reason the
+    OpenSearch clause does: the indexer stores the case inside the text
+    fields, not as a document attribute. A document with no case is
+    unfiled evidence, and a case-scoped question must not silently include
+    it — an analyst asking "what changed here" is asking about an
+    investigation, and unfiled records belong to none.
     """
     timestamp = document.timestamp
     if since is not None and (timestamp is None or timestamp < since):
@@ -282,6 +290,10 @@ def _passes_filters(
         return False
     if entity_ids and not entity_ids & document.entity_ids:
         return False
+    if case_ids:
+        case = document.fields.get("case_id", "")
+        if case == "" or case not in case_ids:
+            return False
     return True
 
 
@@ -475,6 +487,7 @@ class InProcessSearchEngine:
         since, until = query.since, query.until
         sources = frozenset(query.sources)
         entity_filter = frozenset(query.entity_ids)
+        case_filter = frozenset(query.case_ids)
         query_norm = " ".join(tokens)
         query_ngrams = (
             character_ngrams(query.text, _NGRAM_SIZE) if hybrid and tokens else frozenset()
@@ -486,7 +499,9 @@ class InProcessSearchEngine:
         prepared: list[_Prepared] = []
         for doc_id in candidate_ids:
             entry = entries[doc_id]
-            if not _passes_filters(entry.document, since, until, sources, entity_filter):
+            if not _passes_filters(
+                entry.document, since, until, sources, entity_filter, case_filter
+            ):
                 continue
             if not tokens:
                 prepared.append(_Prepared(entry, 0.0, 0.0, 0.0, (), ()))
