@@ -6,11 +6,17 @@
 [![React](https://img.shields.io/badge/Console-React-61DAFB?logo=react&logoColor=111827)](https://react.dev/)
 [![Synthetic](https://img.shields.io/badge/Data-Synthetic%20Only-7C3AED)](#scope-and-safety)
 
-> **Live Demo:** https://dark-web-sih-26151.vercel.app/
+## 🚀 Live Demo
 
-> **Demo credentials**\
-> **Email:** `analyst@aegis-intelligence.com`\
-> **Password:** `AEGIS-Demo-2026!`
+🌐 **Deployed Application:**  
+[AEGIS Intelligence Platform](https://dark-web-sih-26151.vercel.app/)
+
+🎥 **Project Demo Video:**  
+[Watch the AEGIS Demo on YouTube](https://youtu.be/zx267CJqbnk?si=EdbjV1FUs4HIAmRr)
+
+🔐 **Demo Credentials**
+- **Email:** `analyst@aegis-intelligence.com`
+- **Password:** `AEGIS-Demo-2026!`
 
 > **Scope:** synthetic-only. AEGIS generates and evaluates against
 > controlled synthetic data. It does not collect from, or operate
@@ -1255,12 +1261,14 @@ flowchart TB
 
 ------------------------------------------------------------------------
 
-```{=html}
+## 👤 Project Lead
+
+**Mehar Kapoor**  
+B.Tech — Electronics & Communication Engineering (AI)  
+Indira Gandhi Delhi Technical University for Women (IGDTUW)
+
+**AEGIS — Attribution & Evidence Graph Intelligence System**
+
 <p align="center">
-```
-`<strong>`{=html}AEGIS`</strong>`{=html}`<br/>`{=html}
-`<sub>`{=html}Evidence first. Relationships in context. Analysts in
-control.`</sub>`{=html}
-```{=html}
+  Built with an evidence-first approach for responsible intelligence research.
 </p>
-```
