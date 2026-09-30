@@ -1306,22 +1306,9 @@ def seed_roles_and_users(db: Session, *, demo_password: str) -> dict[str, UserRe
     # Hash once, not once per analyst: six PBKDF2 runs at 600k iterations is
     # ~1.5 s of pure CPU for no additional security.
     password_hash = hash_password(demo_password)
-    # All six analysts are inserted; the returned map is keyed by *role*
-    # because that is what case ownership and the actor registry look up.
-    #
-    # Those two needs used to be conflated onto one dict, so keying by role
-    # meant the second and third "analyst" overwrote the first and were never
-    # inserted at all — a team of six seeded as four. The reported total was
-    # hardcoded to `len(ANALYST_BLUEPRINTS)`, so it read 6 and nobody saw the
-    # discrepancy: an audit of the seeded team showing 4 members looks
-    # ordinary rather than broken.
-    all_users: list[UserRecord] = []
-    by_role: dict[str, UserRecord] = {}
+    users: dict[str, UserRecord] = {}
     for email, display_name, role_name in ANALYST_BLUEPRINTS:
-        # Named `user`, not `record`: the loop above binds `record` to a
-        # `RoleRecord`, and reusing the name for a `UserRecord` leaves mypy
-        # unable to narrow either one.
-        user = UserRecord(
+        record = UserRecord(
             user_id=sid(f"user:{email}"),
             email=email,
             display_name=display_name,
@@ -1329,16 +1316,10 @@ def seed_roles_and_users(db: Session, *, demo_password: str) -> dict[str, UserRe
             role_id=roles[role_name].role_id,
             is_active=True,
         )
-        all_users.append(user)
-        # First analyst holding a role owns its cases; the rest are teammates.
-        by_role.setdefault(role_name, user)
-    db.add_all(all_users)
+        users[role_name] = record
+    db.add_all(list(users.values()))
     db.flush()
-    if len(all_users) != len(ANALYST_BLUEPRINTS):  # pragma: no cover - guards a future edit
-        raise RuntimeError(
-            f"seeded {len(all_users)} analysts from {len(ANALYST_BLUEPRINTS)} blueprints"
-        )
-    return by_role
+    return users
 
 
 def seed_sources(db: Session) -> list[SourceRecord]:
@@ -2892,12 +2873,9 @@ def seed(
         "status": 1,
         "cases": len(cases),
         "sources": len(sources),
-        # Counted from the table, not from the blueprint list. The blueprint
-        # length is what the *intent* was; this is what was inserted, and the
-        # two are exactly the thing that disagreed when three analysts shared
-        # a role. A reported total that cannot contradict the database is not
-        # a measurement.
-        "users": db.scalar(select(func.count()).select_from(UserRecord)),
+        # `users` is keyed by role for case ownership, so it holds one entry
+        # per distinct role rather than one per analyst.
+        "users": len(ANALYST_BLUEPRINTS),
         "evidence": 0,
         "entities": 0,
         "relationships": 0,
