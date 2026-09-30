@@ -1,12 +1,13 @@
 """Analyst Copilot API boundary."""
 
+from dataclasses import replace
 from typing import Annotated
-from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from aegis.api.deps import get_db
+from aegis.api.security import RequestRateLimiter, request_guard
 from aegis.copilot.context import (
     assessment_service,
     build_graph,
@@ -22,44 +23,43 @@ from aegis.settings import settings
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
 
+#: Copilot questions are the most expensive read in the console — a scoped one
+#: builds a graph — so they are paced like a write even though they change
+#: nothing. Without a bound, one analyst holding ⌘J can serialise the API.
+#:
+#: Tighter than the application default of 120/minute: an analyst asking the
+#: agent questions in a burst is doing something the platform should slow down,
+#: and 20 is still several times a human reading rate.
+_QUERY_LIMITER = RequestRateLimiter(limit=20, window_seconds=60.0)
+_copilot_guard = request_guard(_QUERY_LIMITER, max_bytes=65_536)
+
 
 def get_copilot_context(
-    case_id: Annotated[UUID | None, Query()] = None,
-    db: Annotated[Session, Depends(get_db)] = None,  # type: ignore[assignment]
+    db: Annotated[Session, Depends(get_db)],
 ) -> CopilotToolContext:
-    """Build the copilot's tool context from the live database.
+    """Build the copilot's search dependency from configuration.
 
-    The graph, assessment, timeline and hypothesis adapters used to be left
-    unset here, so every tool except search answered "not available" and the
-    agent's suggested questions — compare the hypotheses, trace this actor —
-    were promised and unanswerable.
+    The graph, assessment, timeline and hypothesis adapters are *not* built
+    here. They are the expensive part — up to 2 000 entities and 4 000
+    relationships per case — and they can only be scoped once the case is
+    known, which is in the request body rather than in a dependency. Loading
+    them for every request and then loading them *again* when a case is
+    supplied is the difference between a responsive agent and a stalled one.
 
-    The graph build is the expensive part, so it is only performed for a
-    case-scoped request. A platform-wide graph over a large deployment is tens
-    of thousands of nodes, and a two-hop expansion of a graph that took a
-    minute to load is not an answer.
+    An unscoped request therefore gets search only, which is the honest
+    capability set: a platform-wide graph over a large deployment is tens of
+    thousands of nodes, and a two-hop expansion of it is not an answer.
     """
     username = settings.opensearch_username
     password = settings.opensearch_password
     auth = (username, password) if username is not None and password is not None else None
 
-    search = OpenSearchAdapter(
-        settings.opensearch_url,
-        index_prefix=settings.opensearch_index_prefix,
-        http_auth=auth,
-    )
-    if case_id is None:
-        # Unscoped: the agent can search and quote, but the graph, timeline
-        # and hypothesis tools have nothing to narrow to and are left unset
-        # rather than filled with every row in the platform.
-        return CopilotToolContext(search=search)
-
     return CopilotToolContext(
-        search=search,
-        graph=build_graph(db, case_id=case_id),
-        assessments=assessment_service(db),
-        timeline=load_timeline(db, case_id=case_id),
-        hypotheses=load_hypotheses(db, case_id=case_id),
+        search=OpenSearchAdapter(
+            settings.opensearch_url,
+            index_prefix=settings.opensearch_index_prefix,
+            http_auth=auth,
+        )
     )
 
 
@@ -79,13 +79,16 @@ def copilot_query(
     payload: CopilotQueryRequest,
     context: Annotated[CopilotToolContext, Depends(get_copilot_context)],
     db: Annotated[Session, Depends(get_db)],
+    guard: Annotated[None, Depends(_copilot_guard)],
 ) -> CopilotQueryResponse:
-    # The body carries the case, because that is where the analyst's context
-    # already is. A query parameter would mean the client has to repeat the
-    # scope in two places and be able to contradict itself between them.
+    del guard  # the dependency *is* the rate limit and body-size cap
+    # The body is the only place the case is named. A `?case_id=` query
+    # parameter used to exist alongside it, which meant two scope channels
+    # that could disagree — the graph was built for one and the tool call used
+    # the other, and the second silently won.
     if payload.case_id is not None:
-        context = CopilotToolContext(
-            search=context.search,
+        context = replace(
+            context,
             graph=build_graph(db, case_id=payload.case_id),
             assessments=assessment_service(db),
             timeline=load_timeline(db, case_id=payload.case_id),
@@ -95,6 +98,7 @@ def copilot_query(
 
     return CopilotQueryResponse(
         question=answer.question,
+        context=payload.context,
         intent=answer.intent.intent.value,
         rule=answer.intent.rule,
         tools_run=[tool.value for tool in answer.tools_run],

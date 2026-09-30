@@ -15,10 +15,24 @@ class CopilotQueryRequest(BaseModel):
     #: answerable when it is set. Without it those tools return nothing rather
     #: than guessing an investigation.
     case_id: UUID | None = None
+    #: Which screen the analyst asked from, e.g. "Operation Nightfall —
+    #: viewing assessment".
+    #:
+    #: A *separate field*, never appended to `question`. The intent router
+    #: matches on substrings, so a grounding suffix naming the view leaked
+    #: "assessment" into every question typed on the assessment tab and
+    #: routed it to `get_assessment` with no subject; and every word of it
+    #: became an AND-ed search term. Grounding describes context, so it
+    #: travels as context and the question stays the analyst's own words.
+    context: str | None = Field(default=None, max_length=500)
 
 
 class CopilotQueryResponse(BaseModel):
     question: str
+    #: Echoed so the console can show which screen an answer was produced for.
+    #: Present on the response rather than only in the request so a copied
+    #: answer carries its own provenance.
+    context: str | None = None
     intent: str
     rule: str
     tools_run: list[str]

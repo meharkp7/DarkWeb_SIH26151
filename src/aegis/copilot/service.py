@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from uuid import UUID
 
 from aegis.copilot.intents import parse_intent
@@ -19,9 +19,6 @@ from aegis.copilot.tools import (
 )
 from aegis.copilot.types import Answer, EvidencePack, ParsedIntent, ToolName
 from aegis.search.types import SearchError
-
-logger = logging.getLogger(__name__)
-
 
 logger = logging.getLogger(__name__)
 
@@ -89,13 +86,26 @@ def _run_timeline(
     ctx: CopilotToolContext,
     intent: ParsedIntent,
 ) -> EvidencePack:
+    # `load_timeline` stamps every event with the *case* as its subject, so
+    # "how did this investigation evolve" — a question the console itself
+    # suggests, naming no id — used to match no subject and return an empty
+    # pack. Requiring the analyst to type `case:<uuid>` to reach a tool that
+    # has only ever been loaded with case data makes it unreachable. An
+    # explicit `actor:`/`hypothesis:` subject still wins, so a narrowed
+    # question is still narrowed.
     subject_id = (
         intent.query.subject("actor")
-        or intent.query.subject("case")
         or intent.query.subject("hypothesis")
+        or intent.query.subject("case")
     )
     if subject_id is None:
-        return EvidencePack()
+        subjects = {event.subject_id for event in ctx.timeline}
+        # A case-scoped context holds events for exactly one case, so a single
+        # distinct subject *is* the case. Returning nothing when there is no
+        # timeline at all is correct — that case has no citable events.
+        if len(subjects) != 1:
+            return EvidencePack()
+        subject_id = next(iter(subjects))
 
     return get_timeline(
         ctx,
@@ -144,7 +154,12 @@ def _run_hypotheses(
     return compare_hypotheses(ctx, hypothesis_ids)
 
 
-_RUNNERS: Mapping[ToolName, object] = {
+#: Every runner takes the same three arguments and returns a pack. Typing it
+#: as `object` forced a `type: ignore` at the single call site, which is what let
+#: a signature drift here go unnoticed until mypy ran in CI.
+_Runner = Callable[[CopilotToolContext, ParsedIntent], EvidencePack]
+
+_RUNNERS: Mapping[ToolName, _Runner] = {
     ToolName.SEARCH_EVIDENCE: _run_search,
     ToolName.QUERY_GRAPH: _run_graph,
     ToolName.GET_ACTOR: _run_actor,
@@ -152,6 +167,32 @@ _RUNNERS: Mapping[ToolName, object] = {
     ToolName.GET_ASSESSMENT: _run_assessment,
     ToolName.COMPARE_HYPOTHESES: _run_hypotheses,
 }
+
+
+def _run_safely(tool: ToolName, ctx: CopilotToolContext, intent: ParsedIntent) -> EvidencePack:
+    """Run one tool, degrading rather than failing.
+
+    Every optional adapter behind these tools can be absent or incomplete: the
+    graph is only built for a case-scoped request, so an unscoped "trace
+    actor:X" would raise `RuntimeError` and return HTTP 500 for a question the
+    analyst was entitled to ask. A `LookupError` from a hypothesis or assessment
+    id that does not exist is the same shape — a wrong id is a normal outcome,
+    not a server fault.
+
+    Both become an empty pack. The synthesis layer then says plainly that no
+    evidence-backed findings were retrieved, which is a checkable claim; a 500
+    is not an answer, and a fabricated one would be worse than either.
+    """
+    runner = _RUNNERS.get(tool)
+    if runner is None:
+        logger.warning("No copilot runner registered for %s; skipping it.", tool.value)
+        return EvidencePack()
+
+    try:
+        return runner(ctx, intent)
+    except (RuntimeError, LookupError) as error:
+        logger.info("Copilot tool %s unavailable, continuing without it: %s", tool.value, error)
+        return EvidencePack()
 
 
 def run_copilot(
@@ -169,12 +210,7 @@ def run_copilot(
         if tool is ToolName.GENERATE_REPORT:
             continue
 
-        runner = _RUNNERS.get(tool)
-        if runner is None:
-            raise ValueError(f"no copilot runner registered for {tool.value}")
-
-        # All registered runners share this concrete callable shape.
-        packs.append(runner(ctx, intent))  # type: ignore[operator]
+        packs.append(_run_safely(tool, ctx, intent))
 
     merged = []
     seen: set[str] = set()
