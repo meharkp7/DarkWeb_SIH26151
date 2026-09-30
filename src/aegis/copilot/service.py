@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from uuid import UUID
 
 from aegis.copilot.intents import parse_intent
+from aegis.copilot.report import build_report
 from aegis.copilot.synthesis import synthesize
 from aegis.copilot.tools import (
     CopilotToolContext,
@@ -124,12 +126,24 @@ def _run_assessment(
         or intent.query.subject("actor")
         or intent.query.subject("case")
     )
-    if subject is None:
-        return EvidencePack()
-
-    try:
-        assessment_id = UUID(subject)
-    except ValueError:
+    if subject is not None:
+        try:
+            assessment_id = UUID(subject)
+        except ValueError:
+            # A subject that is not an assessment id. An actor name is a real
+            # subject the analyst asked about, so answering about the case's
+            # *leading* assessment instead would silently answer a different
+            # question — the "what is X's confidence" shape is not yet a tool,
+            # and the honest answer is nothing rather than a near-miss.
+            return EvidencePack()
+    elif ctx.leading_assessment is not None:
+        # No subject at all, which is what "What evidence is driving this
+        # confidence?" looks like: it is the console's own suggestion for the
+        # assessment tab and names no id, so requiring one made the product's
+        # own prompt unanswerable while the case held twenty-eight
+        # assessments. The boundary supplies the case's *leading* one.
+        assessment_id = ctx.leading_assessment
+    else:
         return EvidencePack()
 
     return get_assessment(ctx, assessment_id)
@@ -208,6 +222,10 @@ def run_copilot(
 
     for tool in intent.tools:
         if tool is ToolName.GENERATE_REPORT:
+            # Not a retrieval step. It reads the answer that the other tools
+            # produced, so it runs after the merge rather than as one of them.
+            # Skipping it here unconditionally is what made the tool a name in
+            # `tools_run` with nothing behind it.
             continue
 
         packs.append(_run_safely(tool, ctx, intent))
@@ -222,8 +240,22 @@ def run_copilot(
             seen.add(item.item_id)
             merged.append(item)
 
-    return synthesize(
+    answer = synthesize(
         question,
         intent,
         EvidencePack(tuple(merged)),
     )
+
+    if ToolName.GENERATE_REPORT not in intent.tools:
+        return answer
+
+    # The report is assembled from the answer's *validated* claims, so it
+    # cannot contain a sentence citation checking rejected. `build_report`
+    # returns `None` when nothing survived validation, and a question that
+    # asked for a report gets an honest "there was nothing supported enough
+    # to report" rather than an empty document that looks like a finding.
+    report = build_report(answer)
+    if report is None:
+        logger.info("Report requested for %r but no claim survived validation.", question)
+        return answer
+    return replace(answer, report=report)

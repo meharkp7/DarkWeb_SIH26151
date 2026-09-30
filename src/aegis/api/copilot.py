@@ -1,7 +1,7 @@
 """Analyst Copilot API boundary."""
 
 from dataclasses import replace
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -11,13 +11,18 @@ from aegis.api.security import RequestRateLimiter, request_guard
 from aegis.copilot.context import (
     assessment_service,
     build_graph,
+    leading_assessment,
     load_hypotheses,
     load_timeline,
 )
 from aegis.copilot.service import run_copilot
 from aegis.copilot.tools import CopilotToolContext
-from aegis.copilot.types import ValidatedClaim
-from aegis.schemas.copilot import CopilotQueryRequest, CopilotQueryResponse
+from aegis.copilot.types import Report, ValidatedClaim
+from aegis.schemas.copilot import (
+    CopilotQueryRequest,
+    CopilotQueryResponse,
+    CopilotReport,
+)
 from aegis.search.opensearch import OpenSearchAdapter
 from aegis.settings import settings
 
@@ -74,6 +79,28 @@ def _claim_dict(entry: ValidatedClaim) -> dict[str, object]:
     }
 
 
+def _report_dict(report: Report | None) -> dict[str, object] | None:
+    """Serialise the report, keeping every claim with it.
+
+    The section model carries `Claim` objects; the wire shape carries the text
+    alone, because a claim in a report that cannot be traced back to evidence
+    is exactly the sentence this whole pipeline exists to prevent — so the
+    section's citations are already on the sibling `claims` field, and the
+    report's own `evidence_ids` names every record involved.
+    """
+    if report is None:
+        return None
+    return {
+        "title": report.title,
+        "sections": [
+            {"heading": section.heading, "claims": [claim.text for claim in section.claims]}
+            for section in report.sections
+        ],
+        "evidence_ids": list(report.evidence_ids),
+        "generated_by": report.generated_by,
+    }
+
+
 @router.post("/query", response_model=CopilotQueryResponse)
 def copilot_query(
     payload: CopilotQueryRequest,
@@ -87,12 +114,14 @@ def copilot_query(
     # that could disagree — the graph was built for one and the tool call used
     # the other, and the second silently won.
     if payload.case_id is not None:
+        lead = leading_assessment(db, payload.case_id)
         context = replace(
             context,
             graph=build_graph(db, case_id=payload.case_id),
             assessments=assessment_service(db),
             timeline=load_timeline(db, case_id=payload.case_id),
             hypotheses=load_hypotheses(db, case_id=payload.case_id),
+            leading_assessment=lead.assessment_id if lead is not None else None,
         )
     answer = run_copilot(payload.question, context, limit=payload.limit)
 
@@ -108,4 +137,5 @@ def copilot_query(
         unsupported_claims=[_claim_dict(entry) for entry in answer.validation.unsupported],
         dropped_claims=[_claim_dict(entry) for entry in answer.validation.dropped],
         text=answer.text,
+        report=cast("CopilotReport | None", _report_dict(answer.report)),
     )

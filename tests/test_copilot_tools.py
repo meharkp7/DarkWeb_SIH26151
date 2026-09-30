@@ -9,16 +9,19 @@ from aegis.copilot.tools import (
     get_actor,
     get_timeline,
     query_graph,
+    search_evidence,
 )
 from aegis.graph.schema import NodeLabel
 from aegis.graph.store import InMemoryGraphStore
 from aegis.ontology import EntityType, RelationshipType
+from aegis.schemas.evidence import Evidence
 from aegis.schemas.hypothesis import (
     EvidenceRole,
     Hypothesis,
     HypothesisEvidenceLink,
     HypothesisKind,
 )
+from aegis.search import IndexedDocument, InProcessSearchEngine
 from aegis.timeline.types import TimelineEvent, TimelineEventKind
 
 
@@ -166,6 +169,10 @@ def test_every_tool_produces_a_readable_summary_and_a_data_region() -> None:
         ),
     )
     packs = {
+        "search_evidence": search_evidence(
+            CopilotToolContext(search=_seeded_search()),
+            "shadowbroker",
+        ),
         "get_timeline": get_timeline(CopilotToolContext(timeline=events), "actor-1"),
         "compare_hypotheses": compare_hypotheses(
             CopilotToolContext(
@@ -198,3 +205,28 @@ def test_every_tool_produces_a_readable_summary_and_a_data_region() -> None:
             assert item.summary.strip() != "", f"{tool} produced an empty summary"
             assert item.data_text.strip() != "", f"{tool} produced an empty data region"
             assert " object at 0x" not in item.data_text, f"{tool} leaked a Python repr"
+
+
+def test_a_search_hit_is_described_by_its_content_not_its_id() -> None:
+    """The searchable text lives in ``document.fields``, not in attributes.
+
+    Reading it by attribute name finds nothing, so the description fell
+    through to the bare document id — technically non-empty, so it passed the
+    "no template" assertion, while telling the analyst nothing. A description
+    that names only a uuid is the same failure as the template it replaced.
+    """
+    pack = search_evidence(CopilotToolContext(search=_seeded_search()), "shadowbroker")
+
+    item = pack.items[0]
+    assert str(Evidence.example().evidence_id) not in item.summary
+    # The collector and the source type are what distinguish one record from
+    # another; both are in the index and both must reach the analyst.
+    assert "collector=synthetic" in item.data_text
+    assert "source_type=synthetic" in item.data_text
+    assert "collected_at=" in item.data_text
+
+
+def _seeded_search() -> InProcessSearchEngine:
+    search = InProcessSearchEngine()
+    search.index(IndexedDocument.from_evidence(Evidence.example()))
+    return search

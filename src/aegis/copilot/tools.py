@@ -6,7 +6,7 @@ graph, timeline, hypothesis and assessment objects remain authoritative.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -35,6 +35,11 @@ class CopilotToolContext:
     assessments: AttributionAssessmentPersistenceService | None = None
     timeline: Sequence[TimelineEvent] = ()
     hypotheses: Sequence[Hypothesis] = ()
+    #: The case's leading assessment, used when a question about confidence
+    #: names no id. Set by the boundary, which is the only layer that knows
+    #: the case; the tool itself must not reach for "the newest" and start
+    #: answering about a different investigation's assessment.
+    leading_assessment: UUID | None = None
 
 
 def _pack(
@@ -124,6 +129,22 @@ def _render(record: object) -> str:
     )
 
 
+def _field(fields: object, name: str) -> str | None:
+    """One non-empty value out of an index document's ``fields`` mapping.
+
+    The searchable text is held in ``fields`` (a mapping), not in attributes
+    on the document, so a `getattr` lookup by field name silently finds
+    nothing. An empty string is stored for absent optional values, so it has
+    to be treated as missing rather than rendered as `key=`.
+    """
+    if not isinstance(fields, Mapping):
+        return None
+    value = fields.get(name)
+    if isinstance(value, str) and value.strip() != "":
+        return value.strip()
+    return None
+
+
 def _first_str(record: object, attributes: tuple[str, ...]) -> str | None:
     """The first non-empty string among `attributes`, trimmed.
 
@@ -196,23 +217,36 @@ def search_evidence(
         produced "search_evidence returned SearchHit record <uuid>" and an
         empty data region, which is what made the agent look broken. The whole
         answer body was a list of those lines.
+
+        The searchable text lives in ``document.fields``, not in attributes on
+        the document, so a lookup by attribute name finds nothing and falls
+        through to the id. The evidence index stores ``collector`` and
+        ``source_type`` alongside the text, which is what actually
+        distinguishes one record from another on screen.
         """
         document = getattr(hit, "document", None)
-        title = _first_str(document, ("title", "name", "subject", "summary"))
-        if title is not None:
-            return f"{title} — {getattr(hit, 'source_type', 'evidence')}"
-        return f"Evidence record {getattr(document, 'doc_id', '?')}"
+        fields = getattr(document, "fields", None)
+        collector = _field(fields, "collector") or "evidence"
+        source_type = _field(fields, "source_type") or "unknown source"
+        when = getattr(document, "timestamp", None)
+        head = f"{collector} record via {source_type}"
+        if when is not None:
+            stamp = when.isoformat() if hasattr(when, "isoformat") else str(when)
+            return f"{head} at {stamp}"
+        return head
 
     def render(hit: object) -> str:
         document = getattr(hit, "document", None)
+        fields = getattr(document, "fields", None)
         lines = [
             f"doc_id={getattr(document, 'doc_id', '?')}",
-            f"source_type={getattr(document, 'source_type', '?')}",
-            f"collected_at={getattr(document, 'collected_at', '?')}",
+            f"source={getattr(document, 'source', '?')}",
+            f"collected_at={getattr(document, 'timestamp', '?')}",
         ]
-        body = _first_str(document, ("summary", "body", "text", "content"))
-        if body is not None:
-            lines.append(f"content={body}")
+        for key in ("collector", "source_type", "entity_type", "case_id", "artifact_uri"):
+            value = _field(fields, key)
+            if value is not None:
+                lines.append(f"{key}={value}")
         # The score is the retrieval engine's own ranking, not a recorded
         # confidence, so it is labelled as one of the two.
         score = getattr(hit, "score", None)

@@ -399,6 +399,42 @@ def case_names(db: Session, case_ids: set[UUID]) -> dict[UUID, str]:
     return {case_id: name for case_id, name in rows}
 
 
+def leading_assessment(db: Session, case_id: UUID) -> AssessmentRecord | None:
+    """The case's leading assessment, for a question that names no id.
+
+    "What evidence is driving this confidence?" is one of the console's own
+    suggestions, and it names no assessment id — which the tool required. So
+    the question the product offers for the assessment tab was the one
+    assessment question the copilot could not answer, and it answered
+    "No evidence-backed findings were retrieved", which reads as "this case
+    has no assessment" rather than "you did not give me an id".
+
+    Selecting the *leading* assessment is a claim, so it is the highest
+    calibrated confidence and nothing else. An assessment with no calibrated
+    confidence is not a candidate: the column is nullable precisely to
+    distinguish "scored and calibrated" from "scored by a model that was
+    never calibrated", and treating the latter as a lead would put an
+    uncalibrated number at the top of the answer.
+
+    Ties break on ``assessment_id`` so the same case always yields the same
+    answer. Without that, two assessments at the same confidence could
+    swap places between runs and the agent would cite a different record
+    for the same question.
+    """
+    return db.scalars(
+        select(AssessmentRecord)
+        .where(
+            AssessmentRecord.case_id == case_id,
+            AssessmentRecord.calibrated_confidence.is_not(None),
+        )
+        .order_by(
+            AssessmentRecord.calibrated_confidence.desc(),
+            AssessmentRecord.assessment_id,
+        )
+        .limit(1)
+    ).first()
+
+
 def leading_confidence(db: Session, case_ids: Sequence[UUID]) -> dict[UUID, float]:
     """Highest calibrated confidence per case, for the copilot's grounding."""
     if not case_ids:
